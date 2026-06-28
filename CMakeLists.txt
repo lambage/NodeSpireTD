@@ -12,6 +12,19 @@ include(FetchContent)
 # ============================================================
 # Vulkan – headers + loader (system install)
 # ============================================================
+
+# Ensure you have the official LunarG Vulkan SDK installed on your machine.
+# On Windows, provide an explicit SDK path fallback when env vars are missing.
+if(WIN32)
+    set(VULKAN_SDK_PATH "E:/VulkanSDK/1.4.350.0" CACHE PATH "Path to LunarG Vulkan SDK")
+    if(EXISTS "${VULKAN_SDK_PATH}/Include/vulkan/vulkan.h")
+        set(ENV{VULKAN_SDK} "${VULKAN_SDK_PATH}")
+        set(Vulkan_INCLUDE_DIR "${VULKAN_SDK_PATH}/Include")
+        set(Vulkan_LIBRARY "${VULKAN_SDK_PATH}/Lib/vulkan-1.lib")
+        list(PREPEND CMAKE_PREFIX_PATH "${VULKAN_SDK_PATH}")
+    endif()
+endif()
+
 find_package(Vulkan REQUIRED)
 
 # ============================================================
