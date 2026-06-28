@@ -1,0 +1,73 @@
+{
+  "tree_id"   : "archer_tower",
+  "tree_name" : "Archer Tower Talents",
+  "nodes": [
+    {
+      "id"          : 1,
+      "name"        : "Rapid Fire",
+      "description" : "Each rank increases attacks per second by 10%.",
+      "max_points"  : 3,
+      "point_cost"  : 1,
+      "pos_x"       : 50.0,
+      "pos_y"       : 80.0,
+      "modifiers": [
+        { "id": "rf_as", "stat": "attack_speed", "op": "additive", "value": 0.1 }
+      ]
+    },
+    {
+      "id"          : 2,
+      "name"        : "Eagle Eye",
+      "description" : "Increases attack range by 1 tile per rank.",
+      "max_points"  : 3,
+      "point_cost"  : 1,
+      "pos_x"       : 50.0,
+      "pos_y"       : 200.0,
+      "modifiers": [
+        { "id": "ee_range", "stat": "range", "op": "additive", "value": 1.0 }
+      ]
+    },
+    {
+      "id"          : 3,
+      "name"        : "Piercing Shot",
+      "description" : "Requires Rapid Fire Rank 1. Multiplies damage by 20% per rank.",
+      "max_points"  : 2,
+      "point_cost"  : 2,
+      "pos_x"       : 250.0,
+      "pos_y"       : 80.0,
+      "modifiers": [
+        { "id": "ps_dmg", "stat": "damage", "op": "multiplicative", "value": 0.2 }
+      ]
+    },
+    {
+      "id"          : 4,
+      "name"        : "Cluster Arrow",
+      "description" : "Requires Eagle Eye Rank 1. Adds area-of-effect damage.",
+      "max_points"  : 3,
+      "point_cost"  : 2,
+      "pos_x"       : 250.0,
+      "pos_y"       : 200.0,
+      "modifiers": [
+        { "id": "ca_aoe",  "stat": "aoe",    "op": "additive", "value": 0.5 },
+        { "id": "ca_dmg",  "stat": "damage", "op": "additive", "value": 2.0 }
+      ]
+    },
+    {
+      "id"          : 5,
+      "name"        : "Deadeye",
+      "description" : "Requires Piercing Shot Rank 2 AND Cluster Arrow Rank 1. Overrides damage to 50.",
+      "max_points"  : 1,
+      "point_cost"  : 3,
+      "pos_x"       : 450.0,
+      "pos_y"       : 140.0,
+      "modifiers": [
+        { "id": "de_dmg", "stat": "damage", "op": "override", "value": 50.0 }
+      ]
+    }
+  ],
+  "edges": [
+    { "from": 1, "to": 3 },
+    { "from": 2, "to": 4 },
+    { "from": 3, "to": 5 },
+    { "from": 4, "to": 5 }
+  ]
+}
