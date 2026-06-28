@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <string_view>
 
 // Forward-declare GLFW to avoid including the full header in consumers.

@@ -67,3 +67,17 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# IDE/editor files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.vs/
+*.VC.db
+*.VC.opendb
+
+# OS / misc
+.DS_Store
+Thumbs.db
+*.log
