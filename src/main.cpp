@@ -2,8 +2,7 @@
 
 #include <cstdio>
 
-
-int main() {
+static int runApp() {
     try {
         NST::Application app("NodeSpire TD", 1280, 720);
         app.run();
@@ -13,3 +12,15 @@ int main() {
     }
     return 0;
 }
+
+int main() {
+    return runApp();
+}
+
+#if defined(_WIN32)
+#include <windows.h>
+
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    return runApp();
+}
+#endif
