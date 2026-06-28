@@ -1,12 +1,12 @@
 #pragma once
 
 // volk must be included before imgui_impl_vulkan.h.
-#include <volk.h>
-
+#include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
-#include <GLFW/glfw3.h>
+#include <volk.h>
+
 
 namespace NST {
 
@@ -24,14 +24,14 @@ class VulkanContext;
 //   layer.endFrame(commandBuffer);  // records ImGui draw calls
 // ---------------------------------------------------------------
 class ImGuiLayer {
-public:
+  public:
     bool init(GLFWwindow* window, VulkanContext& ctx);
     void destroy();
 
     void beginFrame();
     void endFrame(VkCommandBuffer cmd);
 
-private:
+  private:
     bool m_initialised{false};
 };
 

@@ -1,10 +1,11 @@
 #pragma once
 
+#include "talent/StatModifier.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
 
-#include "talent/StatModifier.h"
 
 namespace NST {
 
@@ -14,13 +15,13 @@ namespace NST {
 // (the modifier list represents one "level" worth of bonuses).
 // ---------------------------------------------------------------
 struct TalentNode {
-    uint32_t    id{0};
+    uint32_t id{0};
     std::string name;
     std::string description;
 
-    uint32_t maxPoints{1};      // How many times this node can be leveled
-    uint32_t currentPoints{0};  // Current investment (0 = locked)
-    uint32_t pointCost{1};      // Resource cost per level
+    uint32_t maxPoints{1};     // How many times this node can be leveled
+    uint32_t currentPoints{0}; // Current investment (0 = locked)
+    uint32_t pointCost{1};     // Resource cost per level
 
     // Modifiers granted per level of this node.
     std::vector<StatModifier> modifiers;
@@ -33,8 +34,12 @@ struct TalentNode {
     float posX{0.0f};
     float posY{0.0f};
 
-    [[nodiscard]] bool isUnlocked() const noexcept { return currentPoints > 0; }
-    [[nodiscard]] bool isMaxed()    const noexcept { return currentPoints >= maxPoints; }
+    [[nodiscard]] bool isUnlocked() const noexcept {
+        return currentPoints > 0;
+    }
+    [[nodiscard]] bool isMaxed() const noexcept {
+        return currentPoints >= maxPoints;
+    }
 };
 
 } // namespace NST

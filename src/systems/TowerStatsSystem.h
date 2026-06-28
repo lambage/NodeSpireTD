@@ -1,8 +1,9 @@
 #pragma once
 
+#include "ecs/Events.h"
+
 #include <entt/entt.hpp>
 
-#include "ecs/Events.h"
 
 namespace NST {
 
@@ -20,7 +21,7 @@ namespace NST {
 //   3. Override       : stat  = value  (last-writer wins)
 // ---------------------------------------------------------------
 class TowerStatsSystem {
-public:
+  public:
     explicit TowerStatsSystem(entt::registry& registry);
 
     // Connect to an EnTT dispatcher:
@@ -29,9 +30,8 @@ public:
     void onTalentUpgraded(const TalentUpgradedEvent& event);
     void onTalentRespec(const TalentRespecEvent& event);
 
-private:
-    void recalculateStats(uint32_t towerId,
-                          const std::vector<StatModifier>& modifiers);
+  private:
+    void recalculateStats(uint32_t towerId, const std::vector<StatModifier>& modifiers);
 
     entt::registry& m_registry;
 };

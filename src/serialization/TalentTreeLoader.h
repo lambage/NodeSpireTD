@@ -1,10 +1,11 @@
 #pragma once
 
+#include "talent/TalentGraph.h"
+
 #include <filesystem>
 #include <optional>
 #include <string>
 
-#include "talent/TalentGraph.h"
 
 namespace NST {
 
@@ -42,16 +43,14 @@ namespace NST {
 // Supported op strings    : "additive", "multiplicative", "override"
 // ---------------------------------------------------------------
 class TalentTreeLoader {
-public:
+  public:
     /// Load a TalentGraph from a JSON file on disk.
     /// Returns std::nullopt if the file cannot be opened or parsed.
-    [[nodiscard]] static std::optional<TalentGraph>
-    loadFromFile(const std::filesystem::path& path);
+    [[nodiscard]] static std::optional<TalentGraph> loadFromFile(const std::filesystem::path& path);
 
     /// Load a TalentGraph from an in-memory JSON string.
     /// Returns std::nullopt on parse error.
-    [[nodiscard]] static std::optional<TalentGraph>
-    loadFromString(const std::string& json);
+    [[nodiscard]] static std::optional<TalentGraph> loadFromString(const std::string& json);
 };
 
 } // namespace NST

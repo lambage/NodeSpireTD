@@ -1,12 +1,11 @@
 #pragma once
 
+#include "talent/TalentNode.h"
+
 #include <cstdint>
-#include <optional>
-#include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "talent/TalentNode.h"
 
 namespace NST {
 
@@ -22,7 +21,7 @@ namespace NST {
 //   * Validates all prerequisites before allowing a node unlock.
 // ---------------------------------------------------------------
 class TalentGraph {
-public:
+  public:
     using NodeId = uint32_t;
 
     // ----- Mutation ------------------------------------------------
@@ -55,21 +54,21 @@ public:
 
     // ----- Accessors -----------------------------------------------
     [[nodiscard]] const TalentNode* getNode(NodeId id) const;
-    [[nodiscard]] TalentNode*       getNode(NodeId id);
+    [[nodiscard]] TalentNode* getNode(NodeId id);
 
-    [[nodiscard]] const std::unordered_map<NodeId, TalentNode>&        nodes() const noexcept;
-    [[nodiscard]] const std::vector<std::pair<NodeId, NodeId>>&        edges() const noexcept;
+    [[nodiscard]] const std::unordered_map<NodeId, TalentNode>& nodes() const noexcept;
+    [[nodiscard]] const std::vector<std::pair<NodeId, NodeId>>& edges() const noexcept;
 
     /// Returns all modifiers that are currently active (from unlocked nodes).
     [[nodiscard]] std::vector<StatModifier> collectActiveModifiers() const;
 
-private:
+  private:
     /// DFS from 'start'; returns true if 'target' is reachable – used to
     /// detect cycles before inserting a new edge.
     [[nodiscard]] bool hasCircularDependency(NodeId start, NodeId target) const;
 
-    std::unordered_map<NodeId, TalentNode>   m_nodes;
-    std::vector<std::pair<NodeId, NodeId>>   m_edges;  // (from, to) prerequisite pairs
+    std::unordered_map<NodeId, TalentNode> m_nodes;
+    std::vector<std::pair<NodeId, NodeId>> m_edges; // (from, to) prerequisite pairs
 };
 
 } // namespace NST
