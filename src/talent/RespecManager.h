@@ -1,9 +1,10 @@
 #pragma once
 
+#include "talent/TalentGraph.h"
+
 #include <cstdint>
 #include <vector>
 
-#include "talent/TalentGraph.h"
 
 namespace NST {
 
@@ -19,7 +20,7 @@ namespace NST {
 //   manager.respec();   // resets the graph and clears the ledger
 // ---------------------------------------------------------------
 class RespecManager {
-public:
+  public:
     explicit RespecManager(TalentGraph& graph);
 
     // Record that 'points' points were invested in 'nodeId'.
@@ -41,14 +42,14 @@ public:
     // True if any points have been invested since the last respec.
     [[nodiscard]] bool hasInvestments() const noexcept;
 
-private:
+  private:
     struct Investment {
         TalentGraph::NodeId nodeId;
-        uint32_t            points;
+        uint32_t points;
     };
 
-    TalentGraph&             m_graph;
-    std::vector<Investment>  m_investments;
+    TalentGraph& m_graph;
+    std::vector<Investment> m_investments;
 };
 
 } // namespace NST

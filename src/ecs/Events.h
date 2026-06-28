@@ -1,9 +1,10 @@
 #pragma once
 
+#include "talent/StatModifier.h"
+
 #include <cstdint>
 #include <vector>
 
-#include "talent/StatModifier.h"
 
 namespace NST {
 
@@ -15,9 +16,9 @@ namespace NST {
 // TowerStatsComponent for the affected tower entity.
 // ---------------------------------------------------------------
 struct TalentUpgradedEvent {
-    uint32_t towerId;                        // entity identifier
-    uint32_t nodeId;                         // which node was leveled
-    uint32_t newPointsInNode;                // updated currentPoints
+    uint32_t towerId;                          // entity identifier
+    uint32_t nodeId;                           // which node was leveled
+    uint32_t newPointsInNode;                  // updated currentPoints
     std::vector<StatModifier> activeModifiers; // full modifier list (all unlocked nodes)
 };
 

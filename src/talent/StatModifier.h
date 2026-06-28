@@ -32,10 +32,10 @@ enum class ModifierOp {
 // A single modifier produced by one level of a TalentNode.
 // ---------------------------------------------------------------
 struct StatModifier {
-    std::string id;    // unique identifier (e.g. "rapid_fire_as_1")
-    StatType    stat{StatType::Damage};
-    ModifierOp  op{ModifierOp::Additive};
-    float       value{0.0f};
+    std::string id; // unique identifier (e.g. "rapid_fire_as_1")
+    StatType stat{StatType::Damage};
+    ModifierOp op{ModifierOp::Additive};
+    float value{0.0f};
 };
 
 } // namespace NST

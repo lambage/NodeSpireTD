@@ -24,21 +24,23 @@ class Application; // forward declaration
 // render function.  State transitions set m_state directly.
 // ---------------------------------------------------------------
 class UIManager {
-public:
+  public:
     explicit UIManager(Application& app);
 
     /// Called once per frame after ImGuiLayer::beginFrame().
     void render(int width, int height);
 
-    [[nodiscard]] MenuState state() const noexcept { return m_state; }
+    [[nodiscard]] MenuState state() const noexcept {
+        return m_state;
+    }
 
-private:
+  private:
     void renderMainMenu(int width, int height);
     void renderGameplay(int width, int height);
     void renderSettings(int width, int height);
 
     Application& m_app;
-    MenuState    m_state{MenuState::MainMenu};
+    MenuState m_state{MenuState::MainMenu};
 };
 
 } // namespace NST

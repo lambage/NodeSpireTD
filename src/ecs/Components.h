@@ -12,10 +12,10 @@ namespace NST {
 // evaluated per-frame.
 // ---------------------------------------------------------------
 struct TowerStatsComponent {
-    float attackSpeed{1.0f};  // attacks per second
-    float damage{10.0f};      // damage per hit
-    float range{5.0f};        // tile radius
-    float aoe{0.0f};          // AoE blast radius (0 = single target)
+    float attackSpeed{1.0f}; // attacks per second
+    float damage{10.0f};     // damage per hit
+    float range{5.0f};       // tile radius
+    float aoe{0.0f};         // AoE blast radius (0 = single target)
 };
 
 // ---------------------------------------------------------------
@@ -23,10 +23,10 @@ struct TowerStatsComponent {
 // Ties an entity to a named talent tree and tracks resource usage.
 // ---------------------------------------------------------------
 struct TalentTreeComponent {
-    uint32_t towerId{0};           // matches TalentUpgradedEvent::towerId
-    uint32_t availablePoints{0};   // unspent talent points
-    uint32_t spentPoints{0};       // total invested points
-    char     treeId[64]{};         // e.g. "archer_tower"
+    uint32_t towerId{0};         // matches TalentUpgradedEvent::towerId
+    uint32_t availablePoints{0}; // unspent talent points
+    uint32_t spentPoints{0};     // total invested points
+    char treeId[64]{};           // e.g. "archer_tower"
 };
 
 // ---------------------------------------------------------------

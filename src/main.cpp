@@ -1,7 +1,7 @@
-#include <cstdio>
-#include <stdexcept>
-
 #include "Application.h"
+
+#include <cstdio>
+
 
 int main() {
     try {

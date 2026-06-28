@@ -5,8 +5,7 @@
 
 namespace NST {
 
-RespecManager::RespecManager(TalentGraph& graph)
-    : m_graph(graph) {}
+RespecManager::RespecManager(TalentGraph& graph) : m_graph(graph) {}
 
 // ---------------------------------------------------------------
 void RespecManager::recordInvestment(TalentGraph::NodeId nodeId, uint32_t points) {
@@ -28,16 +27,13 @@ bool RespecManager::respec() {
 
 // ---------------------------------------------------------------
 uint32_t RespecManager::totalPointsInvested() const noexcept {
-    return static_cast<uint32_t>(
-        std::accumulate(m_investments.cbegin(), m_investments.cend(), 0u,
-            [](uint32_t acc, const Investment& inv) { return acc + inv.points; })
-    );
+    return static_cast<uint32_t>(std::accumulate(m_investments.cbegin(), m_investments.cend(), 0u,
+                                                 [](uint32_t acc, const Investment& inv) { return acc + inv.points; }));
 }
 
 // ---------------------------------------------------------------
 uint32_t RespecManager::pointsInNode(TalentGraph::NodeId nodeId) const noexcept {
-    auto it = std::ranges::find_if(m_investments,
-        [nodeId](const Investment& inv) { return inv.nodeId == nodeId; });
+    auto it = std::ranges::find_if(m_investments, [nodeId](const Investment& inv) { return inv.nodeId == nodeId; });
     return it != m_investments.end() ? it->points : 0u;
 }
 
