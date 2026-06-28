@@ -45,7 +45,20 @@ bool Application::init() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-    m_window = glfwCreateWindow(m_width, m_height, m_title.c_str(), nullptr, nullptr);
+    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+    if (primaryMonitor) {
+        if (const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor)) {
+            m_width = mode->width;
+            m_height = mode->height;
+            glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+        }
+    }
+
+    m_window = glfwCreateWindow(m_width, m_height, m_title.c_str(), primaryMonitor, nullptr);
+    if (!m_window && primaryMonitor) {
+        // Fallback to windowed if fullscreen creation fails.
+        m_window = glfwCreateWindow(m_width, m_height, m_title.c_str(), nullptr, nullptr);
+    }
     if (!m_window) {
         std::fprintf(stderr, "[Application] glfwCreateWindow failed.\n");
         glfwTerminate();
@@ -119,6 +132,7 @@ void Application::shutdown() {
         vkDeviceWaitIdle(m_vulkan->device());
     }
 
+    m_ui.reset();
     m_imgui.reset();
     m_vulkan.reset();
 

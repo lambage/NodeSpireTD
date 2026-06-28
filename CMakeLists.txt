@@ -139,6 +139,9 @@ target_include_directories(imgui_lib PUBLIC
 target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES GLFW_INCLUDE_NONE)
 target_link_libraries(imgui_lib PUBLIC glfw volk)
 
+# Vulkan backend stores VkDescriptorSet in ImTextureID. Ensure 64-bit storage even on 32-bit builds.
+target_compile_definitions(imgui_lib PUBLIC ImTextureID=ImU64)
+
 # ============================================================
 # ImNodes – node-graph editor widget
 # Fetched and built manually so we can supply our imgui target.
@@ -163,22 +166,39 @@ if(NOT imnodes_src_POPULATED)
 endif()
 
 # ============================================================
+# stb – image decoding for splash screen
+# ============================================================
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(stb)
+
+# ============================================================
 # NodeSpireTD – main executable
 # ============================================================
 file(GLOB_RECURSE NODESPIRE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
-add_executable(NodeSpireTD ${NODESPIRE_SOURCES})
+if(WIN32)
+    add_executable(NodeSpireTD WIN32 ${NODESPIRE_SOURCES})
+else()
+    add_executable(NodeSpireTD ${NODESPIRE_SOURCES})
+endif()
 
 target_include_directories(NodeSpireTD PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${stb_SOURCE_DIR}
 )
 
 target_compile_definitions(NodeSpireTD PRIVATE
     VK_NO_PROTOTYPES
     IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     IMGUI_DEFINE_MATH_OPERATORS
+    ImTextureID=ImU64
 )
 
 target_link_libraries(NodeSpireTD PRIVATE
@@ -199,4 +219,11 @@ add_custom_command(TARGET NodeSpireTD POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/data"
         "$<TARGET_FILE_DIR:NodeSpireTD>/data"
     COMMENT "Copying data directory to build output"
+)
+
+add_custom_command(TARGET NodeSpireTD POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        "$<TARGET_FILE_DIR:NodeSpireTD>/assets"
+    COMMENT "Copying assets directory to build output"
 )
