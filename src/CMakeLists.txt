@@ -4,6 +4,9 @@ add_executable(NodeSpireTD
     main.cpp
     AppController.cpp
     SettingsManager.cpp
+    PlatformRuntime.cpp
+    LocalAchievementService.cpp
+    LocalFileSaveSystem.cpp
     VulkanContext.cpp
     ImGuiLayer.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp

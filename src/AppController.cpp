@@ -1,6 +1,7 @@
 #include "AppController.hpp"
 
 #include "ImGuiLayer.hpp"
+#include "PlatformRuntime.hpp"
 #include "SettingsManager.hpp"
 #include "VulkanContext.hpp"
 
@@ -77,6 +78,7 @@ void applySystemDisplayMode(const AppSettings& settings) {
 
 int AppController::run() {
     try {
+        PlatformRuntime platformRuntime;
         SettingsManager settingsManager;
         AppSettings activeSettings = sanitizeSettings(settingsManager.loadOrCreateDefaults());
 
@@ -129,6 +131,7 @@ int AppController::run() {
 
         while (window.isOpen()) {
             const float elapsedSeconds = deltaClock.restart().asSeconds();
+            platformRuntime.tick();
             imguiLayer->setDeltaTime(elapsedSeconds);
 
             if (pendingDisplayConfirmation.active) {
