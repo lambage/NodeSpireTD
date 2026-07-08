@@ -8,6 +8,7 @@ add_executable(NodeSpireTD
     LocalAchievementService.cpp
     LocalFileSaveSystem.cpp
     VulkanContext.cpp
+    utility/VulkanTexture.cpp
     ImGuiLayer.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp

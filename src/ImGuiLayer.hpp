@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AppSettings.hpp"
+#include "utility/VulkanTexture.hpp"
 
 #include <SFML/Window.hpp>
 #include <imgui.h>
@@ -8,12 +9,10 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-typedef struct VmaAllocator_T* VmaAllocator;
-typedef struct VmaAllocation_T* VmaAllocation;
 
 class VulkanContext;
 
@@ -61,15 +60,6 @@ public:
     void renderDrawData(VkCommandBuffer commandBuffer);
 
 private:
-    struct Texture2D {
-        VkImage image = VK_NULL_HANDLE;
-        VmaAllocation allocation = nullptr;
-        VkImageView imageView = VK_NULL_HANDLE;
-        VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-        uint32_t width = 0;
-        uint32_t height = 0;
-    };
-
     struct SceneNode {
         std::string id;
         std::function<void()> onEnter;
@@ -87,8 +77,6 @@ private:
 
     static ImGuiKey translateSfmlKeyToImGui(sf::Keyboard::Key key);
 
-    bool loadTextureFromFile(const char* texturePath, Texture2D& texture);
-    void destroyTexture(Texture2D& texture);
     void refreshDisplayModeOptions();
     int findDisplayModeIndexForSettings(const AppSettings& settings) const;
     std::string modeLabel(const DisplayModeOption& mode) const;
@@ -108,11 +96,7 @@ private:
     PendingSceneTransition pendingTransition_;
 
     AppSettings settings_;
-    Texture2D splashTexture_;
-    VkDevice device_ = VK_NULL_HANDLE;
-    VkQueue graphicsQueue_ = VK_NULL_HANDLE;
-    VkCommandPool commandPool_ = VK_NULL_HANDLE;
-    VmaAllocator allocator_ = nullptr;
+    std::optional<VulkanTexture> splashTexture_;
 
     bool loadingComplete_ = false;
     float splashElapsedSeconds_ = 0.0f;
