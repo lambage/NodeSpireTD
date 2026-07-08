@@ -1,0 +1,12 @@
+{
+    "displayHeight": 1080,
+    "displayWidth": 2560,
+    "fullscreen": true,
+    "graphicsQuality": 2,
+    "masterVolume": 0.4000000059604645,
+    "musicVolume": 0.699999988079071,
+    "muteWhenUnfocused": false,
+    "refreshRate": 100,
+    "sfxVolume": 0.800000011920929,
+    "vSyncEnabled": true
+}
