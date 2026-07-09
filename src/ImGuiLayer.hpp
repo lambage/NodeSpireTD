@@ -3,16 +3,15 @@
 #include "utility/VulkanTexture.hpp"
 
 #include <SFML/Window.hpp>
-#include <imgui.h>
-#include <volk.h>
-
 #include <cstdint>
+#include <imgui.h>
 #include <optional>
+#include <volk.h>
 
 class VulkanContext;
 
 class ImGuiLayer {
-public:
+  public:
     ImGuiLayer();
     ~ImGuiLayer();
 
@@ -30,14 +29,18 @@ public:
     void endFrame();
     void renderDrawData(VkCommandBuffer commandBuffer);
 
-    ImFont* headingFont() const { return headingFont_; }
-    ImFont* titleFont() const { return titleFont_; }
+    ImFont* headingFont() const {
+        return headingFont_;
+    }
+    ImFont* titleFont() const {
+        return titleFont_;
+    }
     bool hasSplashTexture() const;
     uint32_t splashTextureWidth() const;
     uint32_t splashTextureHeight() const;
     ImTextureRef splashTextureRef() const;
 
-private:
+  private:
     static ImGuiKey translateSfmlKeyToImGui(sf::Keyboard::Key key);
 
     void applyModernStyle();

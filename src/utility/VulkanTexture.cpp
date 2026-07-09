@@ -1,12 +1,10 @@
 #include "VulkanTexture.hpp"
 
 #include <SFML/Graphics/Image.hpp>
-#include <imgui_impl_vulkan.h>
-
 #include <cstring>
+#include <imgui_impl_vulkan.h>
 #include <stdexcept>
 #include <utility>
-
 #include <vk_mem_alloc.h>
 
 namespace {
@@ -33,7 +31,8 @@ VkCommandBuffer beginSingleUseCommandBuffer(VkDevice device, VkCommandPool comma
     return commandBuffer;
 }
 
-void endSingleUseCommandBuffer(VkDevice device, VkQueue queue, VkCommandPool commandPool, VkCommandBuffer commandBuffer) {
+void endSingleUseCommandBuffer(VkDevice device, VkQueue queue, VkCommandPool commandPool,
+                               VkCommandBuffer commandBuffer) {
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
         throw std::runtime_error("Failed to end command buffer for texture upload.");
     }
@@ -54,10 +53,7 @@ void endSingleUseCommandBuffer(VkDevice device, VkQueue queue, VkCommandPool com
 } // namespace
 
 VulkanTexture::VulkanTexture(VkDevice device, VmaAllocator allocator, VkCommandPool commandPool, VkQueue graphicsQueue)
-    : device_(device),
-      allocator_(allocator),
-      commandPool_(commandPool),
-      graphicsQueue_(graphicsQueue) {}
+    : device_(device), allocator_(allocator), commandPool_(commandPool), graphicsQueue_(graphicsQueue) {}
 
 VulkanTexture::~VulkanTexture() {
     destroyInternal();
@@ -100,7 +96,8 @@ VulkanTexture& VulkanTexture::operator=(VulkanTexture&& other) noexcept {
 }
 
 bool VulkanTexture::loadFromFile(const std::filesystem::path& texturePath) {
-    if (device_ == VK_NULL_HANDLE || allocator_ == nullptr || commandPool_ == VK_NULL_HANDLE || graphicsQueue_ == VK_NULL_HANDLE) {
+    if (device_ == VK_NULL_HANDLE || allocator_ == nullptr || commandPool_ == VK_NULL_HANDLE ||
+        graphicsQueue_ == VK_NULL_HANDLE) {
         return false;
     }
 
@@ -130,9 +127,11 @@ bool VulkanTexture::loadFromFile(const std::filesystem::path& texturePath) {
 
     VmaAllocationCreateInfo stagingAllocCreateInfo{};
     stagingAllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
-    stagingAllocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    stagingAllocCreateInfo.flags =
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-    if (vmaCreateBuffer(allocator_, &stagingBufferInfo, &stagingAllocCreateInfo, &stagingBuffer, &stagingAllocation, &stagingAllocationInfo) != VK_SUCCESS) {
+    if (vmaCreateBuffer(allocator_, &stagingBufferInfo, &stagingAllocCreateInfo, &stagingBuffer, &stagingAllocation,
+                        &stagingAllocationInfo) != VK_SUCCESS) {
         return false;
     }
 
@@ -154,7 +153,8 @@ bool VulkanTexture::loadFromFile(const std::filesystem::path& texturePath) {
     VmaAllocationCreateInfo imageAllocCreateInfo{};
     imageAllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-    if (vmaCreateImage(allocator_, &imageCreateInfo, &imageAllocCreateInfo, &image_, &allocation_, nullptr) != VK_SUCCESS) {
+    if (vmaCreateImage(allocator_, &imageCreateInfo, &imageAllocCreateInfo, &image_, &allocation_, nullptr) !=
+        VK_SUCCESS) {
         vmaDestroyBuffer(allocator_, stagingBuffer, stagingAllocation);
         return false;
     }
@@ -176,17 +176,8 @@ bool VulkanTexture::loadFromFile(const std::filesystem::path& texturePath) {
         transferBarrier.subresourceRange.baseArrayLayer = 0;
         transferBarrier.subresourceRange.layerCount = 1;
 
-        vkCmdPipelineBarrier(
-            commandBuffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0,
-            0,
-            nullptr,
-            0,
-            nullptr,
-            1,
-            &transferBarrier);
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &transferBarrier);
 
         VkBufferImageCopy copyRegion{};
         copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -195,7 +186,8 @@ bool VulkanTexture::loadFromFile(const std::filesystem::path& texturePath) {
         copyRegion.imageSubresource.layerCount = 1;
         copyRegion.imageExtent = {imageSize.x, imageSize.y, 1};
 
-        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+        vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &copyRegion);
 
         VkImageMemoryBarrier shaderReadBarrier{};
         shaderReadBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -210,17 +202,8 @@ bool VulkanTexture::loadFromFile(const std::filesystem::path& texturePath) {
         shaderReadBarrier.subresourceRange.baseArrayLayer = 0;
         shaderReadBarrier.subresourceRange.layerCount = 1;
 
-        vkCmdPipelineBarrier(
-            commandBuffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0,
-            0,
-            nullptr,
-            0,
-            nullptr,
-            1,
-            &shaderReadBarrier);
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &shaderReadBarrier);
 
         endSingleUseCommandBuffer(device_, graphicsQueue_, commandPool_, commandBuffer);
     } catch (...) {

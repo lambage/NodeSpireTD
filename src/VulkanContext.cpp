@@ -2,7 +2,6 @@
 
 #include <SFML/Window/Vulkan.hpp>
 #include <spdlog/spdlog.h>
-
 #include <stdexcept>
 
 #define VOLK_IMPLEMENTATION
@@ -11,18 +10,18 @@
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
-SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint32_t width, uint32_t height, VkSwapchainKHR oldSwapchain) {
+SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint32_t width, uint32_t height,
+                                                   VkSwapchainKHR oldSwapchain) {
     vkb::SwapchainBuilder swapchainBuilder{vkbDevice};
     if (oldSwapchain != VK_NULL_HANDLE) {
         swapchainBuilder.set_old_swapchain(oldSwapchain);
     }
 
-    auto swapchainResult = swapchainBuilder
-        .set_desired_extent(width, height)
-        .set_desired_min_image_count(2)
-        .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-        .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
-        .build();
+    auto swapchainResult = swapchainBuilder.set_desired_extent(width, height)
+                               .set_desired_min_image_count(2)
+                               .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+                               .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+                               .build();
 
     if (!swapchainResult) {
         throw std::runtime_error("Failed to build Vulkan swapchain: " + swapchainResult.error().message());
@@ -37,20 +36,15 @@ SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint3
 
     const uint32_t imageCount = static_cast<uint32_t>(imagesResult.value().size());
     if (imageCount < 2) {
-        throw std::runtime_error("Swapchain returned fewer than 2 images, which is unsupported by ImGui Vulkan backend.");
+        throw std::runtime_error(
+            "Swapchain returned fewer than 2 images, which is unsupported by ImGui Vulkan backend.");
     }
 
     VkSwapchainKHR swapchainHandle = vkbSwapchain.swapchain;
     auto images = imagesResult.value();
     auto imageViews = viewsResult.value();
 
-    return {
-        std::move(vkbSwapchain),
-        swapchainHandle,
-        std::move(images),
-        std::move(imageViews),
-        imageCount
-    };
+    return {std::move(vkbSwapchain), swapchainHandle, std::move(images), std::move(imageViews), imageCount};
 }
 
 VulkanContext::VulkanContext(sf::Window& window) : window_(window) {
@@ -113,11 +107,10 @@ VulkanContext::~VulkanContext() {
 
 void VulkanContext::initializeInstanceAndDevice() {
     vkb::InstanceBuilder instanceBuilder;
-    auto instanceResult = instanceBuilder
-        .set_app_name("NodeSpireTD")
-        .request_validation_layers(true)
-        .require_api_version(1, 3, 0)
-        .build();
+    auto instanceResult = instanceBuilder.set_app_name("NodeSpireTD")
+                              .request_validation_layers(true)
+                              .require_api_version(1, 3, 0)
+                              .build();
 
     if (!instanceResult) {
         throw std::runtime_error("Failed to create Vulkan instance: " + instanceResult.error().message());
@@ -136,11 +129,8 @@ void VulkanContext::initializeInstanceAndDevice() {
     features13.dynamicRendering = VK_TRUE;
 
     vkb::PhysicalDeviceSelector selector{vkbInstance_};
-    auto physicalDeviceResult = selector
-        .set_surface(surface_)
-        .set_minimum_version(1, 3)
-        .set_required_features_13(features13)
-        .select();
+    auto physicalDeviceResult =
+        selector.set_surface(surface_).set_minimum_version(1, 3).set_required_features_13(features13).select();
 
     if (!physicalDeviceResult) {
         throw std::runtime_error("Failed to select physical device: " + physicalDeviceResult.error().message());
@@ -329,13 +319,9 @@ void VulkanContext::waitIdle() const {
 }
 
 VulkanContext::AcquireStatus VulkanContext::acquireNextImage(size_t frameIndex, uint32_t& imageIndex) const {
-    const VkResult acquireResult = vkAcquireNextImageKHR(
-        device_,
-        swapchainData_.swapchain,
-        UINT64_MAX,
-        imageAvailableSemaphores_[frameIndex],
-        VK_NULL_HANDLE,
-        &imageIndex);
+    const VkResult acquireResult =
+        vkAcquireNextImageKHR(device_, swapchainData_.swapchain, UINT64_MAX, imageAvailableSemaphores_[frameIndex],
+                              VK_NULL_HANDLE, &imageIndex);
 
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
         return AcquireStatus::OutOfDate;
@@ -370,17 +356,8 @@ VkCommandBuffer VulkanContext::beginFrameRecording(size_t frameIndex, uint32_t i
     barrier.srcAccessMask = 0;
     barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &barrier);
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     VkClearValue clearColor = {{{0.1f, 0.12f, 0.18f, 1.0f}}};
 
@@ -413,17 +390,8 @@ void VulkanContext::endFrameRecordingAndSubmit(size_t frameIndex, uint32_t image
     barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstAccessMask = 0;
 
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &barrier);
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     vkEndCommandBuffer(commandBuffer);
 

@@ -2,8 +2,7 @@
 
 #include <fstream>
 
-LocalFileSaveSystem::LocalFileSaveSystem(std::filesystem::path rootPath)
-    : rootPath_(std::move(rootPath)) {}
+LocalFileSaveSystem::LocalFileSaveSystem(std::filesystem::path rootPath) : rootPath_(std::move(rootPath)) {}
 
 bool LocalFileSaveSystem::saveSlot(const std::string& slotId, const std::vector<std::byte>& data) {
     if (slotId.empty()) {

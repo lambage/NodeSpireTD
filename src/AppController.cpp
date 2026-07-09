@@ -5,18 +5,16 @@
 #include "Scenes.hpp"
 #include "SettingsManager.hpp"
 #include "VulkanContext.hpp"
-
-#include <SFML/Window.hpp>
-#include <imgui.h>
-#include <spdlog/spdlog.h>
-
-#include <algorithm>
-#include <memory>
-#include <optional>
-#include <unordered_set>
-
 #include "scenes/IScene.hpp"
 #include "scenes/SceneSharedState.hpp"
+
+#include <SFML/Window.hpp>
+#include <algorithm>
+#include <imgui.h>
+#include <memory>
+#include <optional>
+#include <spdlog/spdlog.h>
+#include <unordered_set>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -25,7 +23,8 @@
 namespace {
 
 sf::VideoMode toVideoMode(const AppSettings& settings) {
-    return sf::VideoMode({static_cast<unsigned int>(settings.displayWidth), static_cast<unsigned int>(settings.displayHeight)});
+    return sf::VideoMode(
+        {static_cast<unsigned int>(settings.displayWidth), static_cast<unsigned int>(settings.displayHeight)});
 }
 
 sf::State toWindowState(const AppSettings& settings) {
@@ -33,10 +32,8 @@ sf::State toWindowState(const AppSettings& settings) {
 }
 
 bool hasDisplayChanges(const AppSettings& left, const AppSettings& right) {
-    return left.fullscreen != right.fullscreen ||
-           left.displayWidth != right.displayWidth ||
-           left.displayHeight != right.displayHeight ||
-           left.refreshRate != right.refreshRate;
+    return left.fullscreen != right.fullscreen || left.displayWidth != right.displayWidth ||
+           left.displayHeight != right.displayHeight || left.refreshRate != right.refreshRate;
 }
 
 AppSettings sanitizeSettings(AppSettings settings) {
@@ -93,17 +90,13 @@ std::vector<DisplayModeOption> refreshDisplayModeOptions() {
             continue;
         }
 
-        const unsigned long long key =
-            (static_cast<unsigned long long>(mode.dmPelsWidth) << 40) |
-            (static_cast<unsigned long long>(mode.dmPelsHeight) << 20) |
-            static_cast<unsigned long long>(mode.dmDisplayFrequency);
+        const unsigned long long key = (static_cast<unsigned long long>(mode.dmPelsWidth) << 40) |
+                                       (static_cast<unsigned long long>(mode.dmPelsHeight) << 20) |
+                                       static_cast<unsigned long long>(mode.dmDisplayFrequency);
 
         if (dedup.insert(key).second) {
-            displayModes.push_back({
-                static_cast<int>(mode.dmPelsWidth),
-                static_cast<int>(mode.dmPelsHeight),
-                static_cast<int>(mode.dmDisplayFrequency)
-            });
+            displayModes.push_back({static_cast<int>(mode.dmPelsWidth), static_cast<int>(mode.dmPelsHeight),
+                                    static_cast<int>(mode.dmDisplayFrequency)});
         }
     }
 #endif
@@ -111,11 +104,7 @@ std::vector<DisplayModeOption> refreshDisplayModeOptions() {
     if (displayModes.empty()) {
         const auto& fullscreenModes = sf::VideoMode::getFullscreenModes();
         for (const auto& mode : fullscreenModes) {
-            displayModes.push_back({
-                static_cast<int>(mode.size.x),
-                static_cast<int>(mode.size.y),
-                60
-            });
+            displayModes.push_back({static_cast<int>(mode.size.x), static_cast<int>(mode.size.y), 60});
         }
     }
 
@@ -123,15 +112,16 @@ std::vector<DisplayModeOption> refreshDisplayModeOptions() {
         displayModes.push_back({1280, 720, 60});
     }
 
-    std::sort(displayModes.begin(), displayModes.end(), [](const DisplayModeOption& left, const DisplayModeOption& right) {
-        if (left.width != right.width) {
-            return left.width > right.width;
-        }
-        if (left.height != right.height) {
-            return left.height > right.height;
-        }
-        return left.refreshRate > right.refreshRate;
-    });
+    std::sort(displayModes.begin(), displayModes.end(),
+              [](const DisplayModeOption& left, const DisplayModeOption& right) {
+                  if (left.width != right.width) {
+                      return left.width > right.width;
+                  }
+                  if (left.height != right.height) {
+                      return left.height > right.height;
+                  }
+                  return left.refreshRate > right.refreshRate;
+              });
 
     return displayModes;
 }
@@ -139,7 +129,8 @@ std::vector<DisplayModeOption> refreshDisplayModeOptions() {
 int findDisplayModeIndexForSettings(const std::vector<DisplayModeOption>& displayModes, const AppSettings& settings) {
     for (size_t i = 0; i < displayModes.size(); ++i) {
         const DisplayModeOption& mode = displayModes[i];
-        if (mode.width == settings.displayWidth && mode.height == settings.displayHeight && mode.refreshRate == settings.refreshRate) {
+        if (mode.width == settings.displayWidth && mode.height == settings.displayHeight &&
+            mode.refreshRate == settings.refreshRate) {
             return static_cast<int>(i);
         }
     }
@@ -152,23 +143,18 @@ void renderSceneLoadingOverlay(ImGuiLayer& imguiLayer, const std::string& loadin
     ImGui::SetNextWindowSize(viewport->Size);
     ImGui::SetNextWindowViewport(viewport->ID);
 
-    constexpr ImGuiWindowFlags loadingWindowFlags =
-        ImGuiWindowFlags_NoDecoration |
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoBringToFrontOnFocus;
+    constexpr ImGuiWindowFlags loadingWindowFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                                    ImGuiWindowFlags_NoSavedSettings |
+                                                    ImGuiWindowFlags_NoBringToFrontOnFocus;
 
     ImGui::Begin("SceneLoading", nullptr, loadingWindowFlags);
 
     if (imguiLayer.hasSplashTexture() && imguiLayer.splashTextureWidth() > 0 && imguiLayer.splashTextureHeight() > 0) {
         const ImVec2 available = ImGui::GetContentRegionAvail();
-        const float scale = std::min(
-            available.x / static_cast<float>(imguiLayer.splashTextureWidth()),
-            available.y / static_cast<float>(imguiLayer.splashTextureHeight()));
-        const ImVec2 imageSize{
-            static_cast<float>(imguiLayer.splashTextureWidth()) * scale * 0.8f,
-            static_cast<float>(imguiLayer.splashTextureHeight()) * scale * 0.8f
-        };
+        const float scale = std::min(available.x / static_cast<float>(imguiLayer.splashTextureWidth()),
+                                     available.y / static_cast<float>(imguiLayer.splashTextureHeight()));
+        const ImVec2 imageSize{static_cast<float>(imguiLayer.splashTextureWidth()) * scale * 0.8f,
+                               static_cast<float>(imguiLayer.splashTextureHeight()) * scale * 0.8f};
 
         const float cursorX = std::max(0.0f, (available.x - imageSize.x) * 0.5f);
         const float cursorY = std::max(0.0f, (available.y - imageSize.y) * 0.35f);
@@ -247,21 +233,19 @@ int AppController::run() {
         bool loadingComplete = true;
 
         auto makeSceneState = [&]() {
-            return SceneSharedState{
-                workingSettings,
-                displayModes,
-                selectedDisplayModeIndex,
-                pendingDisplayConfirmation.active,
-                pendingDisplayConfirmation.secondsRemaining,
-                loadingComplete,
-                activeLevelName,
-                imguiLayer->headingFont(),
-                imguiLayer->titleFont(),
-                imguiLayer->hasSplashTexture(),
-                imguiLayer->splashTextureWidth(),
-                imguiLayer->splashTextureHeight(),
-                imguiLayer->splashTextureRef()
-            };
+            return SceneSharedState{workingSettings,
+                                    displayModes,
+                                    selectedDisplayModeIndex,
+                                    pendingDisplayConfirmation.active,
+                                    pendingDisplayConfirmation.secondsRemaining,
+                                    loadingComplete,
+                                    activeLevelName,
+                                    imguiLayer->headingFont(),
+                                    imguiLayer->titleFont(),
+                                    imguiLayer->hasSplashTexture(),
+                                    imguiLayer->splashTextureWidth(),
+                                    imguiLayer->splashTextureHeight(),
+                                    imguiLayer->splashTextureRef()};
         };
 
         auto enterScene = [&](SceneId nextSceneId) {
@@ -344,9 +328,10 @@ int AppController::run() {
             if (pendingSceneTransition.active) {
                 pendingSceneTransition.elapsedSeconds += elapsedSeconds;
 
-                const float progress = pendingSceneTransition.minDurationSeconds > 0.0f
-                    ? (pendingSceneTransition.elapsedSeconds / pendingSceneTransition.minDurationSeconds)
-                    : 1.0f;
+                const float progress =
+                    pendingSceneTransition.minDurationSeconds > 0.0f
+                        ? (pendingSceneTransition.elapsedSeconds / pendingSceneTransition.minDurationSeconds)
+                        : 1.0f;
                 renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, progress);
 
                 if (pendingSceneTransition.elapsedSeconds >= pendingSceneTransition.minDurationSeconds) {
@@ -366,7 +351,8 @@ int AppController::run() {
                     pendingSceneTransition.loadingMessage =
                         frameResult.transitionMessage.empty() ? "Loading..." : frameResult.transitionMessage;
                     pendingSceneTransition.elapsedSeconds = 0.0f;
-                    pendingSceneTransition.minDurationSeconds = std::max(0.05f, frameResult.transitionMinDurationSeconds);
+                    pendingSceneTransition.minDurationSeconds =
+                        std::max(0.05f, frameResult.transitionMinDurationSeconds);
 
                     renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, 0.0f);
                 }

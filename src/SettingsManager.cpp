@@ -1,24 +1,18 @@
 #include "SettingsManager.hpp"
 
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
-
-#include <fstream>
 
 namespace {
 
 nlohmann::json settingsToJson(const AppSettings& settings) {
     return {
-        {"fullscreen", settings.fullscreen},
-        {"vSyncEnabled", settings.vSyncEnabled},
-        {"displayWidth", settings.displayWidth},
-        {"displayHeight", settings.displayHeight},
-        {"refreshRate", settings.refreshRate},
-        {"graphicsQuality", settings.graphicsQuality},
-        {"masterVolume", settings.masterVolume},
-        {"musicVolume", settings.musicVolume},
-        {"sfxVolume", settings.sfxVolume},
-        {"muteWhenUnfocused", settings.muteWhenUnfocused},
+        {"fullscreen", settings.fullscreen},     {"vSyncEnabled", settings.vSyncEnabled},
+        {"displayWidth", settings.displayWidth}, {"displayHeight", settings.displayHeight},
+        {"refreshRate", settings.refreshRate},   {"graphicsQuality", settings.graphicsQuality},
+        {"masterVolume", settings.masterVolume}, {"musicVolume", settings.musicVolume},
+        {"sfxVolume", settings.sfxVolume},       {"muteWhenUnfocused", settings.muteWhenUnfocused},
     };
 }
 

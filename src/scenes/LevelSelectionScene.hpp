@@ -8,7 +8,7 @@
 class LevelSelectionScene final : public GameScene {
   public:
     ~LevelSelectionScene();
-    
+
     void onEnter(SceneSharedState&) override;
 
     void onExit(SceneSharedState&) override {}

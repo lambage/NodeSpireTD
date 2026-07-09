@@ -2,11 +2,10 @@
 
 #include <SFML/Window.hpp>
 #include <VkBootstrap.h>
-#include <volk.h>
-#include <vk_mem_alloc.h>
-
 #include <cstdint>
 #include <vector>
+#include <vk_mem_alloc.h>
+#include <volk.h>
 
 struct SwapchainData {
     vkb::Swapchain vkbSwapchain;
@@ -17,7 +16,7 @@ struct SwapchainData {
 };
 
 class VulkanContext {
-public:
+  public:
     static constexpr size_t kMaxFramesInFlight = 2;
 
     explicit VulkanContext(sf::Window& window);
@@ -40,19 +39,40 @@ public:
     void endFrameRecordingAndSubmit(size_t frameIndex, uint32_t imageIndex, VkCommandBuffer commandBuffer);
     bool present(uint32_t imageIndex) const;
 
-    VkInstance instance() const { return instance_; }
-    VkPhysicalDevice physicalDevice() const { return physicalDevice_; }
-    VkDevice device() const { return device_; }
-    VkQueue graphicsQueue() const { return graphicsQueue_; }
-    uint32_t graphicsQueueFamily() const { return graphicsQueueFamily_; }
-    VkDescriptorPool descriptorPool() const { return descriptorPool_; }
-    VmaAllocator allocator() const { return allocator_; }
-    VkCommandPool commandPool() const { return commandPool_; }
-    uint32_t swapchainImageCount() const { return swapchainData_.swapchainImageCount; }
-    VkExtent2D extent() const { return {currentWidth_, currentHeight_}; }
+    VkInstance instance() const {
+        return instance_;
+    }
+    VkPhysicalDevice physicalDevice() const {
+        return physicalDevice_;
+    }
+    VkDevice device() const {
+        return device_;
+    }
+    VkQueue graphicsQueue() const {
+        return graphicsQueue_;
+    }
+    uint32_t graphicsQueueFamily() const {
+        return graphicsQueueFamily_;
+    }
+    VkDescriptorPool descriptorPool() const {
+        return descriptorPool_;
+    }
+    VmaAllocator allocator() const {
+        return allocator_;
+    }
+    VkCommandPool commandPool() const {
+        return commandPool_;
+    }
+    uint32_t swapchainImageCount() const {
+        return swapchainData_.swapchainImageCount;
+    }
+    VkExtent2D extent() const {
+        return {currentWidth_, currentHeight_};
+    }
 
-private:
-    static SwapchainData createEngineSwapchain(vkb::Device& vkbDevice, uint32_t width, uint32_t height, VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
+  private:
+    static SwapchainData createEngineSwapchain(vkb::Device& vkbDevice, uint32_t width, uint32_t height,
+                                               VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
 
     void initializeInstanceAndDevice();
     void initializeAllocator();

@@ -6,7 +6,7 @@
 #include <memory>
 
 class PlatformRuntime {
-public:
+  public:
     PlatformRuntime();
     ~PlatformRuntime();
     void tick();
@@ -14,7 +14,7 @@ public:
     [[nodiscard]] IAchievementService& achievements();
     [[nodiscard]] ISaveSystem& saves();
 
-private:
+  private:
     std::unique_ptr<IAchievementService> achievementService_;
     std::unique_ptr<ISaveSystem> saveSystem_;
 };

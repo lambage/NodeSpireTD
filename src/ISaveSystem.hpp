@@ -5,7 +5,7 @@
 #include <vector>
 
 class ISaveSystem {
-public:
+  public:
     virtual ~ISaveSystem() = default;
 
     virtual bool saveSlot(const std::string& slotId, const std::vector<std::byte>& data) = 0;

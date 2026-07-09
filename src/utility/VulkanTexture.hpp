@@ -1,15 +1,14 @@
 #pragma once
 
+#include <filesystem>
 #include <imgui.h>
 #include <volk.h>
-
-#include <filesystem>
 
 typedef struct VmaAllocator_T* VmaAllocator;
 typedef struct VmaAllocation_T* VmaAllocation;
 
 class VulkanTexture {
-public:
+  public:
     VulkanTexture(VkDevice device, VmaAllocator allocator, VkCommandPool commandPool, VkQueue graphicsQueue);
     ~VulkanTexture();
 
@@ -27,7 +26,7 @@ public:
     [[nodiscard]] uint32_t height() const;
     [[nodiscard]] ImTextureRef textureRef() const;
 
-private:
+  private:
     void destroyInternal();
 
     VkDevice device_ = VK_NULL_HANDLE;

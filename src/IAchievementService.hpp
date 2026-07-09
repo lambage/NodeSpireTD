@@ -3,7 +3,7 @@
 #include <string_view>
 
 class IAchievementService {
-public:
+  public:
     virtual ~IAchievementService() = default;
 
     virtual bool unlockAchievement(std::string_view achievementId) = 0;

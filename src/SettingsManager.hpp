@@ -5,12 +5,12 @@
 #include <filesystem>
 
 class SettingsManager {
-public:
+  public:
     explicit SettingsManager(std::filesystem::path settingsFilePath = "config/settings.json");
 
     AppSettings loadOrCreateDefaults() const;
     bool save(const AppSettings& settings) const;
 
-private:
+  private:
     std::filesystem::path settingsFilePath_;
 };

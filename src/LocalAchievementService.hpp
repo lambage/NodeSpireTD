@@ -6,9 +6,9 @@
 #include <unordered_set>
 
 class LocalAchievementService : public IAchievementService {
-public:
+  public:
     bool unlockAchievement(std::string_view achievementId) override;
 
-private:
+  private:
     std::unordered_set<std::string> unlocked_;
 };
