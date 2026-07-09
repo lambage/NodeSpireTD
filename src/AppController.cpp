@@ -2,14 +2,21 @@
 
 #include "ImGuiLayer.hpp"
 #include "PlatformRuntime.hpp"
+#include "Scenes.hpp"
 #include "SettingsManager.hpp"
 #include "VulkanContext.hpp"
 
 #include <SFML/Window.hpp>
+#include <imgui.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
+#include <unordered_set>
+
+#include "scenes/IScene.hpp"
+#include "scenes/SceneSharedState.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -74,20 +81,128 @@ void applySystemDisplayMode(const AppSettings& settings) {
 #endif
 }
 
+std::vector<DisplayModeOption> refreshDisplayModeOptions() {
+    std::vector<DisplayModeOption> displayModes;
+
+#ifdef _WIN32
+    std::unordered_set<unsigned long long> dedup;
+    DEVMODEW mode{};
+    mode.dmSize = sizeof(DEVMODEW);
+    for (DWORD modeIndex = 0; EnumDisplaySettingsW(nullptr, modeIndex, &mode) != 0; ++modeIndex) {
+        if (mode.dmPelsWidth == 0 || mode.dmPelsHeight == 0 || mode.dmDisplayFrequency == 0) {
+            continue;
+        }
+
+        const unsigned long long key =
+            (static_cast<unsigned long long>(mode.dmPelsWidth) << 40) |
+            (static_cast<unsigned long long>(mode.dmPelsHeight) << 20) |
+            static_cast<unsigned long long>(mode.dmDisplayFrequency);
+
+        if (dedup.insert(key).second) {
+            displayModes.push_back({
+                static_cast<int>(mode.dmPelsWidth),
+                static_cast<int>(mode.dmPelsHeight),
+                static_cast<int>(mode.dmDisplayFrequency)
+            });
+        }
+    }
+#endif
+
+    if (displayModes.empty()) {
+        const auto& fullscreenModes = sf::VideoMode::getFullscreenModes();
+        for (const auto& mode : fullscreenModes) {
+            displayModes.push_back({
+                static_cast<int>(mode.size.x),
+                static_cast<int>(mode.size.y),
+                60
+            });
+        }
+    }
+
+    if (displayModes.empty()) {
+        displayModes.push_back({1280, 720, 60});
+    }
+
+    std::sort(displayModes.begin(), displayModes.end(), [](const DisplayModeOption& left, const DisplayModeOption& right) {
+        if (left.width != right.width) {
+            return left.width > right.width;
+        }
+        if (left.height != right.height) {
+            return left.height > right.height;
+        }
+        return left.refreshRate > right.refreshRate;
+    });
+
+    return displayModes;
+}
+
+int findDisplayModeIndexForSettings(const std::vector<DisplayModeOption>& displayModes, const AppSettings& settings) {
+    for (size_t i = 0; i < displayModes.size(); ++i) {
+        const DisplayModeOption& mode = displayModes[i];
+        if (mode.width == settings.displayWidth && mode.height == settings.displayHeight && mode.refreshRate == settings.refreshRate) {
+            return static_cast<int>(i);
+        }
+    }
+    return 0;
+}
+
+void renderSceneLoadingOverlay(ImGuiLayer& imguiLayer, const std::string& loadingMessage, float progress) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+    ImGui::SetNextWindowViewport(viewport->ID);
+
+    constexpr ImGuiWindowFlags loadingWindowFlags =
+        ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    ImGui::Begin("SceneLoading", nullptr, loadingWindowFlags);
+
+    if (imguiLayer.hasSplashTexture() && imguiLayer.splashTextureWidth() > 0 && imguiLayer.splashTextureHeight() > 0) {
+        const ImVec2 available = ImGui::GetContentRegionAvail();
+        const float scale = std::min(
+            available.x / static_cast<float>(imguiLayer.splashTextureWidth()),
+            available.y / static_cast<float>(imguiLayer.splashTextureHeight()));
+        const ImVec2 imageSize{
+            static_cast<float>(imguiLayer.splashTextureWidth()) * scale * 0.8f,
+            static_cast<float>(imguiLayer.splashTextureHeight()) * scale * 0.8f
+        };
+
+        const float cursorX = std::max(0.0f, (available.x - imageSize.x) * 0.5f);
+        const float cursorY = std::max(0.0f, (available.y - imageSize.y) * 0.35f);
+        ImGui::SetCursorPos(ImVec2(cursorX, cursorY));
+        ImGui::Image(imguiLayer.splashTextureRef(), imageSize);
+    }
+
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 110.0f);
+    ImGui::TextUnformatted(loadingMessage.c_str());
+
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 80.0f);
+    ImGui::ProgressBar(std::clamp(progress, 0.0f, 1.0f), ImVec2(-1.0f, 0.0f));
+
+    ImGui::End();
+}
+
 } // namespace
 
 int AppController::run() {
     try {
         PlatformRuntime platformRuntime;
         SettingsManager settingsManager;
+
         AppSettings activeSettings = sanitizeSettings(settingsManager.loadOrCreateDefaults());
+        AppSettings workingSettings = activeSettings;
+
+        std::vector<DisplayModeOption> displayModes = refreshDisplayModeOptions();
+        int selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
 
         sf::Window window;
-
         std::unique_ptr<VulkanContext> vulkanContext;
         std::unique_ptr<ImGuiLayer> imguiLayer;
 
-        auto rebuildRuntime = [&](const AppSettings& settings, bool openOptions, bool showDisplayConfirmation, float confirmationSeconds) {
+        auto rebuildRuntime = [&](const AppSettings& settings) {
             if (vulkanContext) {
                 vulkanContext->waitIdle();
             }
@@ -102,23 +217,21 @@ int AppController::run() {
             vulkanContext = std::make_unique<VulkanContext>(window);
             imguiLayer = std::make_unique<ImGuiLayer>();
             imguiLayer->initializeVulkanBackend(*vulkanContext);
-            imguiLayer->setSettings(settings);
-            imguiLayer->setLoadingComplete();
             imguiLayer->setDisplaySize(window.getSize().x, window.getSize().y);
-            imguiLayer->setDisplayConfirmationState(showDisplayConfirmation, confirmationSeconds);
-            if (openOptions) {
-                imguiLayer->openOptionsScene();
-            }
         };
 
-        rebuildRuntime(activeSettings, false, false, 0.0f);
+        rebuildRuntime(activeSettings);
 
-        sf::Clock deltaClock;
-        bool windowResized = false;
-        uint32_t resizedWidth = window.getSize().x;
-        uint32_t resizedHeight = window.getSize().y;
+        SceneGraph sceneGraph = createDefaultScenes();
+        SceneId currentSceneId = SceneId::Splash;
 
-        size_t currentFrame = 0;
+        struct PendingSceneTransition {
+            bool active = false;
+            SceneId targetSceneId = SceneId::MainMenu;
+            std::string loadingMessage;
+            float elapsedSeconds = 0.0f;
+            float minDurationSeconds = 0.6f;
+        };
 
         struct PendingDisplayConfirmation {
             bool active = false;
@@ -127,7 +240,55 @@ int AppController::run() {
             float secondsRemaining = 0.0f;
         };
 
+        PendingSceneTransition pendingSceneTransition;
         PendingDisplayConfirmation pendingDisplayConfirmation;
+
+        std::string activeLevelName = "Forest Outskirts";
+        bool loadingComplete = true;
+
+        auto makeSceneState = [&]() {
+            return SceneSharedState{
+                workingSettings,
+                displayModes,
+                selectedDisplayModeIndex,
+                pendingDisplayConfirmation.active,
+                pendingDisplayConfirmation.secondsRemaining,
+                loadingComplete,
+                activeLevelName,
+                imguiLayer->headingFont(),
+                imguiLayer->titleFont(),
+                imguiLayer->hasSplashTexture(),
+                imguiLayer->splashTextureWidth(),
+                imguiLayer->splashTextureHeight(),
+                imguiLayer->splashTextureRef()
+            };
+        };
+
+        auto enterScene = [&](SceneId nextSceneId) {
+            SceneSharedState state = makeSceneState();
+            auto currentSceneIt = sceneGraph.find(currentSceneId);
+            if (currentSceneIt != sceneGraph.end()) {
+                currentSceneIt->second->onExit(state);
+            }
+
+            currentSceneId = nextSceneId;
+
+            auto nextSceneIt = sceneGraph.find(currentSceneId);
+            if (nextSceneIt != sceneGraph.end()) {
+                nextSceneIt->second->onEnter(state);
+            }
+        };
+
+        if (auto initialSceneIt = sceneGraph.find(currentSceneId); initialSceneIt != sceneGraph.end()) {
+            SceneSharedState initialState = makeSceneState();
+            initialSceneIt->second->onEnter(initialState);
+        }
+
+        sf::Clock deltaClock;
+        bool windowResized = false;
+        uint32_t resizedWidth = window.getSize().x;
+        uint32_t resizedHeight = window.getSize().y;
+        size_t currentFrame = 0;
 
         while (window.isOpen()) {
             const float elapsedSeconds = deltaClock.restart().asSeconds();
@@ -141,21 +302,22 @@ int AppController::run() {
                 }
             }
 
-            imguiLayer->setDisplayConfirmationState(
-                pendingDisplayConfirmation.active,
-                pendingDisplayConfirmation.secondsRemaining);
-
             while (const std::optional<sf::Event> event = window.pollEvent()) {
                 if (event->is<sf::Event::Closed>()) {
                     window.close();
                     continue;
                 }
 
-                ImGuiLayer::EventResult eventResult = imguiLayer->processEvent(*event);
-                if (eventResult.resized) {
+                if (const auto* resized = event->getIf<sf::Event::Resized>()) {
                     windowResized = true;
-                    resizedWidth = eventResult.width;
-                    resizedHeight = eventResult.height;
+                    resizedWidth = resized->size.x;
+                    resizedHeight = resized->size.y;
+                    imguiLayer->setDisplaySize(resizedWidth, resizedHeight);
+                }
+
+                auto sceneIt = sceneGraph.find(currentSceneId);
+                if (sceneIt != sceneGraph.end()) {
+                    sceneIt->second->handleEvent(*event, *imguiLayer);
                 }
             }
 
@@ -177,10 +339,44 @@ int AppController::run() {
             }
 
             imguiLayer->beginFrame();
-            const ImGuiLayer::RenderResult uiResult = imguiLayer->renderSceneUi();
-            const AppSettings requestedSettings = sanitizeSettings(imguiLayer->settings());
 
-            if (uiResult.requestQuit) {
+            SceneFrameResult frameResult;
+            if (pendingSceneTransition.active) {
+                pendingSceneTransition.elapsedSeconds += elapsedSeconds;
+
+                const float progress = pendingSceneTransition.minDurationSeconds > 0.0f
+                    ? (pendingSceneTransition.elapsedSeconds / pendingSceneTransition.minDurationSeconds)
+                    : 1.0f;
+                renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, progress);
+
+                if (pendingSceneTransition.elapsedSeconds >= pendingSceneTransition.minDurationSeconds) {
+                    enterScene(pendingSceneTransition.targetSceneId);
+                    pendingSceneTransition = {};
+                }
+            } else {
+                SceneSharedState sceneState = makeSceneState();
+                auto sceneIt = sceneGraph.find(currentSceneId);
+                if (sceneIt != sceneGraph.end()) {
+                    frameResult = sceneIt->second->render(sceneState);
+                }
+
+                if (frameResult.requestTransition) {
+                    pendingSceneTransition.active = true;
+                    pendingSceneTransition.targetSceneId = frameResult.transitionTarget;
+                    pendingSceneTransition.loadingMessage =
+                        frameResult.transitionMessage.empty() ? "Loading..." : frameResult.transitionMessage;
+                    pendingSceneTransition.elapsedSeconds = 0.0f;
+                    pendingSceneTransition.minDurationSeconds = std::max(0.05f, frameResult.transitionMinDurationSeconds);
+
+                    renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, 0.0f);
+                }
+            }
+
+            imguiLayer->endFrame();
+
+            const AppSettings requestedSettings = sanitizeSettings(workingSettings);
+
+            if (frameResult.requestQuit) {
                 window.close();
             }
 
@@ -194,10 +390,12 @@ int AppController::run() {
 
             currentFrame = (currentFrame + 1) % VulkanContext::kMaxFramesInFlight;
 
-            if (uiResult.requestRevertDisplayChanges ||
+            if (frameResult.requestRevertDisplayChanges ||
                 (pendingDisplayConfirmation.active && pendingDisplayConfirmation.secondsRemaining <= 0.0f)) {
                 activeSettings = pendingDisplayConfirmation.previousSettings;
-                rebuildRuntime(activeSettings, true, false, 0.0f);
+                workingSettings = activeSettings;
+                selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
+                rebuildRuntime(activeSettings);
                 settingsManager.save(activeSettings);
 
                 pendingDisplayConfirmation = {};
@@ -208,14 +406,15 @@ int AppController::run() {
                 continue;
             }
 
-            if (uiResult.requestAcceptDisplayChanges && pendingDisplayConfirmation.active) {
+            if (frameResult.requestAcceptDisplayChanges && pendingDisplayConfirmation.active) {
                 activeSettings = pendingDisplayConfirmation.candidateSettings;
+                workingSettings = activeSettings;
+                selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
                 settingsManager.save(activeSettings);
                 pendingDisplayConfirmation = {};
-                imguiLayer->setDisplayConfirmationState(false, 0.0f);
             }
 
-            if (uiResult.requestApplySettings) {
+            if (frameResult.requestApplySettings) {
                 const bool displayChanges = hasDisplayChanges(activeSettings, requestedSettings);
                 if (displayChanges) {
                     PendingDisplayConfirmation nextConfirmation;
@@ -225,7 +424,9 @@ int AppController::run() {
                     nextConfirmation.secondsRemaining = 10.0f;
 
                     activeSettings = requestedSettings;
-                    rebuildRuntime(activeSettings, true, true, nextConfirmation.secondsRemaining);
+                    workingSettings = activeSettings;
+                    selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
+                    rebuildRuntime(activeSettings);
                     pendingDisplayConfirmation = nextConfirmation;
 
                     currentFrame = 0;
@@ -236,13 +437,13 @@ int AppController::run() {
                 }
 
                 activeSettings = requestedSettings;
+                workingSettings = activeSettings;
+                selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
                 window.setVerticalSyncEnabled(activeSettings.vSyncEnabled);
-                imguiLayer->setSettings(activeSettings);
                 settingsManager.save(activeSettings);
             }
         }
 
-        // Ensure all queued GPU work is done before ImGui backend destroys Vulkan objects.
         if (vulkanContext) {
             vulkanContext->waitIdle();
         }
