@@ -6,6 +6,8 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
+#include <filesystem>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -74,7 +76,8 @@ ImGuiKey ImGuiLayer::translateSfmlKeyToImGui(sf::Keyboard::Key key) {
 ImGuiLayer::ImGuiLayer() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGui::StyleColorsDark();
+    applyModernStyle();
+    loadUiFonts();
 
     refreshDisplayModeOptions();
     buildSceneGraph();
@@ -238,6 +241,99 @@ ImGuiLayer::RenderResult ImGuiLayer::renderSceneUi() {
 
 void ImGuiLayer::renderDrawData(VkCommandBuffer commandBuffer) {
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+}
+
+void ImGuiLayer::applyModernStyle() {
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    style.WindowRounding = 12.0f;
+    style.ChildRounding = 10.0f;
+    style.FrameRounding = 8.0f;
+    style.GrabRounding = 8.0f;
+    style.PopupRounding = 10.0f;
+    style.ScrollbarRounding = 8.0f;
+    style.TabRounding = 8.0f;
+
+    style.WindowBorderSize = 0.0f;
+    style.FrameBorderSize = 0.0f;
+    style.ChildBorderSize = 0.0f;
+    style.PopupBorderSize = 1.0f;
+
+    style.WindowPadding = ImVec2(14.0f, 12.0f);
+    style.FramePadding = ImVec2(12.0f, 8.0f);
+    style.ItemSpacing = ImVec2(10.0f, 10.0f);
+    style.ItemInnerSpacing = ImVec2(8.0f, 6.0f);
+
+    ImVec4* colors = style.Colors;
+    colors[ImGuiCol_Text] = ImVec4(0.93f, 0.94f, 0.97f, 1.0f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.55f, 0.58f, 0.63f, 1.0f);
+    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.07f, 0.09f, 1.0f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.09f, 0.10f, 0.13f, 1.0f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.10f, 0.11f, 0.14f, 0.98f);
+    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.24f, 0.30f, 0.70f);
+
+    colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.14f, 0.18f, 1.0f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.16f, 0.19f, 0.24f, 1.0f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.18f, 0.22f, 0.28f, 1.0f);
+
+    colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.10f, 0.12f, 1.0f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.10f, 0.12f, 1.0f);
+
+    colors[ImGuiCol_Button] = ImVec4(0.13f, 0.44f, 0.57f, 1.0f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.16f, 0.52f, 0.67f, 1.0f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.10f, 0.37f, 0.48f, 1.0f);
+
+    colors[ImGuiCol_Header] = ImVec4(0.13f, 0.44f, 0.57f, 0.55f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.16f, 0.52f, 0.67f, 0.70f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.10f, 0.37f, 0.48f, 0.90f);
+
+    colors[ImGuiCol_CheckMark] = ImVec4(0.43f, 0.80f, 0.90f, 1.0f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.40f, 0.76f, 0.86f, 1.0f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.29f, 0.64f, 0.74f, 1.0f);
+    colors[ImGuiCol_Separator] = ImVec4(0.25f, 0.28f, 0.33f, 0.90f);
+}
+
+void ImGuiLayer::loadUiFonts() {
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+
+    const std::array<const char*, 4> regularCandidates = {
+        "assets/fonts/Inter-Regular.ttf",
+        "assets/fonts/SegoeUI.ttf",
+        "assets/fonts/Roboto-Regular.ttf",
+        "assets/fonts/times.ttf"};
+    const std::array<const char*, 3> headingCandidates = {
+        "assets/fonts/Inter-Bold.ttf",
+        "assets/fonts/Inter-SemiBold.ttf",
+        "assets/fonts/timesbd.ttf"};
+
+    ImFont* regularFont = nullptr;
+    for (const char* candidate : regularCandidates) {
+        if (std::filesystem::exists(candidate)) {
+            regularFont = io.Fonts->AddFontFromFileTTF(candidate, 18.0f);
+            if (regularFont != nullptr) {
+                break;
+            }
+        }
+    }
+
+    for (const char* candidate : headingCandidates) {
+        if (std::filesystem::exists(candidate)) {
+            headingFont_ = io.Fonts->AddFontFromFileTTF(candidate, 26.0f);
+            if (headingFont_ != nullptr) {
+                break;
+            }
+        }
+    }
+
+    if (regularFont == nullptr) {
+        regularFont = io.Fonts->AddFontDefault();
+    }
+    if (headingFont_ == nullptr) {
+        headingFont_ = regularFont;
+    }
+
+    io.FontDefault = regularFont;
 }
 
 void ImGuiLayer::refreshDisplayModeOptions() {
@@ -486,28 +582,42 @@ ImGuiLayer::RenderResult ImGuiLayer::renderMainMenuScene() {
     RenderResult result;
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    const ImVec2 menuSize{340.0f, 280.0f};
+    const ImVec2 menuSize{420.0f, 320.0f};
     ImGui::SetNextWindowPos(ImVec2((displaySize.x - menuSize.x) * 0.5f, (displaySize.y - menuSize.y) * 0.5f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(menuSize, ImGuiCond_Always);
 
-    ImGui::Begin("Main Menu", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
-    ImGui::Spacing();
-    ImGui::TextUnformatted("NodeSpireTD");
-    ImGui::Separator();
-    ImGui::Spacing();
+    constexpr ImGuiWindowFlags menuFlags =
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoTitleBar;
+    ImGui::Begin("MainMenu", nullptr, menuFlags);
 
-    if (ImGui::Button("Play", ImVec2(-1.0f, 0.0f))) {
+    if (headingFont_ != nullptr) {
+        ImGui::PushFont(headingFont_);
+    }
+    ImGui::TextUnformatted("NodeSpireTD");
+    if (headingFont_ != nullptr) {
+        ImGui::PopFont();
+    }
+
+    ImGui::TextUnformatted("Deploy. Defend. Adapt.");
+    ImGui::Separator();
+    ImGui::BeginChild("MainMenuActions", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_NoScrollbar);
+
+    if (ImGui::Button("Play", ImVec2(-1.0f, 42.0f))) {
         queueSceneTransition("level_select", "Loading level selection...", 0.5f);
     }
 
-    if (ImGui::Button("Options", ImVec2(-1.0f, 0.0f))) {
+    if (ImGui::Button("Options", ImVec2(-1.0f, 42.0f))) {
         queueSceneTransition("options", "Loading options...", 0.3f);
     }
 
-    if (ImGui::Button("Quit", ImVec2(-1.0f, 0.0f))) {
+    if (ImGui::Button("Quit", ImVec2(-1.0f, 42.0f))) {
         result.requestQuit = true;
     }
 
+    ImGui::EndChild();
     ImGui::End();
     return result;
 }
@@ -516,12 +626,40 @@ ImGuiLayer::RenderResult ImGuiLayer::renderOptionsScene() {
     RenderResult result;
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    const ImVec2 optionsSize{500.0f, 400.0f};
+    const ImVec2 optionsSize{760.0f, 460.0f};
     ImGui::SetNextWindowPos(ImVec2((displaySize.x - optionsSize.x) * 0.5f, (displaySize.y - optionsSize.y) * 0.5f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(optionsSize, ImGuiCond_Always);
 
-    ImGui::Begin("Options", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+    constexpr ImGuiWindowFlags optionsFlags =
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoTitleBar;
+    ImGui::Begin("Options", nullptr, optionsFlags);
 
+    if (headingFont_ != nullptr) {
+        ImGui::PushFont(headingFont_);
+    }
+    ImGui::TextUnformatted("Settings");
+    if (headingFont_ != nullptr) {
+        ImGui::PopFont();
+    }
+
+    ImGui::Separator();
+
+    constexpr float sidebarWidth = 210.0f;
+    ImGui::BeginChild("OptionsSidebar", ImVec2(sidebarWidth, 0.0f), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::TextUnformatted("Categories");
+    ImGui::Separator();
+    ImGui::Selectable("Display", true);
+    ImGui::Selectable("Audio", true);
+    ImGui::Selectable("Gameplay", false);
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+    ImGui::BeginChild("OptionsContent", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_NoScrollbar);
+
+    ImGui::TextUnformatted("Display");
     ImGui::Checkbox("Fullscreen", &settings_.fullscreen);
     ImGui::Checkbox("V-Sync", &settings_.vSyncEnabled);
 
@@ -548,7 +686,7 @@ ImGuiLayer::RenderResult ImGuiLayer::renderOptionsScene() {
     ImGui::SliderInt("Graphics Quality", &settings_.graphicsQuality, 0, 3);
 
     ImGui::Separator();
-    ImGui::TextUnformatted("Sound");
+    ImGui::TextUnformatted("Audio");
     ImGui::SliderFloat("Master Volume", &settings_.masterVolume, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("Music Volume", &settings_.musicVolume, 0.0f, 1.0f, "%.2f");
     ImGui::SliderFloat("SFX Volume", &settings_.sfxVolume, 0.0f, 1.0f, "%.2f");
@@ -579,15 +717,16 @@ ImGuiLayer::RenderResult ImGuiLayer::renderOptionsScene() {
     }
 
     ImGui::Separator();
-    if (ImGui::Button("Apply", ImVec2(120.0f, 0.0f))) {
+    if (ImGui::Button("Apply", ImVec2(140.0f, 40.0f))) {
         result.requestApplySettings = true;
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Back", ImVec2(120.0f, 0.0f))) {
+    if (ImGui::Button("Back", ImVec2(140.0f, 40.0f))) {
         queueSceneTransition("main_menu", "Returning to main menu...", 0.2f);
     }
 
+    ImGui::EndChild();
     ImGui::End();
     return result;
 }
@@ -596,35 +735,55 @@ ImGuiLayer::RenderResult ImGuiLayer::renderLevelSelectionScene() {
     RenderResult result;
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    const ImVec2 windowSize{560.0f, 400.0f};
+    const ImVec2 windowSize{820.0f, 480.0f};
     ImGui::SetNextWindowPos(ImVec2((displaySize.x - windowSize.x) * 0.5f, (displaySize.y - windowSize.y) * 0.5f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(windowSize, ImGuiCond_Always);
 
-    ImGui::Begin("Level Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+    constexpr ImGuiWindowFlags levelSelectFlags =
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoTitleBar;
+    ImGui::Begin("LevelSelection", nullptr, levelSelectFlags);
+
+    if (headingFont_ != nullptr) {
+        ImGui::PushFont(headingFont_);
+    }
+    ImGui::TextUnformatted("Mission Control");
+    if (headingFont_ != nullptr) {
+        ImGui::PopFont();
+    }
 
     ImGui::TextUnformatted("Select a mission profile");
     ImGui::Separator();
 
+    constexpr float missionListWidth = 260.0f;
+    ImGui::BeginChild("MissionList", ImVec2(missionListWidth, -56.0f), true, ImGuiWindowFlags_NoScrollbar);
     for (int i = 0; i < static_cast<int>(availableLevels_.size()); ++i) {
         const bool selected = (selectedLevelIndex_ == i);
         if (ImGui::Selectable(availableLevels_[i].c_str(), selected)) {
             selectedLevelIndex_ = i;
         }
     }
+    ImGui::EndChild();
 
-    ImGui::Spacing();
+    ImGui::SameLine();
+    ImGui::BeginChild("MissionDetails", ImVec2(0.0f, -56.0f), true, ImGuiWindowFlags_NoScrollbar);
+
     if (!availableLevels_.empty()) {
         activeLevelName_ = availableLevels_[selectedLevelIndex_];
-        ImGui::Text("Selected: %s", activeLevelName_.c_str());
+        ImGui::Text("Selected mission: %s", activeLevelName_.c_str());
+        ImGui::Spacing();
+        ImGui::TextWrapped("Scan complete. Terrain analytics, choke points, and enemy wave patterns are ready for deployment simulation.");
     }
+    ImGui::EndChild();
 
-    ImGui::Separator();
-    if (ImGui::Button("Load Level", ImVec2(140.0f, 0.0f))) {
+    if (ImGui::Button("Load Level", ImVec2(170.0f, 40.0f))) {
         queueSceneTransition("simulation", "Loading level: " + activeLevelName_ + "...", 1.2f);
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Back", ImVec2(120.0f, 0.0f))) {
+    if (ImGui::Button("Back", ImVec2(140.0f, 40.0f))) {
         queueSceneTransition("main_menu", "Returning to main menu...", 0.2f);
     }
 
@@ -640,11 +799,16 @@ void ImGuiLayer::renderSimulationScene() {
     }
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    const ImVec2 simulationSize{460.0f, 240.0f};
+    const ImVec2 simulationSize{560.0f, 280.0f};
     ImGui::SetNextWindowPos(ImVec2((displaySize.x - simulationSize.x) * 0.5f, (displaySize.y - simulationSize.y) * 0.5f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(simulationSize, ImGuiCond_Always);
 
-    ImGui::Begin("Simulation", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+    constexpr ImGuiWindowFlags simulationFlags =
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoTitleBar;
+    ImGui::Begin("Simulation", nullptr, simulationFlags);
     ImGui::Text("Running level: %s", activeLevelName_.c_str());
     ImGui::Separator();
     ImGui::Text("Returning to menu in %.1f seconds", std::max(0.0f, simulationRemainingSeconds_));

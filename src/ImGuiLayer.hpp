@@ -77,6 +77,9 @@ private:
 
     static ImGuiKey translateSfmlKeyToImGui(sf::Keyboard::Key key);
 
+    void applyModernStyle();
+    void loadUiFonts();
+
     void refreshDisplayModeOptions();
     int findDisplayModeIndexForSettings(const AppSettings& settings) const;
     std::string modeLabel(const DisplayModeOption& mode) const;
@@ -97,6 +100,7 @@ private:
 
     AppSettings settings_;
     std::optional<VulkanTexture> splashTexture_;
+    ImFont* headingFont_ = nullptr;
 
     bool loadingComplete_ = false;
     float splashElapsedSeconds_ = 0.0f;
