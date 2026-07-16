@@ -69,6 +69,15 @@ class VulkanContext {
     VkExtent2D extent() const {
         return {currentWidth_, currentHeight_};
     }
+    VkFormat swapchainColorFormat() const {
+        return VK_FORMAT_B8G8R8A8_UNORM;
+    }
+    VkFormat depthFormat() const {
+        return kDepthFormat;
+    }
+    VkImageView depthImageView() const {
+        return depthImageView_;
+    }
 
   private:
     static SwapchainData createEngineSwapchain(vkb::Device& vkbDevice, uint32_t width, uint32_t height,
@@ -79,6 +88,7 @@ class VulkanContext {
     void initializeDescriptorPool();
     void initializeSwapchainAndCommands();
     void initializeSyncObjects();
+    void createDepthResources();
     void destroySwapchainDependentResources();
 
     sf::Window& window_;
@@ -102,6 +112,12 @@ class VulkanContext {
     SwapchainData swapchainData_;
     uint32_t currentWidth_ = 1280;
     uint32_t currentHeight_ = 720;
+
+    static constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
+
+    VkImage depthImage_ = VK_NULL_HANDLE;
+    VmaAllocation depthAllocation_ = nullptr;
+    VkImageView depthImageView_ = VK_NULL_HANDLE;
 
     VkCommandPool commandPool_ = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers_;

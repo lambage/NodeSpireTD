@@ -40,7 +40,7 @@ SceneFrameResult LevelSelectionScene::render(SceneSharedState& state) {
     ImGui::BeginChild("MissionList", ImVec2(missionListWidth, -56.0f), true, ImGuiWindowFlags_NoScrollbar);
     for (int i = 0; i < static_cast<int>(availableLevels_.size()); ++i) {
         const bool selected = (selectedLevelIndex_ == i);
-        if (ImGui::Selectable(availableLevels_[i].c_str(), selected)) {
+        if (ImGui::Selectable(availableLevels_[i].name.c_str(), selected)) {
             selectedLevelIndex_ = i;
         }
     }
@@ -48,18 +48,21 @@ SceneFrameResult LevelSelectionScene::render(SceneSharedState& state) {
 
     ImGui::SameLine();
     ImGui::BeginChild("MissionDetails", ImVec2(0.0f, -56.0f), true, ImGuiWindowFlags_NoScrollbar);
-    state.activeLevelName = availableLevels_[selectedLevelIndex_];
+    state.activeLevelName = availableLevels_[selectedLevelIndex_].name;
+    state.activeLevelAssetPath = availableLevels_[selectedLevelIndex_].assetPath.string();
     ImGui::Text("Selected mission: %s", state.activeLevelName.c_str());
     ImGui::Spacing();
     ImGui::TextWrapped("Scan complete. Terrain analytics, choke points, and enemy wave "
                        "patterns are ready for deployment simulation.");
+    ImGui::Spacing();
+    ImGui::TextWrapped("Asset source: %s", state.activeLevelAssetPath.c_str());
     ImGui::EndChild();
 
     if (ImGui::Button("Load Level", ImVec2(170.0f, 40.0f))) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::PlayLevel;
         result.transitionMessage = "Loading level: " + state.activeLevelName + "...";
-        result.transitionMinDurationSeconds = 1.2f;
+        result.transitionMinDurationSeconds = 0.25f;
     }
 
     ImGui::SameLine();

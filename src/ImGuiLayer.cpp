@@ -135,10 +135,12 @@ void ImGuiLayer::initializeVulkanBackend(const VulkanContext& context) {
     io.DisplaySize = ImVec2(static_cast<float>(context.extent().width), static_cast<float>(context.extent().height));
 
     VkFormat colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    VkFormat depthFormat = context.depthFormat();
     VkPipelineRenderingCreateInfo renderingCreateInfo{};
     renderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     renderingCreateInfo.colorAttachmentCount = 1;
     renderingCreateInfo.pColorAttachmentFormats = &colorFormat;
+    renderingCreateInfo.depthAttachmentFormat = depthFormat;
 
     ImGui_ImplVulkan_InitInfo initInfo{};
     initInfo.Instance = context.instance();

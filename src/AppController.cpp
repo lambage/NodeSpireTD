@@ -230,6 +230,7 @@ int AppController::run() {
         PendingDisplayConfirmation pendingDisplayConfirmation;
 
         std::string activeLevelName = "Forest Outskirts";
+        std::string activeLevelAssetPath = "assets/terrain/Terrain003_4K.obj";
         bool loadingComplete = true;
 
         auto makeSceneState = [&]() {
@@ -240,6 +241,8 @@ int AppController::run() {
                                     pendingDisplayConfirmation.secondsRemaining,
                                     loadingComplete,
                                     activeLevelName,
+                                    activeLevelAssetPath,
+                                    vulkanContext.get(),
                                     imguiLayer->headingFont(),
                                     imguiLayer->titleFont(),
                                     imguiLayer->hasSplashTexture(),
@@ -367,6 +370,15 @@ int AppController::run() {
             }
 
             VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(currentFrame, imageIndex);
+
+            // 3-D world pass (before ImGui, so HUD overlays geometry)
+            {
+                auto sceneIt = sceneGraph.find(currentSceneId);
+                if (sceneIt != sceneGraph.end()) {
+                    sceneIt->second->renderWorld(commandBuffer, vulkanContext->extent());
+                }
+            }
+
             imguiLayer->renderDrawData(commandBuffer);
             vulkanContext->endFrameRecordingAndSubmit(currentFrame, imageIndex, commandBuffer);
 

@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+class VulkanContext;
+
 struct DisplayModeOption {
     int width = 1280;
     int height = 720;
@@ -20,6 +22,8 @@ struct SceneSharedState {
     float displayConfirmationSecondsRemaining = 0.0f;
     bool loadingComplete = false;
     std::string& activeLevelName;
+    std::string& activeLevelAssetPath;
+    VulkanContext* vulkanContext = nullptr;
     ImFont* headingFont = nullptr;
     ImFont* titleFont = nullptr;
     bool hasSplashTexture = false;

@@ -10,6 +10,7 @@ add_executable(NodeSpireTD
     Scenes.cpp
     VulkanContext.cpp
     utility/VulkanTexture.cpp
+    utility/WorldRenderer.cpp
     ImGuiLayer.cpp
 
     scenes/GameScene.cpp
@@ -43,14 +44,42 @@ target_include_directories(NodeSpireTD PRIVATE
 )
 
 target_link_libraries(NodeSpireTD PRIVATE 
+    glm::glm
+    nlohmann_json::nlohmann_json
+    fastgltf
     sfml-graphics
     sfml-audio
     sfml-window
     sfml-system
     spdlog::spdlog
-    Vulkan::Vulkan
-    glm::glm
     volk
     vk-bootstrap
-    nlohmann_json::nlohmann_json
+    Vulkan::Vulkan
 )
+
+# ── Shader compilation ─────────────────────────────────────────────────────────
+find_program(GLSLC_EXECUTABLE NAMES glslc
+    HINTS "${VULKAN_SDK_PATH}/Bin" "$ENV{VULKAN_SDK}/Bin"
+)
+
+if(GLSLC_EXECUTABLE)
+    set(SHADER_SRC "${CMAKE_SOURCE_DIR}/assets/shaders")
+    add_custom_command(
+        OUTPUT
+            "${SHADER_SRC}/mesh.vert.spv"
+            "${SHADER_SRC}/mesh.frag.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.vert" -o "${SHADER_SRC}/mesh.vert.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.frag" -o "${SHADER_SRC}/mesh.frag.spv"
+        DEPENDS
+            "${SHADER_SRC}/mesh.vert"
+            "${SHADER_SRC}/mesh.frag"
+        COMMENT "Compiling mesh shaders"
+    )
+    add_custom_target(MeshShaders DEPENDS
+        "${SHADER_SRC}/mesh.vert.spv"
+        "${SHADER_SRC}/mesh.frag.spv"
+    )
+    add_dependencies(NodeSpireTD MeshShaders)
+else()
+    message(WARNING "glslc not found — pre-compile mesh.vert/frag to .spv manually and place in assets/shaders/")
+endif()

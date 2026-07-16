@@ -5,6 +5,7 @@
 
 #include <SFML/Window/Event.hpp>
 #include <string>
+#include <volk.h>
 
 enum class SceneId {
     Splash,
@@ -35,4 +36,8 @@ class IScene {
 
     virtual void handleEvent(const sf::Event& event, ImGuiLayer& imguiLayer) = 0;
     virtual SceneFrameResult render(SceneSharedState& state) = 0;
+
+    // Called each frame with the active command buffer (inside vkCmdBeginRendering)
+    // before ImGui is rendered. Override in 3D game scenes.
+    virtual void renderWorld(VkCommandBuffer /*cmd*/, VkExtent2D /*extent*/) {}
 };

@@ -227,6 +227,8 @@ void VulkanContext::initializeSwapchainAndCommands() {
     if (vkAllocateCommandBuffers(device_, &allocInfo, commandBuffers_.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers.");
     }
+
+    createDepthResources();
 }
 
 void VulkanContext::initializeSyncObjects() {
@@ -253,7 +255,54 @@ void VulkanContext::initializeSyncObjects() {
     imagesInFlight_.assign(swapchainData_.swapchainImageCount, VK_NULL_HANDLE);
 }
 
+void VulkanContext::createDepthResources() {
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = kDepthFormat;
+    imageInfo.extent = {currentWidth_, currentHeight_, 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+    if (vmaCreateImage(allocator_, &imageInfo, &allocInfo, &depthImage_, &depthAllocation_, nullptr) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create depth image.");
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = depthImage_;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = kDepthFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device_, &viewInfo, nullptr, &depthImageView_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create depth image view.");
+    }
+}
+
 void VulkanContext::destroySwapchainDependentResources() {
+    if (depthImageView_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(device_, depthImageView_, nullptr);
+        depthImageView_ = VK_NULL_HANDLE;
+    }
+    if (depthImage_ != VK_NULL_HANDLE) {
+        vmaDestroyImage(allocator_, depthImage_, depthAllocation_);
+        depthImage_ = VK_NULL_HANDLE;
+        depthAllocation_ = nullptr;
+    }
+
     for (VkSemaphore semaphore : renderFinishedSemaphores_) {
         vkDestroySemaphore(device_, semaphore, nullptr);
     }
@@ -284,6 +333,8 @@ bool VulkanContext::recreateSwapchain(uint32_t width, uint32_t height) {
     const VkSwapchainKHR oldSwapchain = swapchainData_.swapchain;
 
     swapchainData_ = createEngineSwapchain(vkbDevice_, width, height, oldSwapchain);
+
+    createDepthResources();
 
     for (VkImageView view : oldViews) {
         vkDestroyImageView(device_, view, nullptr);
@@ -368,11 +419,33 @@ VkCommandBuffer VulkanContext::beginFrameRecording(size_t frameIndex, uint32_t i
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.clearValue = clearColor;
 
+    // Transition depth image to depth attachment layout
+    VkImageMemoryBarrier depthBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    depthBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthBarrier.image = depthImage_;
+    depthBarrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    depthBarrier.srcAccessMask = 0;
+    depthBarrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer,
+                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                         0, 0, nullptr, 0, nullptr, 1, &depthBarrier);
+
+    VkRenderingAttachmentInfo depthAttachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depthAttachment.imageView = depthImageView_;
+    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.clearValue.depthStencil = {1.0f, 0};
+
     VkRenderingInfo renderingInfo{VK_STRUCTURE_TYPE_RENDERING_INFO};
     renderingInfo.renderArea = {{0, 0}, {currentWidth_, currentHeight_}};
     renderingInfo.layerCount = 1;
     renderingInfo.colorAttachmentCount = 1;
     renderingInfo.pColorAttachments = &colorAttachment;
+    renderingInfo.pDepthAttachment = &depthAttachment;
 
     vkCmdBeginRendering(commandBuffer, &renderingInfo);
 
