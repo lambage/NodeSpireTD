@@ -24,7 +24,7 @@ struct SceneFrameResult {
     bool requestTransition = false;
     SceneId transitionTarget = SceneId::MainMenu;
     std::string transitionMessage{};
-    float transitionMinDurationSeconds = 0.6f;
+    float transitionMinDurationSeconds = 0.0f;
 };
 
 class IScene {

@@ -184,7 +184,7 @@ SceneFrameResult PlayLevelScene::render(SceneSharedState& state) {
         result.requestTransition = true;
         result.transitionTarget  = SceneId::LevelSelection;
         result.transitionMessage = "Returning to mission select...";
-        result.transitionMinDurationSeconds = 0.2f;
+        result.transitionMinDurationSeconds = 0.0f;
     }
 
     ImGui::End();

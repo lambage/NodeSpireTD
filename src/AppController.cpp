@@ -349,15 +349,20 @@ int AppController::run() {
                 }
 
                 if (frameResult.requestTransition) {
-                    pendingSceneTransition.active = true;
-                    pendingSceneTransition.targetSceneId = frameResult.transitionTarget;
-                    pendingSceneTransition.loadingMessage =
-                        frameResult.transitionMessage.empty() ? "Loading..." : frameResult.transitionMessage;
-                    pendingSceneTransition.elapsedSeconds = 0.0f;
-                    pendingSceneTransition.minDurationSeconds =
-                        std::max(0.05f, frameResult.transitionMinDurationSeconds);
+                    if (frameResult.transitionMinDurationSeconds <= 0.0f) {
+                        // Instant — enter the new scene this frame with no overlay
+                        enterScene(frameResult.transitionTarget);
+                    } else {
+                        pendingSceneTransition.active = true;
+                        pendingSceneTransition.targetSceneId = frameResult.transitionTarget;
+                        pendingSceneTransition.loadingMessage =
+                            frameResult.transitionMessage.empty() ? "Loading..." : frameResult.transitionMessage;
+                        pendingSceneTransition.elapsedSeconds = 0.0f;
+                        pendingSceneTransition.minDurationSeconds =
+                            frameResult.transitionMinDurationSeconds;
 
-                    renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, 0.0f);
+                        renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, 0.0f);
+                    }
                 }
             }
 

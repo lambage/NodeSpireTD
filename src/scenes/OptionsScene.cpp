@@ -95,7 +95,7 @@ SceneFrameResult OptionsScene::render(SceneSharedState& state) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::MainMenu;
         result.transitionMessage = "Returning to main menu...";
-        result.transitionMinDurationSeconds = 0.2f;
+        result.transitionMinDurationSeconds = 0.0f;
     }
 
     ImGui::End();

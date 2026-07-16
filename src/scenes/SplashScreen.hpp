@@ -13,6 +13,6 @@ class SplashScene final : public GameScene {
     SceneFrameResult render(SceneSharedState& state) override;
 
   private:
-    static constexpr float kMinimumSplashSeconds = 1.5f;
+    static constexpr float kMinimumSplashSeconds = 3.0f;
     float elapsedSeconds_ = 0.0f;
 };

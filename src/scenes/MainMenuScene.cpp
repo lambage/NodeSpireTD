@@ -36,14 +36,14 @@ SceneFrameResult MainMenuScene::render(SceneSharedState& state) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::LevelSelection;
         result.transitionMessage = "Loading level selection...";
-        result.transitionMinDurationSeconds = 0.5f;
+        result.transitionMinDurationSeconds = 0.0f;
     }
 
     if (ImGui::Button("Options", ImVec2(-1.0f, 42.0f))) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::Options;
         result.transitionMessage = "Loading options...";
-        result.transitionMinDurationSeconds = 0.3f;
+        result.transitionMinDurationSeconds = 0.0f;
     }
 
     if (ImGui::Button("Quit", ImVec2(-1.0f, 42.0f))) {

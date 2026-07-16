@@ -62,7 +62,7 @@ SceneFrameResult LevelSelectionScene::render(SceneSharedState& state) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::PlayLevel;
         result.transitionMessage = "Loading level: " + state.activeLevelName + "...";
-        result.transitionMinDurationSeconds = 0.25f;
+        result.transitionMinDurationSeconds = 0.0f;
     }
 
     ImGui::SameLine();
@@ -70,7 +70,7 @@ SceneFrameResult LevelSelectionScene::render(SceneSharedState& state) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::MainMenu;
         result.transitionMessage = "Returning to main menu...";
-        result.transitionMinDurationSeconds = 0.2f;
+        result.transitionMinDurationSeconds = 0.0f;
     }
 
     ImGui::End();

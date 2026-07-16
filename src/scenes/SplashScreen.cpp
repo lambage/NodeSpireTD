@@ -66,7 +66,7 @@ SceneFrameResult SplashScene::render(SceneSharedState& state) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::MainMenu;
         result.transitionMessage = "Loading main menu...";
-        result.transitionMinDurationSeconds = 0.3f;
+        result.transitionMinDurationSeconds = 0.0f;
     }
 
     return result;
