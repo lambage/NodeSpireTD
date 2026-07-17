@@ -90,3 +90,6 @@ external/
 *.glb
 *.spv
 *.blend
+
+.github/*
+
