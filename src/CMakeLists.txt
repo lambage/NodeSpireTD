@@ -47,6 +47,7 @@ target_link_libraries(NodeSpireTD PRIVATE
     glm::glm
     nlohmann_json::nlohmann_json
     fastgltf
+    lua
     sfml-graphics
     sfml-audio
     sfml-window

@@ -2,6 +2,8 @@
 
 #include "utility/VulkanTexture.hpp"
 
+#include "lua.hpp"
+
 #include <SFML/Window.hpp>
 #include <cstdint>
 #include <imgui.h>
@@ -12,7 +14,7 @@ class VulkanContext;
 
 class ImGuiLayer {
   public:
-    ImGuiLayer();
+    ImGuiLayer(lua_State* L);
     ~ImGuiLayer();
 
     ImGuiLayer(const ImGuiLayer&) = delete;
@@ -46,6 +48,7 @@ class ImGuiLayer {
     void applyModernStyle();
     void loadUiFonts();
 
+    lua_State* L_ = nullptr;
     ImFont* headingFont_ = nullptr;
     ImFont* titleFont_ = nullptr;
     std::optional<VulkanTexture> splashTexture_;

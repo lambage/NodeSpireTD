@@ -101,6 +101,33 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(fastgltf)
 
+FetchContent_Declare(
+    luasrc
+    GIT_REPOSITORY https://github.com/lua/lua.git
+    GIT_TAG        v5.5.0
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(luasrc)
+
+file(GLOB LUA_SOURCES "${luasrc_SOURCE_DIR}/*.c")
+list(REMOVE_ITEM LUA_SOURCES 
+    "${luasrc_SOURCE_DIR}/lua.c" 
+    "${luasrc_SOURCE_DIR}/luac.c"
+    "${luasrc_SOURCE_DIR}/onelua.c"
+)
+
+# Compile Lua as a static library
+add_library(lua STATIC ${LUA_SOURCES})
+
+# Target configuration
+target_include_directories(lua PUBLIC "${luasrc_SOURCE_DIR}")
+
+# Required for Linux/macOS systems to link system math and dynamic loading utilities
+if(UNIX)
+    target_link_libraries(lua PRIVATE m dl)
+endif()
+
 add_subdirectory(src)
 
 

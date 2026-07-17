@@ -5,10 +5,9 @@
 
 #include <spdlog/spdlog.h>
 
-PlatformRuntime::PlatformRuntime() {
-    achievementService_ = std::make_unique<LocalAchievementService>();
-    saveSystem_ = std::make_unique<LocalFileSaveSystem>();
-
+PlatformRuntime::PlatformRuntime(lua_State* L)
+    : achievementService_{std::make_unique<LocalAchievementService>()},
+      saveSystem_{std::make_unique<LocalFileSaveSystem>()}, L_(L) {
     spdlog::info("Platform runtime initialized with local services.");
 }
 

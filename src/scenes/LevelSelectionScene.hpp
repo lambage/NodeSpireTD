@@ -2,12 +2,15 @@
 
 #include "scenes/GameScene.hpp"
 
+#include "lua.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
 
 class LevelSelectionScene final : public GameScene {
   public:
+    LevelSelectionScene(lua_State* L) : GameScene(L) {}
     ~LevelSelectionScene();
 
     void onEnter(SceneSharedState&) override;

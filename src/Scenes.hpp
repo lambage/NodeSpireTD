@@ -2,6 +2,8 @@
 
 #include "scenes/IScene.hpp"
 
+#include "lua.hpp"
+
 #include <SFML/Window/Event.hpp>
 #include <imgui.h>
 #include <memory>
@@ -15,4 +17,4 @@ struct SceneIdHash {
 
 using SceneGraph = std::unordered_map<SceneId, std::unique_ptr<IScene>, SceneIdHash>;
 
-SceneGraph createDefaultScenes();
+SceneGraph createDefaultScenes(lua_State* L);

@@ -118,7 +118,7 @@ ImGuiKey ImGuiLayer::translateSfmlKeyToImGui(sf::Keyboard::Key key) {
     }
 }
 
-ImGuiLayer::ImGuiLayer() {
+ImGuiLayer::ImGuiLayer(lua_State* L) : L_(L) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     applyModernStyle();

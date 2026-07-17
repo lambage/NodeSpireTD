@@ -3,7 +3,10 @@
 #include "ImGuiLayer.hpp"
 #include "scenes/SceneSharedState.hpp"
 
+#include "lua.hpp"
+
 #include <SFML/Window/Event.hpp>
+#include <lua.h>
 #include <string>
 #include <volk.h>
 
@@ -29,6 +32,7 @@ struct SceneFrameResult {
 
 class IScene {
   public:
+    IScene(lua_State* L) : L_(L) {}
     virtual ~IScene() = default;
 
     virtual void onEnter(SceneSharedState&) = 0;
@@ -40,4 +44,7 @@ class IScene {
     // Called each frame with the active command buffer (inside vkCmdBeginRendering)
     // before ImGui is rendered. Override in 3D game scenes.
     virtual void renderWorld(VkCommandBuffer /*cmd*/, VkExtent2D /*extent*/) {}
+
+  protected:
+    lua_State* L_ = nullptr;
 };

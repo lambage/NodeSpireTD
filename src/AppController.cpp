@@ -175,7 +175,7 @@ void renderSceneLoadingOverlay(ImGuiLayer& imguiLayer, const std::string& loadin
 
 int AppController::run() {
     try {
-        PlatformRuntime platformRuntime;
+        PlatformRuntime platformRuntime{L_};
         SettingsManager settingsManager;
 
         AppSettings activeSettings = sanitizeSettings(settingsManager.loadOrCreateDefaults());
@@ -201,14 +201,14 @@ int AppController::run() {
             window.setVerticalSyncEnabled(settings.vSyncEnabled);
 
             vulkanContext = std::make_unique<VulkanContext>(window);
-            imguiLayer = std::make_unique<ImGuiLayer>();
+            imguiLayer = std::make_unique<ImGuiLayer>(L_);
             imguiLayer->initializeVulkanBackend(*vulkanContext);
             imguiLayer->setDisplaySize(window.getSize().x, window.getSize().y);
         };
 
         rebuildRuntime(activeSettings);
 
-        SceneGraph sceneGraph = createDefaultScenes();
+        SceneGraph sceneGraph = createDefaultScenes(L_);
         SceneId currentSceneId = SceneId::Splash;
 
         struct PendingSceneTransition {
