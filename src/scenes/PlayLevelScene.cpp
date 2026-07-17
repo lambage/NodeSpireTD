@@ -126,7 +126,7 @@ SceneFrameResult PlayLevelScene::render(SceneSharedState& state) {
         const std::string act     = worldRenderer_->loadActivity();
 
         constexpr float panelW = 600.0f;
-        constexpr float panelH = 140.0f;
+        constexpr float panelH = 160.0f;
         ImGui::SetNextWindowPos(ImVec2((displaySize.x - panelW) * 0.5f,
                                        (displaySize.y - panelH) * 0.5f), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(panelW, panelH), ImGuiCond_Always);

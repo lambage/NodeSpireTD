@@ -8,6 +8,7 @@
 #include <SFML/Graphics/Image.hpp>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <mutex>
 #include <set>
 #include <spdlog/spdlog.h>
@@ -391,83 +392,135 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
 
     if (cancelLoad_.load()) return;
 
-    // ── 4. Build mesh CPU data ────────────────────────────────────────────
+    // ── 4. Build mesh CPU data by traversing scene graph ─────────────────
     setActivity(0.60f, "Processing geometry...");
 
     std::size_t meshCount = 0;
-    for (const auto& mesh : asset.meshes) {
-        for (const auto& primitive : mesh.primitives) {
-            if (meshCount >= kMaxMeshes) break;
-            if (primitive.type != fastgltf::PrimitiveType::Triangles) continue;
-            if (!primitive.indicesAccessor.has_value()) continue;
 
-            auto posIt = primitive.findAttribute("POSITION");
-            if (posIt == primitive.attributes.end()) continue;
-
-            auto& posAccessor      = asset.accessors[posIt->accessorIndex];
-            const size_t vertCount = posAccessor.count;
-            if (vertCount == 0) continue;
-
-            std::vector<glm::vec3> positions(vertCount);
-            std::vector<glm::vec3> normals(vertCount, {0.0f, 1.0f, 0.0f});
-            std::vector<glm::vec2> uvs(vertCount, {0.0f, 0.0f});
-
-            fastgltf::copyFromAccessor<glm::vec3>(asset, posAccessor, positions.data());
-
-            auto normIt = primitive.findAttribute("NORMAL");
-            if (normIt != primitive.attributes.end())
-                fastgltf::copyFromAccessor<glm::vec3>(asset, asset.accessors[normIt->accessorIndex], normals.data());
-
-            auto uvIt = primitive.findAttribute("TEXCOORD_0");
-            if (uvIt != primitive.attributes.end())
-                fastgltf::copyFromAccessor<glm::vec2>(asset, asset.accessors[uvIt->accessorIndex], uvs.data());
-
-            std::vector<WorldVertex> vertices(vertCount);
-            for (size_t i = 0; i < vertCount; ++i) {
-                vertices[i].position = positions[i];
-                vertices[i].normal   = normals[i];
-                vertices[i].uv       = uvs[i];
+    // Convert a fastgltf node's local transform to a glm::mat4
+    auto nodeLocalTransform = [](const fastgltf::Node& node) -> glm::mat4 {
+        return std::visit(fastgltf::visitor{
+            [](const fastgltf::TRS& trs) -> glm::mat4 {
+                const glm::mat4 T = glm::translate(glm::mat4{1.0f},
+                    glm::vec3(trs.translation.x(), trs.translation.y(), trs.translation.z()));
+                // fastgltf quat is stored X,Y,Z,W; glm::quat(w,x,y,z)
+                const glm::quat R{trs.rotation.w(), trs.rotation.x(),
+                                  trs.rotation.y(), trs.rotation.z()};
+                const glm::mat4 S = glm::scale(glm::mat4{1.0f},
+                    glm::vec3(trs.scale.x(), trs.scale.y(), trs.scale.z()));
+                return T * glm::mat4_cast(R) * S;
+            },
+            [](const fastgltf::math::fmat4x4& mat) -> glm::mat4 {
+                glm::mat4 result;
+                std::memcpy(&result, mat.data(), sizeof(glm::mat4));
+                return result;
             }
+        }, node.transform);
+    };
 
-            auto& idxAccessor = asset.accessors[*primitive.indicesAccessor];
-            std::vector<uint32_t> indices(idxAccessor.count);
-            switch (idxAccessor.componentType) {
-                case fastgltf::ComponentType::UnsignedByte: {
-                    std::vector<uint8_t> tmp(idxAccessor.count);
-                    fastgltf::copyFromAccessor<uint8_t>(asset, idxAccessor, tmp.data());
-                    for (size_t i = 0; i < tmp.size(); ++i) indices[i] = tmp[i];
-                    break;
-                }
-                case fastgltf::ComponentType::UnsignedShort: {
-                    std::vector<uint16_t> tmp(idxAccessor.count);
-                    fastgltf::copyFromAccessor<uint16_t>(asset, idxAccessor, tmp.data());
-                    for (size_t i = 0; i < tmp.size(); ++i) indices[i] = tmp[i];
-                    break;
-                }
-                default:
-                    fastgltf::copyFromAccessor<uint32_t>(asset, idxAccessor, indices.data());
-                    break;
-            }
+    // Process a single primitive with its resolved world transform
+    auto processPrimitive = [&](const fastgltf::Primitive& primitive,
+                                const glm::mat4& worldTransform) {
+        if (meshCount >= kMaxMeshes) return;
+        if (primitive.type != fastgltf::PrimitiveType::Triangles) return;
+        if (!primitive.indicesAccessor.has_value()) return;
 
-            // Resolve material → image index
-            std::size_t imgIdx = SIZE_MAX;
-            if (primitive.materialIndex.has_value()) {
-                const auto& mat = asset.materials[*primitive.materialIndex];
-                if (mat.pbrData.baseColorTexture.has_value()) {
-                    const auto tIdx = mat.pbrData.baseColorTexture->textureIndex;
-                    if (tIdx < asset.textures.size() && asset.textures[tIdx].imageIndex.has_value())
-                        imgIdx = *asset.textures[tIdx].imageIndex;
-                }
-            }
+        auto posIt = primitive.findAttribute("POSITION");
+        if (posIt == primitive.attributes.end()) return;
 
-            StagedMesh sm;
-            sm.vertices   = std::move(vertices);
-            sm.indices    = std::move(indices);
-            sm.imageIndex = imgIdx;
-            stagedMeshes_.push_back(std::move(sm));
-            ++meshCount;
+        auto& posAccessor      = asset.accessors[posIt->accessorIndex];
+        const size_t vertCount = posAccessor.count;
+        if (vertCount == 0) return;
+
+        std::vector<glm::vec3> positions(vertCount);
+        std::vector<glm::vec3> normals(vertCount, {0.0f, 1.0f, 0.0f});
+        std::vector<glm::vec2> uvs(vertCount, {0.0f, 0.0f});
+
+        fastgltf::copyFromAccessor<glm::vec3>(asset, posAccessor, positions.data());
+
+        auto normIt = primitive.findAttribute("NORMAL");
+        if (normIt != primitive.attributes.end())
+            fastgltf::copyFromAccessor<glm::vec3>(asset, asset.accessors[normIt->accessorIndex], normals.data());
+
+        auto uvIt = primitive.findAttribute("TEXCOORD_0");
+        if (uvIt != primitive.attributes.end())
+            fastgltf::copyFromAccessor<glm::vec2>(asset, asset.accessors[uvIt->accessorIndex], uvs.data());
+
+        std::vector<WorldVertex> vertices(vertCount);
+        for (size_t i = 0; i < vertCount; ++i) {
+            vertices[i].position = positions[i];
+            vertices[i].normal   = normals[i];
+            vertices[i].uv       = uvs[i];
         }
-        if (meshCount >= kMaxMeshes) break;
+
+        auto& idxAccessor = asset.accessors[*primitive.indicesAccessor];
+        std::vector<uint32_t> indices(idxAccessor.count);
+        switch (idxAccessor.componentType) {
+            case fastgltf::ComponentType::UnsignedByte: {
+                std::vector<uint8_t> tmp(idxAccessor.count);
+                fastgltf::copyFromAccessor<uint8_t>(asset, idxAccessor, tmp.data());
+                for (size_t i = 0; i < tmp.size(); ++i) indices[i] = tmp[i];
+                break;
+            }
+            case fastgltf::ComponentType::UnsignedShort: {
+                std::vector<uint16_t> tmp(idxAccessor.count);
+                fastgltf::copyFromAccessor<uint16_t>(asset, idxAccessor, tmp.data());
+                for (size_t i = 0; i < tmp.size(); ++i) indices[i] = tmp[i];
+                break;
+            }
+            default:
+                fastgltf::copyFromAccessor<uint32_t>(asset, idxAccessor, indices.data());
+                break;
+        }
+
+        // Resolve material → image index
+        std::size_t imgIdx = SIZE_MAX;
+        if (primitive.materialIndex.has_value()) {
+            const auto& mat = asset.materials[*primitive.materialIndex];
+            if (mat.pbrData.baseColorTexture.has_value()) {
+                const auto tIdx = mat.pbrData.baseColorTexture->textureIndex;
+                if (tIdx < asset.textures.size() && asset.textures[tIdx].imageIndex.has_value())
+                    imgIdx = *asset.textures[tIdx].imageIndex;
+            }
+        }
+
+        StagedMesh sm;
+        sm.vertices       = std::move(vertices);
+        sm.indices        = std::move(indices);
+        sm.imageIndex     = imgIdx;
+        sm.modelTransform = worldTransform;
+        stagedMeshes_.push_back(std::move(sm));
+        ++meshCount;
+    };
+
+    // Recursively visit scene nodes, accumulating the world transform
+    std::function<void(std::size_t, const glm::mat4&)> visitNode =
+        [&](std::size_t nodeIdx, const glm::mat4& parentWorld) {
+            if (cancelLoad_.load()) return;
+            if (meshCount >= kMaxMeshes) return;
+
+            const fastgltf::Node& node = asset.nodes[nodeIdx];
+            const glm::mat4 world = parentWorld * nodeLocalTransform(node);
+
+            if (node.meshIndex.has_value()) {
+                for (const auto& prim : asset.meshes[*node.meshIndex].primitives)
+                    processPrimitive(prim, world);
+            }
+
+            for (std::size_t childIdx : node.children)
+                visitNode(childIdx, world);
+        };
+
+    if (!asset.scenes.empty()) {
+        const std::size_t sceneIdx = asset.defaultScene.has_value() ? *asset.defaultScene : 0;
+        for (std::size_t rootIdx : asset.scenes[sceneIdx].nodeIndices) {
+            if (cancelLoad_.load()) break;
+            visitNode(rootIdx, glm::mat4{1.0f});
+        }
+    } else {
+        // No scene defined — visit every node (may double-count children, but handles degenerate files)
+        for (std::size_t i = 0; i < asset.nodes.size() && !cancelLoad_.load(); ++i)
+            visitNode(i, glm::mat4{1.0f});
     }
 
     setActivity(0.65f, "Ready — " + std::to_string(stagedMeshes_.size()) + " meshes, " +
@@ -492,7 +545,9 @@ void WorldRenderer::tickLoad() {
         setActivity(0.65f, "Uploading geometry (" + std::to_string(total) + " meshes)...");
         while (gpuMeshCursor_ < total) {
             const auto& sm = stagedMeshes_[gpuMeshCursor_];
-            meshes_.push_back(uploadMesh(sm.vertices, sm.indices));
+            WorldMesh wm = uploadMesh(sm.vertices, sm.indices);
+            wm.modelTransform = sm.modelTransform;
+            meshes_.push_back(std::move(wm));
             meshImgIdx_.push_back(sm.imageIndex);
             totalVertices_ += static_cast<int>(sm.vertices.size());
             totalIndices_  += static_cast<int>(sm.indices.size());
@@ -551,7 +606,7 @@ void WorldRenderer::tickLoad() {
 
     // All done!
     loaded_ = true;
-    status_ = "OK — " + std::to_string(meshes_.size()) + " meshes, " +
+    status_ = "OK - " + std::to_string(meshes_.size()) + " meshes, " +
               std::to_string(totalVertices_) + " verts, " +
               std::to_string(totalIndices_ / 3) + " tris";
     spdlog::info("[WorldRenderer] {}", status_);
@@ -567,9 +622,6 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     glm::mat4 proj = glm::perspective(glm::radians(60.0f), aspect, 0.05f, 2000.0f);
     proj[1][1] *= -1.0f; // Vulkan Y-flip
 
-    const glm::mat4 model{1.0f};
-    const glm::mat4 mvp = proj * view * model;
-
     // ── Dynamic viewport / scissor ────────────────────────────────────────
     VkViewport viewport{};
     viewport.width    = static_cast<float>(extent.width);
@@ -581,18 +633,21 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     VkRect2D scissor{{0, 0}, extent};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // ── Push constants ────────────────────────────────────────────────────
+    // ── Push constants / draw each mesh with its own model transform ─────
     struct PushConstants {
         glm::mat4 mvp;
         glm::mat4 model;
-    } pc{mvp, model};
+    };
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    vkCmdPushConstants(cmd, pipelineLayout_,
-                        VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
 
     // ── Draw each mesh (bind its base-colour texture) ─────────────────────
     for (const WorldMesh& mesh : meshes_) {
+        const glm::mat4 mvp = proj * view * mesh.modelTransform;
+        const PushConstants pc{mvp, mesh.modelTransform};
+        vkCmdPushConstants(cmd, pipelineLayout_,
+                            VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+
         VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
         if (ds) vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                         pipelineLayout_, 0, 1, &ds, 0, nullptr);

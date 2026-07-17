@@ -22,11 +22,6 @@ class LevelSelectionScene final : public GameScene {
       std::filesystem::path assetPath;
     };
 
-    std::vector<LevelEntry> availableLevels_ = {
-        {"Pine Forest",      "assets/pine_forest"},             // directory — scanned for .glb/.gltf
-        {"Forest Outskirts", "assets/terrain/Terrain003_4K.obj"},
-        {"Iron Ridge",       "assets/terrain/Terrain003_4K.obj"},
-        {"Delta Relay",      "assets/terrain/Terrain003_4K.obj"},
-    };
+    std::vector<LevelEntry> availableLevels_;
     int selectedLevelIndex_ = 0;
 };

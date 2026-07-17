@@ -33,6 +33,7 @@ struct WorldMesh {
     VmaAllocation   indexAlloc    = nullptr;
     uint32_t        indexCount    = 0;
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    glm::mat4       modelTransform{1.0f};
 };
 
 class WorldRenderer {
@@ -91,6 +92,7 @@ class WorldRenderer {
         std::vector<WorldVertex> vertices;
         std::vector<uint32_t>   indices;
         std::size_t             imageIndex = SIZE_MAX;
+        glm::mat4               modelTransform{1.0f};
     };
     struct StagedTexture {
         std::size_t          imageIndex;

@@ -4,12 +4,55 @@
 #include "scenes/SceneSharedState.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <imgui.h>
 
 LevelSelectionScene::~LevelSelectionScene() = default;
 
+static std::string prettifyDirName(const std::string& dirName) {
+    std::string result = dirName;
+    bool capitalizeNext = true;
+    for (char& c : result) {
+        if (c == '_' || c == '-') {
+            c = ' ';
+            capitalizeNext = true;
+        } else if (capitalizeNext) {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            capitalizeNext = false;
+        }
+    }
+    return result;
+}
+
 void LevelSelectionScene::onEnter(SceneSharedState&) {
-    selectedLevelIndex_ = std::clamp(selectedLevelIndex_, 0, static_cast<int>(availableLevels_.size() - 1));
+    availableLevels_.clear();
+    const std::filesystem::path levelsDir = "assets/levels";
+    if (std::filesystem::is_directory(levelsDir)) {
+        std::vector<std::filesystem::path> sortedDirs;
+        for (const auto& entry : std::filesystem::directory_iterator(levelsDir)) {
+            if (entry.is_directory()) {
+                sortedDirs.push_back(entry.path());
+            }
+        }
+        std::sort(sortedDirs.begin(), sortedDirs.end());
+        for (const auto& dir : sortedDirs) {
+            std::filesystem::path glbPath;
+            for (const auto& file : std::filesystem::directory_iterator(dir)) {
+                if (file.is_regular_file() && file.path().extension() == ".glb") {
+                    glbPath = file.path();
+                    break;
+                }
+            }
+            if (!glbPath.empty()) {
+                availableLevels_.push_back({prettifyDirName(dir.filename().string()), glbPath});
+            }
+        }
+    }
+    if (!availableLevels_.empty()) {
+        selectedLevelIndex_ = std::clamp(selectedLevelIndex_, 0, static_cast<int>(availableLevels_.size() - 1));
+    } else {
+        selectedLevelIndex_ = 0;
+    }
 }
 
 SceneFrameResult LevelSelectionScene::render(SceneSharedState& state) {
