@@ -124,6 +124,8 @@ void copyBufferImmediate(VkDevice device, VkQueue queue, VkCommandPool pool,
     vkFreeCommandBuffers(device, pool, 1, &cb);
 }
 
+const auto kModelsPath = std::filesystem::path("assets") / "models";
+
 } // namespace
 
 // ─── texture helpers ──────────────────────────────────────────────────────────
@@ -633,8 +635,7 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     if (cancelLoad_.load()) return;
     traverseScene(mapAsset, mapAssetId, glm::mat4{1.0f}, true);
 
-    const auto assetsRoot = findAssetsRoot(assetPath.parent_path());
-    const auto modelsDir = assetsRoot / "models";
+    const auto modelsDir = kModelsPath;
 
     auto loadAndStagePlacedModel = [&](const std::filesystem::path& modelPath,
                                        const glm::mat4& placement,
@@ -667,7 +668,7 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
         traverseScene(modelAsset, modelAssetId, placement, false);
     };
 
-    if (!assetsRoot.empty()) {
+    if (!modelsDir.empty()) {
         if (markers.start.has_value()) {
             glm::mat4 portalPlacement = glm::translate(glm::mat4{1.0f}, *markers.start);
             if (markers.waypoint1.has_value()) {
@@ -692,7 +693,7 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
             loadAndStagePlacedModel(modelsDir / "base.glb", basePlacement, "base");
         }
     } else {
-        spdlog::warn("[WorldRenderer] Could not locate assets directory for portal/base placement.");
+        spdlog::warn("[WorldRenderer] Could not locate assets directory for portal/base placement. {}", modelsDir.string());
     }
 
     if (markers.start.has_value() && markers.waypoint1.has_value()) {
