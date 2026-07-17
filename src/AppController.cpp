@@ -137,7 +137,7 @@ int findDisplayModeIndexForSettings(const std::vector<DisplayModeOption>& displa
     return 0;
 }
 
-void renderSceneLoadingOverlay(ImGuiLayer& imguiLayer, const std::string& loadingMessage, float progress) {
+void renderSceneLoadingOverlay(const std::string& loadingMessage, float progress) {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->Pos);
     ImGui::SetNextWindowSize(viewport->Size);
@@ -148,19 +148,6 @@ void renderSceneLoadingOverlay(ImGuiLayer& imguiLayer, const std::string& loadin
                                                     ImGuiWindowFlags_NoBringToFrontOnFocus;
 
     ImGui::Begin("SceneLoading", nullptr, loadingWindowFlags);
-
-    if (imguiLayer.hasSplashTexture() && imguiLayer.splashTextureWidth() > 0 && imguiLayer.splashTextureHeight() > 0) {
-        const ImVec2 available = ImGui::GetContentRegionAvail();
-        const float scale = std::min(available.x / static_cast<float>(imguiLayer.splashTextureWidth()),
-                                     available.y / static_cast<float>(imguiLayer.splashTextureHeight()));
-        const ImVec2 imageSize{static_cast<float>(imguiLayer.splashTextureWidth()) * scale * 0.8f,
-                               static_cast<float>(imguiLayer.splashTextureHeight()) * scale * 0.8f};
-
-        const float cursorX = std::max(0.0f, (available.x - imageSize.x) * 0.5f);
-        const float cursorY = std::max(0.0f, (available.y - imageSize.y) * 0.35f);
-        ImGui::SetCursorPos(ImVec2(cursorX, cursorY));
-        ImGui::Image(imguiLayer.splashTextureRef(), imageSize);
-    }
 
     ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 110.0f);
     ImGui::TextUnformatted(loadingMessage.c_str());
@@ -244,11 +231,7 @@ int AppController::run() {
                                     activeLevelAssetPath,
                                     vulkanContext.get(),
                                     imguiLayer->headingFont(),
-                                    imguiLayer->titleFont(),
-                                    imguiLayer->hasSplashTexture(),
-                                    imguiLayer->splashTextureWidth(),
-                                    imguiLayer->splashTextureHeight(),
-                                    imguiLayer->splashTextureRef()};
+                                    imguiLayer->titleFont()};
         };
 
         auto enterScene = [&](SceneId nextSceneId) {
@@ -278,12 +261,12 @@ int AppController::run() {
         size_t currentFrame = 0;
 
         while (window.isOpen()) {
-            const float elapsedSeconds = deltaClock.restart().asSeconds();
+            const float dt = deltaClock.restart().asSeconds();
             platformRuntime.tick();
-            imguiLayer->setDeltaTime(elapsedSeconds);
+            imguiLayer->setDeltaTime(dt);
 
             if (pendingDisplayConfirmation.active) {
-                pendingDisplayConfirmation.secondsRemaining -= elapsedSeconds;
+                pendingDisplayConfirmation.secondsRemaining -= dt;
                 if (pendingDisplayConfirmation.secondsRemaining <= 0.0f) {
                     pendingDisplayConfirmation.secondsRemaining = 0.0f;
                 }
@@ -329,13 +312,13 @@ int AppController::run() {
 
             SceneFrameResult frameResult;
             if (pendingSceneTransition.active) {
-                pendingSceneTransition.elapsedSeconds += elapsedSeconds;
+                pendingSceneTransition.elapsedSeconds += dt;
 
                 const float progress =
                     pendingSceneTransition.minDurationSeconds > 0.0f
                         ? (pendingSceneTransition.elapsedSeconds / pendingSceneTransition.minDurationSeconds)
                         : 1.0f;
-                renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, progress);
+                renderSceneLoadingOverlay(pendingSceneTransition.loadingMessage, progress);
 
                 if (pendingSceneTransition.elapsedSeconds >= pendingSceneTransition.minDurationSeconds) {
                     enterScene(pendingSceneTransition.targetSceneId);
@@ -345,23 +328,22 @@ int AppController::run() {
                 SceneSharedState sceneState = makeSceneState();
                 auto sceneIt = sceneGraph.find(currentSceneId);
                 if (sceneIt != sceneGraph.end()) {
-                    frameResult = sceneIt->second->render(sceneState);
+                    frameResult = sceneIt->second->render(sceneState, dt);
                 }
 
                 if (frameResult.requestTransition) {
-                    if (frameResult.transitionMinDurationSeconds <= 0.0f) {
-                        // Instant — enter the new scene this frame with no overlay
-                        enterScene(frameResult.transitionTarget);
-                    } else {
-                        pendingSceneTransition.active = true;
-                        pendingSceneTransition.targetSceneId = frameResult.transitionTarget;
-                        pendingSceneTransition.loadingMessage =
-                            frameResult.transitionMessage.empty() ? "Loading..." : frameResult.transitionMessage;
-                        pendingSceneTransition.elapsedSeconds = 0.0f;
-                        pendingSceneTransition.minDurationSeconds =
-                            frameResult.transitionMinDurationSeconds;
+                    // Defer scene teardown/enter to a later frame so any textures used by
+                    // this frame's ImGui draw data remain valid through submission.
+                    pendingSceneTransition.active = true;
+                    pendingSceneTransition.targetSceneId = frameResult.transitionTarget;
+                    pendingSceneTransition.loadingMessage =
+                        frameResult.transitionMessage.empty() ? "Loading..." : frameResult.transitionMessage;
+                    pendingSceneTransition.elapsedSeconds = 0.0f;
+                    pendingSceneTransition.minDurationSeconds =
+                        std::max(0.0f, frameResult.transitionMinDurationSeconds);
 
-                        renderSceneLoadingOverlay(*imguiLayer, pendingSceneTransition.loadingMessage, 0.0f);
+                    if (pendingSceneTransition.minDurationSeconds > 0.0f) {
+                        renderSceneLoadingOverlay(pendingSceneTransition.loadingMessage, 0.0f);
                     }
                 }
             }
@@ -369,10 +351,6 @@ int AppController::run() {
             imguiLayer->endFrame();
 
             const AppSettings requestedSettings = sanitizeSettings(workingSettings);
-
-            if (frameResult.requestQuit) {
-                window.close();
-            }
 
             VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(currentFrame, imageIndex);
 
@@ -389,6 +367,15 @@ int AppController::run() {
 
             if (vulkanContext->present(imageIndex)) {
                 windowResized = true;
+            }
+
+            if (frameResult.requestQuit) {
+                auto sceneIt = sceneGraph.find(currentSceneId);
+                if (sceneIt != sceneGraph.end()) {
+                    SceneSharedState state = makeSceneState();
+                    sceneIt->second->onExit(state);
+                }
+                window.close();
             }
 
             currentFrame = (currentFrame + 1) % VulkanContext::kMaxFramesInFlight;

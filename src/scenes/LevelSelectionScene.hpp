@@ -17,7 +17,7 @@ class LevelSelectionScene final : public GameScene {
 
     void onExit(SceneSharedState&) override {}
 
-    SceneFrameResult render(SceneSharedState& state) override;
+    SceneFrameResult render(SceneSharedState& state, float dt) override;
 
   private:
     struct LevelEntry {

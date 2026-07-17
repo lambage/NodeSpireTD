@@ -39,7 +39,7 @@ class IScene {
     virtual void onExit(SceneSharedState&) = 0;
 
     virtual void handleEvent(const sf::Event& event, ImGuiLayer& imguiLayer) = 0;
-    virtual SceneFrameResult render(SceneSharedState& state) = 0;
+    virtual SceneFrameResult render(SceneSharedState& state, float dt) = 0;
 
     // Called each frame with the active command buffer (inside vkCmdBeginRendering)
     // before ImGui is rendered. Override in 3D game scenes.

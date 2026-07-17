@@ -82,7 +82,7 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         return;
     }
 
-    worldRenderer_ = std::make_unique<WorldRenderer>(*state.vulkanContext);
+    worldRenderer_ = std::make_unique<WorldRenderer>(L_, *state.vulkanContext);
     worldRenderer_->beginLoad(assetPath); // non-blocking
 }
 
@@ -101,9 +101,8 @@ void PlayLevelScene::renderWorld(VkCommandBuffer cmd, VkExtent2D extent) {
 
 // ─── per-frame ────────────────────────────────────────────────────────────────
 
-SceneFrameResult PlayLevelScene::render(SceneSharedState& state) {
+SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
     SceneFrameResult result;
-    const float dt = ImGui::GetIO().DeltaTime;
 
     // Tick GPU uploads (one step per frame while loading)
     if (worldRenderer_ && !worldRenderer_->isLoaded() && !worldRenderer_->loadFailed()) {

@@ -2,6 +2,8 @@
 
 #include "VulkanContext.hpp"
 
+#include "lua.hpp"
+
 #include <atomic>
 #include <filesystem>
 #include <glm/glm.hpp>
@@ -38,7 +40,7 @@ struct WorldMesh {
 
 class WorldRenderer {
   public:
-    explicit WorldRenderer(VulkanContext& ctx);
+    explicit WorldRenderer(lua_State* L, VulkanContext& ctx);
     ~WorldRenderer();
 
     WorldRenderer(const WorldRenderer&) = delete;
@@ -65,6 +67,7 @@ class WorldRenderer {
     void release();
 
   private:
+    lua_State* L_;
     VulkanContext& ctx_;
 
     std::vector<WorldMesh> meshes_;

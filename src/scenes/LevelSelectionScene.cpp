@@ -55,7 +55,7 @@ void LevelSelectionScene::onEnter(SceneSharedState&) {
     }
 }
 
-SceneFrameResult LevelSelectionScene::render(SceneSharedState& state) {
+SceneFrameResult LevelSelectionScene::render(SceneSharedState& state, float /*dt*/) {
     SceneFrameResult result;
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;

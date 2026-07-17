@@ -8,7 +8,7 @@
 
 OptionsScene::~OptionsScene() = default;
 
-SceneFrameResult OptionsScene::render(SceneSharedState& state) {
+SceneFrameResult OptionsScene::render(SceneSharedState& state, float dt) {
     SceneFrameResult result;
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;

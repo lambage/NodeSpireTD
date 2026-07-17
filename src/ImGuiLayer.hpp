@@ -1,13 +1,10 @@
 #pragma once
 
-#include "utility/VulkanTexture.hpp"
-
 #include "lua.hpp"
 
 #include <SFML/Window.hpp>
 #include <cstdint>
 #include <imgui.h>
-#include <optional>
 #include <volk.h>
 
 class VulkanContext;
@@ -37,19 +34,14 @@ class ImGuiLayer {
     ImFont* titleFont() const {
         return titleFont_;
     }
-    bool hasSplashTexture() const;
-    uint32_t splashTextureWidth() const;
-    uint32_t splashTextureHeight() const;
-    ImTextureRef splashTextureRef() const;
-
   private:
     static ImGuiKey translateSfmlKeyToImGui(sf::Keyboard::Key key);
 
+    void initLuaBindings();
     void applyModernStyle();
     void loadUiFonts();
 
     lua_State* L_ = nullptr;
     ImFont* headingFont_ = nullptr;
     ImFont* titleFont_ = nullptr;
-    std::optional<VulkanTexture> splashTexture_;
 };

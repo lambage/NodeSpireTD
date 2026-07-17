@@ -10,6 +10,7 @@ class AppController {
         if (!L_) {
             throw std::runtime_error("Failed to create Lua state");
         }
+        luaL_openlibs(L_);
     }
     ~AppController() {
         if (L_) {

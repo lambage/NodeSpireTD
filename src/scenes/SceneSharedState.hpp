@@ -26,10 +26,6 @@ struct SceneSharedState {
     VulkanContext* vulkanContext = nullptr;
     ImFont* headingFont = nullptr;
     ImFont* titleFont = nullptr;
-    bool hasSplashTexture = false;
-    uint32_t splashTextureWidth = 0;
-    uint32_t splashTextureHeight = 0;
-    ImTextureRef splashTextureRef;
 };
 
 std::string modeLabel(const DisplayModeOption& mode);
