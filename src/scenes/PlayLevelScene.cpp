@@ -1,5 +1,6 @@
 #include "scenes/PlayLevelScene.hpp"
 
+#include "LuaStateBootstrap.hpp"
 #include "VulkanContext.hpp"
 #include "scenes/IScene.hpp"
 #include "scenes/SceneSharedState.hpp"
@@ -13,6 +14,23 @@
 
 PlayLevelScene::PlayLevelScene() = default;
 PlayLevelScene::~PlayLevelScene() = default;
+
+namespace {
+
+PlayLevelScene* luaSceneSelf(lua_State* L) {
+    return static_cast<PlayLevelScene*>(lua_touserdata(L, lua_upvalueindex(1)));
+}
+
+int pushCommandResult(lua_State* L, bool ok, const char* reason) {
+    lua_newtable(L);
+    lua_pushboolean(L, ok);
+    lua_setfield(L, -2, "ok");
+    lua_pushstring(L, reason);
+    lua_setfield(L, -2, "reason");
+    return 1;
+}
+
+} // namespace
 
 // ─── camera helpers ───────────────────────────────────────────────────────────
 
@@ -63,6 +81,15 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     camYaw_   = 3.14159f;
     camPitch_ = -0.25f;
 
+    LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext);
+    registerLuaGameplayApi();
+
+    gameplayState_.resetForNewRun();
+    pendingCommands_.clear();
+
+    scriptRef_ = loadLuaScript(state, "assets/scenes/PlayLevel.lua");
+    luaOnEnter(scriptRef_);
+
     worldRenderer_.reset();
     loadStatus_.clear();
 
@@ -87,6 +114,8 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
 }
 
 void PlayLevelScene::onExit(SceneSharedState& state) {
+    luaOnExit(state, scriptRef_);
+
     if (state.vulkanContext) {
         state.vulkanContext->waitIdle();
     }
@@ -103,6 +132,8 @@ void PlayLevelScene::renderWorld(VkCommandBuffer cmd, VkExtent2D extent) {
 
 SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
     SceneFrameResult result;
+
+    applyPendingGameplayCommands();
 
     // Tick GPU uploads (one step per frame while loading)
     if (worldRenderer_ && !worldRenderer_->isLoaded() && !worldRenderer_->loadFailed()) {
@@ -170,6 +201,10 @@ SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
                     worldRenderer_->meshCount(),
                     worldRenderer_->totalVertices(),
                     worldRenderer_->totalIndices() / 3);
+        ImGui::Text("Base HP %d  |  Money %d  |  Wave %d",
+                    gameplayState_.baseHealth,
+                    gameplayState_.playerMoney,
+                    gameplayState_.currentWave);
         ImGui::Text("Pos (%.1f, %.1f, %.1f)", camPos_.x, camPos_.y, camPos_.z);
         ImGui::TextUnformatted("RMB+drag: look   WASD: fly   Space/Q: up/down   Shift: sprint");
     } else {
@@ -187,5 +222,187 @@ SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
     }
 
     ImGui::End();
+
+    SceneFrameResult luaResult = luaOnRender(state, scriptRef_, dt);
+    if (luaResult.requestQuit) {
+        result.requestQuit = true;
+    }
+    if (luaResult.requestApplySettings) {
+        result.requestApplySettings = true;
+    }
+    if (luaResult.requestAcceptDisplayChanges) {
+        result.requestAcceptDisplayChanges = true;
+    }
+    if (luaResult.requestRevertDisplayChanges) {
+        result.requestRevertDisplayChanges = true;
+    }
+    if (luaResult.requestTransition) {
+        result.requestTransition = true;
+        result.transitionTarget = luaResult.transitionTarget;
+        result.transitionMessage = luaResult.transitionMessage;
+        result.transitionMinDurationSeconds = luaResult.transitionMinDurationSeconds;
+    }
+
     return result;
+}
+
+bool PlayLevelScene::requestSpendMoney(int amount) {
+    if (amount <= 0 || gameplayState_.matchStatus != MatchStatus::Running) {
+        return false;
+    }
+    if (gameplayState_.playerMoney < amount) {
+        return false;
+    }
+
+    gameplayState_.playerMoney -= amount;
+    return true;
+}
+
+bool PlayLevelScene::requestDamageBase(int amount) {
+    if (amount <= 0 || gameplayState_.matchStatus != MatchStatus::Running) {
+        return false;
+    }
+
+    gameplayState_.baseHealth = std::max(0, gameplayState_.baseHealth - amount);
+    if (gameplayState_.baseHealth == 0) {
+        gameplayState_.matchStatus = MatchStatus::Defeat;
+    }
+    return true;
+}
+
+bool PlayLevelScene::requestStartWave() {
+    if (gameplayState_.matchStatus != MatchStatus::Running) {
+        return false;
+    }
+    if (gameplayState_.waveInProgress) {
+        return false;
+    }
+
+    gameplayState_.waveInProgress = true;
+    return true;
+}
+
+void PlayLevelScene::applyPendingGameplayCommands() {
+    for (const GameplayCommand& cmd : pendingCommands_) {
+        switch (cmd.type) {
+        case GameplayCommandType::SpendMoney:
+            requestSpendMoney(cmd.amount);
+            break;
+        case GameplayCommandType::DamageBase:
+            requestDamageBase(cmd.amount);
+            break;
+        case GameplayCommandType::StartWave:
+            requestStartWave();
+            break;
+        }
+    }
+    pendingCommands_.clear();
+}
+
+void PlayLevelScene::registerLuaGameplayApi() {
+    if (!L_) {
+        return;
+    }
+
+    lua_newtable(L_);
+    const int gameplayTable = lua_gettop(L_);
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_newtable(L);
+
+            lua_pushinteger(L, self->gameplayState_.baseHealth);
+            lua_setfield(L, -2, "baseHealth");
+            lua_pushinteger(L, self->gameplayState_.playerMoney);
+            lua_setfield(L, -2, "playerMoney");
+            lua_pushinteger(L, self->gameplayState_.currentWave);
+            lua_setfield(L, -2, "currentWave");
+            lua_pushboolean(L, self->gameplayState_.waveInProgress);
+            lua_setfield(L, -2, "waveInProgress");
+
+            const char* status = "Running";
+            switch (self->gameplayState_.matchStatus) {
+            case MatchStatus::Running:
+                status = "Running";
+                break;
+            case MatchStatus::Paused:
+                status = "Paused";
+                break;
+            case MatchStatus::Victory:
+                status = "Victory";
+                break;
+            case MatchStatus::Defeat:
+                status = "Defeat";
+                break;
+            }
+            lua_pushstring(L, status);
+            lua_setfield(L, -2, "matchStatus");
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getState");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int amount = static_cast<int>(luaL_checkinteger(L, 1));
+            if (amount <= 0) {
+                return pushCommandResult(L, false, "amount must be > 0");
+            }
+            if (self->gameplayState_.matchStatus != MatchStatus::Running) {
+                return pushCommandResult(L, false, "match is not running");
+            }
+            if (self->gameplayState_.playerMoney < amount) {
+                return pushCommandResult(L, false, "insufficient funds");
+            }
+
+            self->pendingCommands_.push_back({GameplayCommandType::SpendMoney, amount});
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestSpendMoney");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int amount = static_cast<int>(luaL_checkinteger(L, 1));
+            if (amount <= 0) {
+                return pushCommandResult(L, false, "amount must be > 0");
+            }
+            if (self->gameplayState_.matchStatus != MatchStatus::Running) {
+                return pushCommandResult(L, false, "match is not running");
+            }
+
+            self->pendingCommands_.push_back({GameplayCommandType::DamageBase, amount});
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestDamageBase");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            if (self->gameplayState_.matchStatus != MatchStatus::Running) {
+                return pushCommandResult(L, false, "match is not running");
+            }
+            if (self->gameplayState_.waveInProgress) {
+                return pushCommandResult(L, false, "wave already in progress");
+            }
+
+            self->pendingCommands_.push_back({GameplayCommandType::StartWave, 0});
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestStartWave");
+
+    lua_setglobal(L_, "Gameplay");
 }
