@@ -1,6 +1,8 @@
 #pragma once
 
 #include "VulkanContext.hpp"
+#include "utility/WorldAssetLoader.hpp"
+#include "utility/WorldGeometryTypes.hpp"
 #include "utility/TemplateAnimationDebugInfo.hpp"
 
 #include <atomic>
@@ -18,14 +20,6 @@
 
 struct lua_State;
 class TemplateAnimator;
-
-struct WorldVertex {
-    glm::vec3 position{};
-    glm::vec3 normal{0.0f, 1.0f, 0.0f};
-    glm::vec2 uv{};
-    glm::u16vec4 joints{0, 0, 0, 0};
-    glm::vec4 weights{0.0f, 0.0f, 0.0f, 0.0f};
-};
 
 struct WorldTexture {
     VkImage       image      = VK_NULL_HANDLE;
@@ -145,26 +139,7 @@ class WorldRenderer {
     std::unordered_map<std::size_t, VkDescriptorSet> texDescSetCache_;
 
     // ── Async loading ─────────────────────────────────────────────────────
-    struct StagedMesh {
-        std::vector<WorldVertex> vertices;
-        std::vector<uint32_t>   indices;
-        std::size_t             imageIndex = SIZE_MAX;
-        glm::mat4               modelTransform{1.0f};
-        int                     sourceNodeIndex = -1;
-        int                     sourceSkinIndex = -1;
-        std::string             debugGroup;
-        std::string             debugLabel;
-        glm::vec3               localBoundsCenter{0.0f, 0.0f, 0.0f};
-        float                   localBoundsRadius = 0.5f;
-    };
-    struct StagedTexture {
-        std::size_t          imageIndex;
-        std::string          displayName;
-        std::vector<uint8_t> pixels; // RGBA decoded on background thread
-        uint32_t             width  = 0;
-        uint32_t             height = 0;
-    };
-
+    WorldAssetLoader assetLoader_;
     std::thread        loadThread_;
     std::atomic<bool>  cpuDone_{false};
     std::atomic<bool>  cpuFailed_{false};
@@ -174,9 +149,9 @@ class WorldRenderer {
     std::string        activityStr_{"Idle"};
 
     // Written by background thread before cpuDone_, read by main thread after.
-    std::vector<StagedMesh>    stagedMeshes_;
-    std::vector<StagedMesh>    stagedEnemyMeshes_;
-    std::vector<StagedTexture> stagedTextures_;
+    std::vector<WorldStagedMesh>    stagedMeshes_;
+    std::vector<WorldStagedMesh>    stagedEnemyMeshes_;
+    std::vector<WorldStagedTexture> stagedTextures_;
     std::string                failReason_;
 
     // GPU upload cursors (main thread only)
