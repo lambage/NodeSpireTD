@@ -1,12 +1,13 @@
 #pragma once
 
 #include "VulkanContext.hpp"
+#include "utility/TemplateAnimationDebugInfo.hpp"
 
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -16,6 +17,7 @@
 #include <volk.h>
 
 struct lua_State;
+class TemplateAnimator;
 
 struct WorldVertex {
     glm::vec3 position{};
@@ -61,25 +63,6 @@ struct WorldPickHit {
     int enemyInstanceIndex = -1;
 };
 
-struct EnemyAnimationDebugInfo {
-    bool enabled = false;
-    std::string clipName;
-    int selectedClipIndex = -1;
-    int clipCount = 0;
-    bool compositeMode = false;
-    int compositeAppliedClips = 0;
-    float timeSeconds = 0.0f;
-    float durationSeconds = 0.0f;
-    int trackCount = 0;
-    int keyCount = 0;
-    int keyIndex = 0;
-    int nextKeyIndex = 0;
-    float keyTimeSeconds = 0.0f;
-    float nextKeyTimeSeconds = 0.0f;
-    float segmentAlpha = 0.0f;
-    bool stepInterpolation = false;
-};
-
 class WorldRenderer {
   public:
     explicit WorldRenderer(lua_State* L, VulkanContext& ctx);
@@ -104,15 +87,15 @@ class WorldRenderer {
     int meshCount()     const { return static_cast<int>(meshes_.size()); }
     int totalVertices() const { return totalVertices_; }
     int totalIndices()  const { return totalIndices_; }
-    bool hasTemplateAnimation() const { return enemyAnimationEnabled_; }
-    const std::string& templateAnimationName() const { return enemyAnimationName_; }
-    int templateAnimationClipCount() const { return static_cast<int>(enemyAnimationClips_.size()); }
-    int activeTemplateAnimationClipIndex() const { return activeEnemyAnimationClipIndex_; }
+    bool hasTemplateAnimation() const;
+    const std::string& templateAnimationName() const;
+    int templateAnimationClipCount() const;
+    int activeTemplateAnimationClipIndex() const;
     std::vector<std::string> templateAnimationClipNames() const;
     bool setActiveTemplateAnimationClipByIndex(int clipIndex);
     bool setActiveTemplateAnimationClipByName(const std::string& clipName);
-    void setCompositeTemplateAnimationMode(bool enabled) { playAllEnemyAnimationClips_ = enabled; }
-    bool compositeTemplateAnimationMode() const { return playAllEnemyAnimationClips_; }
+    void setCompositeTemplateAnimationMode(bool enabled);
+    bool compositeTemplateAnimationMode() const;
 
     bool hasEnemyAnimation() const { return hasTemplateAnimation(); }
     const std::string& enemyAnimationName() const { return templateAnimationName(); }
@@ -130,8 +113,8 @@ class WorldRenderer {
     bool hasAnimatedEntityTemplate() const { return !enemyTemplateMeshes_.empty(); }
     bool hasEnemyTemplate() const { return hasAnimatedEntityTemplate(); }
     bool pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDir, WorldPickHit& outHit) const;
-    const EnemyAnimationDebugInfo& templateAnimationDebugInfo() const { return enemyAnimationDebugInfo_; }
-    const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return enemyAnimationDebugInfo_; }
+    const EnemyAnimationDebugInfo& templateAnimationDebugInfo() const;
+    const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return templateAnimationDebugInfo(); }
 
     void render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view);
     void release();
@@ -213,48 +196,10 @@ class WorldRenderer {
     VmaAllocation skinPaletteAlloc_  = nullptr;
     void*         skinPaletteMapped_ = nullptr;
 
-    enum class AnimationPath {
-        Translation,
-        Rotation,
-        Scale
-    };
-    struct AnimationTrack {
-        int nodeIndex = -1;
-        AnimationPath path = AnimationPath::Translation;
-        bool stepInterpolation = false;
-        std::vector<float> times;
-        std::vector<glm::vec3> vec3Values;
-        std::vector<glm::quat> quatValues;
-    };
-    struct EnemyAnimationClip {
-        std::string name;
-        float durationSeconds = 0.0f;
-        std::vector<AnimationTrack> tracks;
-    };
-    struct EnemySkin {
-        std::vector<int> jointNodes;
-        std::vector<glm::mat4> inverseBindMatrices;
-        std::vector<glm::mat4> jointMatrices;
-    };
-
-    std::vector<int> enemyNodeParents_;
-    std::vector<glm::vec3> enemyBaseTranslations_;
-    std::vector<glm::quat> enemyBaseRotations_;
-    std::vector<glm::vec3> enemyBaseScales_;
-    std::vector<glm::mat4> enemyNodeWorldTransforms_;
-    std::vector<std::size_t> enemySceneRootNodes_;
-    std::vector<EnemySkin> enemySkins_;
-    std::vector<EnemyAnimationClip> enemyAnimationClips_;
-    int activeEnemyAnimationClipIndex_ = -1;
-    bool playAllEnemyAnimationClips_ = false;
-    bool enemyAnimationEnabled_ = false;
-    std::string enemyAnimationName_;
-    float enemyAnimationTimeSeconds_ = 0.0f;
-    EnemyAnimationDebugInfo enemyAnimationDebugInfo_{};
+    std::unique_ptr<TemplateAnimator> templateAnimator_;
     bool firstRenderTick_ = true;
     std::chrono::steady_clock::time_point lastRenderTick_{};
 
-    void updateEnemyAnimation(float dtSeconds);
     void uploadSkinPalette(const std::vector<glm::mat4>& joints);
     void uploadIdentitySkinPalette();
     // ─────────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ add_executable(NodeSpireTD
     VulkanContext.cpp
     LuaStateBootstrap.cpp
     utility/VulkanTexture.cpp
+    utility/TemplateAnimator.cpp
     utility/WorldRenderer.cpp
     ImGuiLayer.cpp
 
