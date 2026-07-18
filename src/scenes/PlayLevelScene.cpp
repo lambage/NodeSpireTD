@@ -600,7 +600,7 @@ void PlayLevelScene::syncEnemyInstanceTransforms() {
         transforms.push_back(model);
     }
 
-    worldRenderer_->setEnemyInstanceTransforms(transforms);
+    worldRenderer_->setAnimatedEntityInstanceTransforms(transforms);
 }
 
 bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, DebugSelection& outSelection) const {
@@ -699,7 +699,7 @@ std::string PlayLevelScene::validateStartWaveRequest() const {
     if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
         return "world is still loading";
     }
-    if (!worldRenderer_->hasEnemyTemplate()) {
+    if (!worldRenderer_->hasAnimatedEntityTemplate()) {
         return "enemy model template not loaded";
     }
     if (routePoints_.size() < 2 || routeTotalLength_ <= 0.0f) {
@@ -827,10 +827,10 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_pushinteger(L, worldLoaded ? (self->worldRenderer_->totalIndices() / 3) : 0);
             lua_setfield(L, -2, "triCount");
 
-            lua_pushboolean(L, worldLoaded && self->worldRenderer_->hasEnemyAnimation());
+            lua_pushboolean(L, worldLoaded && self->worldRenderer_->hasTemplateAnimation());
             lua_setfield(L, -2, "enemyAnimationLoaded");
-            lua_pushstring(L, (worldLoaded && self->worldRenderer_->hasEnemyAnimation())
-                                   ? self->worldRenderer_->enemyAnimationName().c_str()
+            lua_pushstring(L, (worldLoaded && self->worldRenderer_->hasTemplateAnimation())
+                                   ? self->worldRenderer_->templateAnimationName().c_str()
                                    : "none");
             lua_setfield(L, -2, "enemyAnimationName");
 
@@ -1046,13 +1046,13 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 lua_setfield(L, -2, "hitNormal");
             }
 
-            lua_pushboolean(L, self->worldRenderer_ && self->worldRenderer_->hasEnemyAnimation());
+            lua_pushboolean(L, self->worldRenderer_ && self->worldRenderer_->hasTemplateAnimation());
             lua_setfield(L, -2, "enemyAnimationLoaded");
-            if (self->worldRenderer_ && self->worldRenderer_->hasEnemyAnimation()) {
-                lua_pushstring(L, self->worldRenderer_->enemyAnimationName().c_str());
+            if (self->worldRenderer_ && self->worldRenderer_->hasTemplateAnimation()) {
+                lua_pushstring(L, self->worldRenderer_->templateAnimationName().c_str());
                 lua_setfield(L, -2, "enemyAnimationName");
 
-                const EnemyAnimationDebugInfo& dbg = self->worldRenderer_->enemyAnimationDebugInfo();
+                const EnemyAnimationDebugInfo& dbg = self->worldRenderer_->templateAnimationDebugInfo();
                 lua_newtable(L);
                 lua_pushboolean(L, dbg.enabled);
                 lua_setfield(L, -2, "enabled");
@@ -1111,7 +1111,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
             lua_newtable(L);
-            if (!self->worldRenderer_ || !self->worldRenderer_->hasEnemyAnimation()) {
+            if (!self->worldRenderer_ || !self->worldRenderer_->hasTemplateAnimation()) {
                 lua_pushinteger(L, 0);
                 lua_setfield(L, -2, "count");
                 lua_pushinteger(L, -1);
@@ -1119,10 +1119,10 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 return 1;
             }
 
-            const std::vector<std::string> names = self->worldRenderer_->enemyAnimationClipNames();
+            const std::vector<std::string> names = self->worldRenderer_->templateAnimationClipNames();
             lua_pushinteger(L, static_cast<lua_Integer>(names.size()));
             lua_setfield(L, -2, "count");
-            lua_pushinteger(L, self->worldRenderer_->activeEnemyAnimationClipIndex());
+            lua_pushinteger(L, self->worldRenderer_->activeTemplateAnimationClipIndex());
             lua_setfield(L, -2, "activeIndex");
 
             lua_newtable(L);
@@ -1148,10 +1148,10 @@ void PlayLevelScene::registerLuaGameplayApi() {
             bool ok = false;
             if (lua_isinteger(L, 1)) {
                 const int idx = static_cast<int>(lua_tointeger(L, 1));
-                ok = self->worldRenderer_->setActiveEnemyAnimationClipByIndex(idx);
+                ok = self->worldRenderer_->setActiveTemplateAnimationClipByIndex(idx);
             } else if (lua_isstring(L, 1)) {
                 const std::string name = lua_tostring(L, 1);
-                ok = self->worldRenderer_->setActiveEnemyAnimationClipByName(name);
+                ok = self->worldRenderer_->setActiveTemplateAnimationClipByName(name);
             } else {
                 return pushCommandResult(L, false, "expected clip index or clip name");
             }
@@ -1174,7 +1174,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             }
 
             const bool enabled = lua_toboolean(L, 1) != 0;
-            self->worldRenderer_->setPlayAllEnemyAnimationClips(enabled);
+            self->worldRenderer_->setCompositeTemplateAnimationMode(enabled);
             return pushCommandResult(L, true, enabled ? "composite on" : "composite off");
         },
         1);
@@ -1185,7 +1185,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            lua_pushboolean(L, self->worldRenderer_ && self->worldRenderer_->playAllEnemyAnimationClips());
+            lua_pushboolean(L, self->worldRenderer_ && self->worldRenderer_->compositeTemplateAnimationMode());
             return 1;
         },
         1);

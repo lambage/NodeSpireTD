@@ -425,11 +425,11 @@ std::string WorldRenderer::loadActivity() const {
     return activityStr_;
 }
 
-void WorldRenderer::setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) {
+void WorldRenderer::setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms) {
     enemyInstanceTransforms_ = transforms;
 }
 
-std::vector<std::string> WorldRenderer::enemyAnimationClipNames() const {
+std::vector<std::string> WorldRenderer::templateAnimationClipNames() const {
     std::vector<std::string> names;
     names.reserve(enemyAnimationClips_.size());
     for (const EnemyAnimationClip& clip : enemyAnimationClips_) {
@@ -438,7 +438,7 @@ std::vector<std::string> WorldRenderer::enemyAnimationClipNames() const {
     return names;
 }
 
-bool WorldRenderer::setActiveEnemyAnimationClipByIndex(int clipIndex) {
+bool WorldRenderer::setActiveTemplateAnimationClipByIndex(int clipIndex) {
     if (clipIndex < 0 || static_cast<std::size_t>(clipIndex) >= enemyAnimationClips_.size()) {
         return false;
     }
@@ -451,7 +451,7 @@ bool WorldRenderer::setActiveEnemyAnimationClipByIndex(int clipIndex) {
     return true;
 }
 
-bool WorldRenderer::setActiveEnemyAnimationClipByName(const std::string& clipName) {
+bool WorldRenderer::setActiveTemplateAnimationClipByName(const std::string& clipName) {
     if (clipName.empty()) {
         return false;
     }
@@ -468,7 +468,7 @@ bool WorldRenderer::setActiveEnemyAnimationClipByName(const std::string& clipNam
     const std::string needle = normalize(clipName);
     for (std::size_t i = 0; i < enemyAnimationClips_.size(); ++i) {
         if (normalize(enemyAnimationClips_[i].name) == needle) {
-            return setActiveEnemyAnimationClipByIndex(static_cast<int>(i));
+            return setActiveTemplateAnimationClipByIndex(static_cast<int>(i));
         }
     }
     return false;

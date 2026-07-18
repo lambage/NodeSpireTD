@@ -104,20 +104,33 @@ class WorldRenderer {
     int meshCount()     const { return static_cast<int>(meshes_.size()); }
     int totalVertices() const { return totalVertices_; }
     int totalIndices()  const { return totalIndices_; }
-    bool hasEnemyAnimation() const { return enemyAnimationEnabled_; }
-    const std::string& enemyAnimationName() const { return enemyAnimationName_; }
-    int enemyAnimationClipCount() const { return static_cast<int>(enemyAnimationClips_.size()); }
-    int activeEnemyAnimationClipIndex() const { return activeEnemyAnimationClipIndex_; }
-    std::vector<std::string> enemyAnimationClipNames() const;
-    bool setActiveEnemyAnimationClipByIndex(int clipIndex);
-    bool setActiveEnemyAnimationClipByName(const std::string& clipName);
-    void setPlayAllEnemyAnimationClips(bool enabled) { playAllEnemyAnimationClips_ = enabled; }
-    bool playAllEnemyAnimationClips() const { return playAllEnemyAnimationClips_; }
+    bool hasTemplateAnimation() const { return enemyAnimationEnabled_; }
+    const std::string& templateAnimationName() const { return enemyAnimationName_; }
+    int templateAnimationClipCount() const { return static_cast<int>(enemyAnimationClips_.size()); }
+    int activeTemplateAnimationClipIndex() const { return activeEnemyAnimationClipIndex_; }
+    std::vector<std::string> templateAnimationClipNames() const;
+    bool setActiveTemplateAnimationClipByIndex(int clipIndex);
+    bool setActiveTemplateAnimationClipByName(const std::string& clipName);
+    void setCompositeTemplateAnimationMode(bool enabled) { playAllEnemyAnimationClips_ = enabled; }
+    bool compositeTemplateAnimationMode() const { return playAllEnemyAnimationClips_; }
 
-    void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms);
+    bool hasEnemyAnimation() const { return hasTemplateAnimation(); }
+    const std::string& enemyAnimationName() const { return templateAnimationName(); }
+    int enemyAnimationClipCount() const { return templateAnimationClipCount(); }
+    int activeEnemyAnimationClipIndex() const { return activeTemplateAnimationClipIndex(); }
+    std::vector<std::string> enemyAnimationClipNames() const { return templateAnimationClipNames(); }
+    bool setActiveEnemyAnimationClipByIndex(int clipIndex) { return setActiveTemplateAnimationClipByIndex(clipIndex); }
+    bool setActiveEnemyAnimationClipByName(const std::string& clipName) { return setActiveTemplateAnimationClipByName(clipName); }
+    void setPlayAllEnemyAnimationClips(bool enabled) { setCompositeTemplateAnimationMode(enabled); }
+    bool playAllEnemyAnimationClips() const { return compositeTemplateAnimationMode(); }
+
+    void setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms);
+    void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) { setAnimatedEntityInstanceTransforms(transforms); }
     const std::vector<glm::vec3>& routePoints() const { return routePoints_; }
-    bool hasEnemyTemplate() const { return !enemyTemplateMeshes_.empty(); }
+    bool hasAnimatedEntityTemplate() const { return !enemyTemplateMeshes_.empty(); }
+    bool hasEnemyTemplate() const { return hasAnimatedEntityTemplate(); }
     bool pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDir, WorldPickHit& outHit) const;
+    const EnemyAnimationDebugInfo& templateAnimationDebugInfo() const { return enemyAnimationDebugInfo_; }
     const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return enemyAnimationDebugInfo_; }
 
     void render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view);
