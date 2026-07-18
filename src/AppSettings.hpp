@@ -2,6 +2,7 @@
 
 struct AppSettings {
     bool fullscreen = false;
+    bool exclusiveFullscreen = false;
     bool vSyncEnabled = true;
     int displayWidth = 1280;
     int displayHeight = 720;

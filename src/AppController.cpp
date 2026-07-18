@@ -22,17 +22,31 @@
 
 namespace {
 
+bool useExclusiveFullscreen(const AppSettings& settings) {
+    return settings.fullscreen && settings.exclusiveFullscreen;
+}
+
 sf::VideoMode toVideoMode(const AppSettings& settings) {
+    if (settings.fullscreen && !settings.exclusiveFullscreen) {
+        const sf::VideoMode desktopMode = sf::VideoMode::getDesktopMode();
+        return sf::VideoMode(desktopMode.size);
+    }
+
     return sf::VideoMode(
         {static_cast<unsigned int>(settings.displayWidth), static_cast<unsigned int>(settings.displayHeight)});
 }
 
 sf::State toWindowState(const AppSettings& settings) {
-    return settings.fullscreen ? sf::State::Fullscreen : sf::State::Windowed;
+    return useExclusiveFullscreen(settings) ? sf::State::Fullscreen : sf::State::Windowed;
+}
+
+unsigned int toWindowStyle(const AppSettings& settings) {
+    return (settings.fullscreen && !settings.exclusiveFullscreen) ? sf::Style::None : sf::Style::Default;
 }
 
 bool hasDisplayChanges(const AppSettings& left, const AppSettings& right) {
-    return left.fullscreen != right.fullscreen || left.displayWidth != right.displayWidth ||
+    return left.fullscreen != right.fullscreen || left.exclusiveFullscreen != right.exclusiveFullscreen ||
+           left.displayWidth != right.displayWidth ||
            left.displayHeight != right.displayHeight || left.refreshRate != right.refreshRate;
 }
 
@@ -46,7 +60,7 @@ AppSettings sanitizeSettings(AppSettings settings) {
     settings.sfxVolume = std::clamp(settings.sfxVolume, 0.0f, 1.0f);
 
     const sf::VideoMode requestedMode = toVideoMode(settings);
-    if (settings.fullscreen && !requestedMode.isValid()) {
+    if (useExclusiveFullscreen(settings) && !requestedMode.isValid()) {
         const sf::VideoMode desktopMode = sf::VideoMode::getDesktopMode();
         settings.displayWidth = static_cast<int>(desktopMode.size.x);
         settings.displayHeight = static_cast<int>(desktopMode.size.y);
@@ -57,7 +71,7 @@ AppSettings sanitizeSettings(AppSettings settings) {
 
 void applySystemDisplayMode(const AppSettings& settings) {
 #ifdef _WIN32
-    if (settings.fullscreen) {
+    if (useExclusiveFullscreen(settings)) {
         DEVMODEW mode{};
         mode.dmSize = sizeof(DEVMODEW);
         mode.dmPelsWidth = static_cast<DWORD>(settings.displayWidth);
@@ -184,7 +198,10 @@ int AppController::run() {
             vulkanContext.reset();
 
             applySystemDisplayMode(settings);
-            window.create(toVideoMode(settings), "NodeSpireTD", sf::Style::Default, toWindowState(settings));
+            window.create(toVideoMode(settings), "NodeSpireTD", toWindowStyle(settings), toWindowState(settings));
+            if (settings.fullscreen && !settings.exclusiveFullscreen) {
+                window.setPosition({0, 0});
+            }
             window.setVerticalSyncEnabled(settings.vSyncEnabled);
 
             vulkanContext = std::make_unique<VulkanContext>(window);

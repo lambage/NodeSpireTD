@@ -8,11 +8,17 @@ namespace {
 
 nlohmann::json settingsToJson(const AppSettings& settings) {
     return {
-        {"fullscreen", settings.fullscreen},     {"vSyncEnabled", settings.vSyncEnabled},
-        {"displayWidth", settings.displayWidth}, {"displayHeight", settings.displayHeight},
-        {"refreshRate", settings.refreshRate},   {"graphicsQuality", settings.graphicsQuality},
-        {"masterVolume", settings.masterVolume}, {"musicVolume", settings.musicVolume},
-        {"sfxVolume", settings.sfxVolume},       {"muteWhenUnfocused", settings.muteWhenUnfocused},
+        {"fullscreen", settings.fullscreen},
+        {"exclusiveFullscreen", settings.exclusiveFullscreen},
+        {"vSyncEnabled", settings.vSyncEnabled},
+        {"displayWidth", settings.displayWidth},
+        {"displayHeight", settings.displayHeight},
+        {"refreshRate", settings.refreshRate},
+        {"graphicsQuality", settings.graphicsQuality},
+        {"masterVolume", settings.masterVolume},
+        {"musicVolume", settings.musicVolume},
+        {"sfxVolume", settings.sfxVolume},
+        {"muteWhenUnfocused", settings.muteWhenUnfocused},
     };
 }
 
@@ -20,6 +26,7 @@ AppSettings settingsFromJson(const nlohmann::json& json) {
     AppSettings settings;
 
     settings.fullscreen = json.value("fullscreen", settings.fullscreen);
+    settings.exclusiveFullscreen = json.value("exclusiveFullscreen", settings.exclusiveFullscreen);
     settings.vSyncEnabled = json.value("vSyncEnabled", settings.vSyncEnabled);
     settings.displayWidth = json.value("displayWidth", settings.displayWidth);
     settings.displayHeight = json.value("displayHeight", settings.displayHeight);

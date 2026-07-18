@@ -31,6 +31,15 @@ SceneFrameResult OptionsScene::render(SceneSharedState& state, float dt) {
 
     ImGui::Separator();
     ImGui::Checkbox("Fullscreen", &state.settings.fullscreen);
+
+    if (state.settings.fullscreen) {
+        const char* fullscreenModes[] = {"Borderless (recommended)", "Exclusive"};
+        int fullscreenModeIndex = state.settings.exclusiveFullscreen ? 1 : 0;
+        if (ImGui::Combo("Fullscreen Mode", &fullscreenModeIndex, fullscreenModes, 2)) {
+            state.settings.exclusiveFullscreen = (fullscreenModeIndex == 1);
+        }
+    }
+
     ImGui::Checkbox("V-Sync", &state.settings.vSyncEnabled);
 
     if (!state.displayModes.empty()) {

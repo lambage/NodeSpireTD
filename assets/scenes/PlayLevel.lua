@@ -8,7 +8,7 @@ end
 
 function M.render(state, dt, elapsed)
     ImGui.SetNextWindowPos(20, 20, ImGuiCond.Always)
-    ImGui.SetNextWindowSize(360, 600, ImGuiCond.Always)
+    ImGui.SetNextWindowSize(460, 600, ImGuiCond.Always)
     ImGui.Begin("GameplayScriptHarness", ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoCollapse)
 
     ImGui.Text("Lua Gameplay Harness")
