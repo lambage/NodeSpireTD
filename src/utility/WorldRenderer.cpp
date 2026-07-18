@@ -1,6 +1,7 @@
 #include "utility/WorldRenderer.hpp"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <fastgltf/core.hpp>
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
@@ -9,9 +10,15 @@
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <chrono>
+#include <functional>
+#include <array>
 #include <mutex>
+#include <map>
 #include <optional>
 #include <set>
+#include <limits>
+#include <cctype>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <cstring>
@@ -126,6 +133,76 @@ void copyBufferImmediate(VkDevice device, VkQueue queue, VkCommandPool pool,
 
 const auto kModelsPath = std::filesystem::path("assets") / "models";
 
+glm::mat4 composeTRS(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale) {
+    return glm::translate(glm::mat4{1.0f}, translation) *
+           glm::mat4_cast(rotation) *
+           glm::scale(glm::mat4{1.0f}, scale);
+}
+
+std::size_t findAnimationSegment(const std::vector<float>& times, float t) {
+    if (times.size() <= 1) {
+        return 0;
+    }
+
+    if (t <= times.front()) {
+        return 0;
+    }
+    if (t >= times.back()) {
+        return times.size() - 2;
+    }
+
+    const auto it = std::upper_bound(times.begin(), times.end(), t);
+    const std::size_t index = static_cast<std::size_t>(std::distance(times.begin(), it));
+    return (index == 0) ? 0 : index - 1;
+}
+
+float normalizedSegmentT(const std::vector<float>& times, std::size_t segIndex, float t) {
+    const float t0 = times[segIndex];
+    const float t1 = times[segIndex + 1];
+    if (t1 <= t0) {
+        return 0.0f;
+    }
+    return glm::clamp((t - t0) / (t1 - t0), 0.0f, 1.0f);
+}
+
+float maxScaleFromMatrix(const glm::mat4& m) {
+    const float sx = glm::length(glm::vec3(m[0]));
+    const float sy = glm::length(glm::vec3(m[1]));
+    const float sz = glm::length(glm::vec3(m[2]));
+    return std::max(sx, std::max(sy, sz));
+}
+
+bool raySphereIntersect(const glm::vec3& rayOrigin,
+                        const glm::vec3& rayDir,
+                        const glm::vec3& center,
+                        float radius,
+                        float& outT) {
+    const glm::vec3 oc = rayOrigin - center;
+    const float a = glm::dot(rayDir, rayDir);
+    const float b = 2.0f * glm::dot(oc, rayDir);
+    const float c = glm::dot(oc, oc) - radius * radius;
+    const float disc = b * b - 4.0f * a * c;
+    if (disc < 0.0f) {
+        return false;
+    }
+
+    const float sqrtDisc = std::sqrt(disc);
+    const float inv2a = 0.5f / a;
+    const float t0 = (-b - sqrtDisc) * inv2a;
+    const float t1 = (-b + sqrtDisc) * inv2a;
+
+    if (t0 > 1e-4f) {
+        outT = t0;
+        return true;
+    }
+    if (t1 > 1e-4f) {
+        outT = t1;
+        return true;
+    }
+
+    return false;
+}
+
 } // namespace
 
 // ─── texture helpers ──────────────────────────────────────────────────────────
@@ -143,27 +220,54 @@ void WorldRenderer::createSamplerLayoutAndPool() {
     if (vkCreateSampler(ctx_.device(), &si, nullptr, &sampler_) != VK_SUCCESS)
         throw std::runtime_error("Failed to create texture sampler.");
 
-    // Descriptor set layout: binding 0 = combined image sampler (fragment)
-    VkDescriptorSetLayoutBinding bind{};
-    bind.binding            = 0;
-    bind.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bind.descriptorCount    = 1;
-    bind.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    // Descriptor set layout: binding 0 = base color sampler, binding 1 = skin matrices
+    VkDescriptorSetLayoutBinding bindings[2]{};
+    bindings[0].binding            = 0;
+    bindings[0].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[0].descriptorCount    = 1;
+    bindings[0].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[1].binding            = 1;
+    bindings[1].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[1].descriptorCount    = 1;
+    bindings[1].stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
 
     VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    li.bindingCount = 1;
-    li.pBindings    = &bind;
+    li.bindingCount = 2;
+    li.pBindings    = bindings;
     if (vkCreateDescriptorSetLayout(ctx_.device(), &li, nullptr, &textureDescLayout_) != VK_SUCCESS)
         throw std::runtime_error("Failed to create texture descriptor set layout.");
 
     // Private descriptor pool (freed wholesale in release())
-    VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512};
+    VkDescriptorPoolSize poolSizes[2] = {
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 512}
+    };
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pi.maxSets       = 513;
-    pi.poolSizeCount = 1;
-    pi.pPoolSizes    = &ps;
+    pi.poolSizeCount = 2;
+    pi.pPoolSizes    = poolSizes;
     if (vkCreateDescriptorPool(ctx_.device(), &pi, nullptr, &ownDescPool_) != VK_SUCCESS)
         throw std::runtime_error("Failed to create texture descriptor pool.");
+
+    const VkDeviceSize skinBufferSize = sizeof(glm::mat4) * kMaxSkinJoints;
+    VkBufferCreateInfo skinBufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    skinBufInfo.size = skinBufferSize;
+    skinBufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    skinBufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VmaAllocationCreateInfo skinAllocInfo{};
+    skinAllocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    skinAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                          VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VmaAllocationInfo allocInfo{};
+    if (vmaCreateBuffer(ctx_.allocator(), &skinBufInfo, &skinAllocInfo,
+                        &skinPaletteBuffer_, &skinPaletteAlloc_, &allocInfo) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create skin palette uniform buffer.");
+    }
+    skinPaletteMapped_ = allocInfo.pMappedData;
+    uploadIdentitySkinPalette();
 }
 
 WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, uint32_t h) {
@@ -272,13 +376,27 @@ VkDescriptorSet WorldRenderer::makeTextureDescSet(VkImageView view) {
     ii.imageView   = view;
     ii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    wr.dstSet          = set;
-    wr.dstBinding      = 0;
-    wr.descriptorCount = 1;
-    wr.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    wr.pImageInfo      = &ii;
-    vkUpdateDescriptorSets(ctx_.device(), 1, &wr, 0, nullptr);
+    VkDescriptorBufferInfo bi{};
+    bi.buffer = skinPaletteBuffer_;
+    bi.offset = 0;
+    bi.range  = sizeof(glm::mat4) * kMaxSkinJoints;
+
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = set;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].pImageInfo = &ii;
+
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = set;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].pBufferInfo = &bi;
+
+    vkUpdateDescriptorSets(ctx_.device(), 2, writes, 0, nullptr);
     return set;
 }
 
@@ -307,6 +425,80 @@ std::string WorldRenderer::loadActivity() const {
     return activityStr_;
 }
 
+void WorldRenderer::setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) {
+    enemyInstanceTransforms_ = transforms;
+}
+
+std::vector<std::string> WorldRenderer::enemyAnimationClipNames() const {
+    std::vector<std::string> names;
+    names.reserve(enemyAnimationClips_.size());
+    for (const EnemyAnimationClip& clip : enemyAnimationClips_) {
+        names.push_back(clip.name);
+    }
+    return names;
+}
+
+bool WorldRenderer::setActiveEnemyAnimationClipByIndex(int clipIndex) {
+    if (clipIndex < 0 || static_cast<std::size_t>(clipIndex) >= enemyAnimationClips_.size()) {
+        return false;
+    }
+
+    activeEnemyAnimationClipIndex_ = clipIndex;
+    enemyAnimationEnabled_ = true;
+    playAllEnemyAnimationClips_ = false;
+    enemyAnimationName_ = enemyAnimationClips_[clipIndex].name;
+    enemyAnimationTimeSeconds_ = 0.0f;
+    return true;
+}
+
+bool WorldRenderer::setActiveEnemyAnimationClipByName(const std::string& clipName) {
+    if (clipName.empty()) {
+        return false;
+    }
+
+    auto normalize = [](std::string_view value) {
+        std::string out;
+        out.reserve(value.size());
+        for (char c : value) {
+            out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+        return out;
+    };
+
+    const std::string needle = normalize(clipName);
+    for (std::size_t i = 0; i < enemyAnimationClips_.size(); ++i) {
+        if (normalize(enemyAnimationClips_[i].name) == needle) {
+            return setActiveEnemyAnimationClipByIndex(static_cast<int>(i));
+        }
+    }
+    return false;
+}
+
+void WorldRenderer::uploadSkinPalette(const std::vector<glm::mat4>& joints) {
+    if (!skinPaletteMapped_ || skinPaletteBuffer_ == VK_NULL_HANDLE) {
+        return;
+    }
+
+    std::array<glm::mat4, kMaxSkinJoints> palette{};
+    for (auto& m : palette) {
+        m = glm::mat4{1.0f};
+    }
+
+    const std::size_t count = std::min<std::size_t>(joints.size(), kMaxSkinJoints);
+    for (std::size_t i = 0; i < count; ++i) {
+        palette[i] = joints[i];
+    }
+
+    const VkDeviceSize byteSize = sizeof(glm::mat4) * kMaxSkinJoints;
+    std::memcpy(skinPaletteMapped_, palette.data(), static_cast<std::size_t>(byteSize));
+    vmaFlushAllocation(ctx_.allocator(), skinPaletteAlloc_, 0, byteSize);
+}
+
+void WorldRenderer::uploadIdentitySkinPalette() {
+    static const std::vector<glm::mat4> kIdentityPalette(1, glm::mat4{1.0f});
+    uploadSkinPalette(kIdentityPalette);
+}
+
 // ─── public loading interface ─────────────────────────────────────────────────
 
 void WorldRenderer::beginLoad(const std::filesystem::path& assetPath) {
@@ -320,6 +512,8 @@ void WorldRenderer::beginLoad(const std::filesystem::path& assetPath) {
     cpuDone_.store(false,    std::memory_order_relaxed);
     cpuFailed_.store(false,  std::memory_order_relaxed);
     progress_.store(0.0f,    std::memory_order_relaxed);
+    firstRenderTick_ = true;
+    enemyAnimationTimeSeconds_ = 0.0f;
     setActivity(0.0f, "Starting...");
 
     loadThread_ = std::thread(&WorldRenderer::backgroundLoad, this, assetPath);
@@ -488,7 +682,12 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     auto processPrimitive = [&](const fastgltf::Asset& srcAsset,
                                 std::string_view assetId,
                                 const fastgltf::Primitive& primitive,
-                                const glm::mat4& worldTransform) {
+                                const glm::mat4& worldTransform,
+                                std::vector<StagedMesh>& outMeshes,
+                                int sourceNodeIndex,
+                                int sourceSkinIndex,
+                                std::string_view debugGroup,
+                                std::string_view debugLabel) {
         if (meshCount >= kMaxMeshes) return;
         if (primitive.type != fastgltf::PrimitiveType::Triangles) return;
         if (!primitive.indicesAccessor.has_value()) return;
@@ -503,6 +702,8 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
         std::vector<glm::vec3> positions(vertCount);
         std::vector<glm::vec3> normals(vertCount, {0.0f, 1.0f, 0.0f});
         std::vector<glm::vec2> uvs(vertCount, {0.0f, 0.0f});
+        std::vector<glm::u16vec4> joints(vertCount, glm::u16vec4{0, 0, 0, 0});
+        std::vector<glm::vec4> weights(vertCount, glm::vec4{0.0f, 0.0f, 0.0f, 0.0f});
 
         fastgltf::copyFromAccessor<glm::vec3>(srcAsset, posAccessor, positions.data());
 
@@ -516,11 +717,36 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
             fastgltf::copyFromAccessor<glm::vec2>(srcAsset, srcAsset.accessors[uvIt->accessorIndex], uvs.data());
         }
 
+        auto jointsIt = primitive.findAttribute("JOINTS_0");
+        if (jointsIt != primitive.attributes.end()) {
+            const auto& jointsAccessor = srcAsset.accessors[jointsIt->accessorIndex];
+            if (jointsAccessor.componentType == fastgltf::ComponentType::UnsignedByte) {
+                std::vector<glm::u8vec4> tmp(vertCount, glm::u8vec4{0, 0, 0, 0});
+                fastgltf::copyFromAccessor<glm::u8vec4>(srcAsset, jointsAccessor, tmp.data());
+                for (size_t i = 0; i < vertCount; ++i) {
+                    joints[i] = glm::u16vec4{tmp[i].x, tmp[i].y, tmp[i].z, tmp[i].w};
+                }
+            } else {
+                fastgltf::copyFromAccessor<glm::u16vec4>(srcAsset, jointsAccessor, joints.data());
+            }
+        }
+
+        auto weightsIt = primitive.findAttribute("WEIGHTS_0");
+        if (weightsIt != primitive.attributes.end()) {
+            fastgltf::copyFromAccessor<glm::vec4>(srcAsset, srcAsset.accessors[weightsIt->accessorIndex], weights.data());
+        }
+
         std::vector<WorldVertex> vertices(vertCount);
+        glm::vec3 minPos{std::numeric_limits<float>::max()};
+        glm::vec3 maxPos{std::numeric_limits<float>::lowest()};
         for (size_t i = 0; i < vertCount; ++i) {
             vertices[i].position = positions[i];
             vertices[i].normal   = normals[i];
             vertices[i].uv       = uvs[i];
+            vertices[i].joints   = joints[i];
+            vertices[i].weights  = weights[i];
+            minPos = glm::min(minPos, positions[i]);
+            maxPos = glm::max(maxPos, positions[i]);
         }
 
         auto& idxAccessor = srcAsset.accessors[*primitive.indicesAccessor];
@@ -559,23 +785,30 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
         sm.indices        = std::move(indices);
         sm.imageIndex     = imgKey;
         sm.modelTransform = worldTransform;
-        stagedMeshes_.push_back(std::move(sm));
+        sm.sourceNodeIndex = sourceNodeIndex;
+        sm.sourceSkinIndex = sourceSkinIndex;
+        sm.debugGroup = std::string(debugGroup);
+        sm.debugLabel = std::string(debugLabel);
+        sm.localBoundsCenter = (minPos + maxPos) * 0.5f;
+        sm.localBoundsRadius = std::max(0.05f, glm::distance(minPos, maxPos) * 0.5f);
+        outMeshes.push_back(std::move(sm));
         ++meshCount;
     };
 
     struct MarkerState {
         std::optional<glm::vec3> start;
         std::optional<glm::vec3> end;
-        std::optional<glm::vec3> waypoint1;
-        std::optional<glm::vec3> lastWaypoint;
-        int lastWaypointIndex = 0;
+        std::map<int, glm::vec3> waypoints;
     };
     MarkerState markers;
 
     auto traverseScene = [&](const fastgltf::Asset& srcAsset,
                              std::string_view assetId,
                              const glm::mat4& rootTransform,
-                             bool captureMarkers) {
+                             bool captureMarkers,
+                             std::vector<StagedMesh>& outMeshes,
+                             std::string_view debugGroup,
+                             std::string_view debugLabelPrefix) {
         std::function<void(std::size_t, const glm::mat4&)> visitNode =
             [&](std::size_t nodeIdx, const glm::mat4& parentWorld) {
                 if (cancelLoad_.load()) return;
@@ -594,20 +827,24 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
                     } else {
                         int waypointIndex = 0;
                         if (parseWaypointIndex(nodeName, waypointIndex)) {
-                            if (waypointIndex == 1) {
-                                markers.waypoint1 = markerPos;
-                            }
-                            if (!markers.lastWaypoint.has_value() || waypointIndex > markers.lastWaypointIndex) {
-                                markers.lastWaypoint = markerPos;
-                                markers.lastWaypointIndex = waypointIndex;
-                            }
+                            markers.waypoints[waypointIndex] = markerPos;
                         }
                     }
                 }
 
                 if (node.meshIndex.has_value()) {
+                    const int nodeSkinIndex = node.skinIndex.has_value() ? static_cast<int>(*node.skinIndex) : -1;
+                    std::string label = std::string(debugLabelPrefix);
+                    if (!node.name.empty()) {
+                        if (!label.empty()) {
+                            label += ":";
+                        }
+                        label += std::string(node.name);
+                    }
                     for (const auto& prim : srcAsset.meshes[*node.meshIndex].primitives) {
-                        processPrimitive(srcAsset, assetId, prim, world);
+                        processPrimitive(srcAsset, assetId, prim, world, outMeshes,
+                                         static_cast<int>(nodeIdx), nodeSkinIndex,
+                                         debugGroup, label);
                     }
                 }
 
@@ -633,13 +870,14 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     const std::string mapAssetId = assetPath.lexically_normal().string();
     stageTexturesForAsset(mapAsset, assetPath, mapAssetId, assetPath.filename().string());
     if (cancelLoad_.load()) return;
-    traverseScene(mapAsset, mapAssetId, glm::mat4{1.0f}, true);
+    traverseScene(mapAsset, mapAssetId, glm::mat4{1.0f}, true, stagedMeshes_, "map", assetPath.stem().string());
 
     const auto modelsDir = kModelsPath;
 
     auto loadAndStagePlacedModel = [&](const std::filesystem::path& modelPath,
                                        const glm::mat4& placement,
-                                       const std::string& label) {
+                                       const std::string& label,
+                                       std::vector<StagedMesh>& outMeshes) {
         if (cancelLoad_.load() || !std::filesystem::exists(modelPath)) {
             return;
         }
@@ -665,14 +903,296 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
         const std::string modelAssetId = modelPath.lexically_normal().string();
         stageTexturesForAsset(modelAsset, modelPath, modelAssetId, label);
         if (cancelLoad_.load()) return;
-        traverseScene(modelAsset, modelAssetId, placement, false);
+        traverseScene(modelAsset, modelAssetId, placement, false, outMeshes, "prop", label);
     };
+
+    auto loadAndStageModelTemplate = [&](const std::filesystem::path& modelPath,
+                                         const std::string& label,
+                                         std::vector<StagedMesh>& outMeshes) {
+        if (cancelLoad_.load() || !std::filesystem::exists(modelPath)) {
+            return;
+        }
+
+        setActivity(0.62f, "Loading " + label + " model...");
+        auto modelDataResult = fastgltf::GltfDataBuffer::FromPath(modelPath);
+        if (modelDataResult.error() != fastgltf::Error::None) {
+            spdlog::warn("[WorldRenderer] Failed to read {}: {}", modelPath.string(),
+                         fastgltf::getErrorName(modelDataResult.error()));
+            return;
+        }
+
+        fastgltf::Parser modelParser(kAllExtensions);
+        auto modelAssetResult = modelParser.loadGltf(modelDataResult.get(), modelPath.parent_path(),
+                                                     fastgltf::Options::LoadExternalBuffers);
+        if (modelAssetResult.error() != fastgltf::Error::None) {
+            spdlog::warn("[WorldRenderer] Failed to parse {}: {}", modelPath.string(),
+                         fastgltf::getErrorName(modelAssetResult.error()));
+            return;
+        }
+
+        fastgltf::Asset& modelAsset = modelAssetResult.get();
+        const std::string modelAssetId = modelPath.lexically_normal().string();
+        stageTexturesForAsset(modelAsset, modelPath, modelAssetId, label);
+        if (cancelLoad_.load()) return;
+        traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, false, outMeshes, "enemy", label);
+
+        enemyNodeParents_.assign(modelAsset.nodes.size(), -1);
+        enemyBaseTranslations_.assign(modelAsset.nodes.size(), glm::vec3{0.0f});
+        enemyBaseRotations_.assign(modelAsset.nodes.size(), glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
+        enemyBaseScales_.assign(modelAsset.nodes.size(), glm::vec3{1.0f});
+        enemyNodeWorldTransforms_.assign(modelAsset.nodes.size(), glm::mat4{1.0f});
+        enemySceneRootNodes_.clear();
+        enemyAnimationClips_.clear();
+        activeEnemyAnimationClipIndex_ = -1;
+        playAllEnemyAnimationClips_ = false;
+        enemyAnimationEnabled_ = false;
+        enemyAnimationName_.clear();
+        enemyAnimationTimeSeconds_ = 0.0f;
+
+        std::vector<bool> childMask(modelAsset.nodes.size(), false);
+        for (std::size_t i = 0; i < modelAsset.nodes.size(); ++i) {
+            const fastgltf::Node& node = modelAsset.nodes[i];
+            for (std::size_t child : node.children) {
+                if (child < enemyNodeParents_.size()) {
+                    enemyNodeParents_[child] = static_cast<int>(i);
+                    childMask[child] = true;
+                }
+            }
+
+            std::visit(fastgltf::visitor{
+                [&](const fastgltf::TRS& trs) {
+                    enemyBaseTranslations_[i] = glm::vec3(trs.translation.x(), trs.translation.y(), trs.translation.z());
+                    enemyBaseRotations_[i] = glm::quat(trs.rotation.w(), trs.rotation.x(), trs.rotation.y(), trs.rotation.z());
+                    enemyBaseScales_[i] = glm::vec3(trs.scale.x(), trs.scale.y(), trs.scale.z());
+                },
+                [&](const fastgltf::math::fmat4x4& mat) {
+                    glm::mat4 m{1.0f};
+                    std::memcpy(&m, mat.data(), sizeof(glm::mat4));
+                    enemyBaseTranslations_[i] = glm::vec3(m[3]);
+                    enemyBaseRotations_[i] = glm::quat_cast(m);
+                    enemyBaseScales_[i] = glm::vec3(
+                        glm::length(glm::vec3(m[0])),
+                        glm::length(glm::vec3(m[1])),
+                        glm::length(glm::vec3(m[2])));
+                }
+            }, node.transform);
+        }
+
+        if (!modelAsset.scenes.empty()) {
+            const std::size_t sceneIdx = modelAsset.defaultScene.has_value() ? *modelAsset.defaultScene : 0;
+            for (std::size_t rootIdx : modelAsset.scenes[sceneIdx].nodeIndices) {
+                enemySceneRootNodes_.push_back(rootIdx);
+            }
+        } else {
+            for (std::size_t i = 0; i < childMask.size(); ++i) {
+                if (!childMask[i]) {
+                    enemySceneRootNodes_.push_back(i);
+                }
+            }
+        }
+
+        enemySkins_.clear();
+        enemySkins_.reserve(modelAsset.skins.size());
+        for (const fastgltf::Skin& skin : modelAsset.skins) {
+            EnemySkin parsedSkin;
+            parsedSkin.jointNodes.reserve(skin.joints.size());
+            parsedSkin.inverseBindMatrices.assign(skin.joints.size(), glm::mat4{1.0f});
+            parsedSkin.jointMatrices.assign(skin.joints.size(), glm::mat4{1.0f});
+
+            for (std::size_t i = 0; i < skin.joints.size(); ++i) {
+                parsedSkin.jointNodes.push_back(static_cast<int>(skin.joints[i]));
+            }
+
+            if (skin.inverseBindMatrices.has_value()) {
+                const std::size_t accessorIndex = *skin.inverseBindMatrices;
+                if (accessorIndex < modelAsset.accessors.size()) {
+                    const fastgltf::Accessor& ibmAccessor = modelAsset.accessors[accessorIndex];
+                    std::vector<glm::mat4> ibmValues(ibmAccessor.count, glm::mat4{1.0f});
+                    if (!ibmValues.empty()) {
+                        fastgltf::copyFromAccessor<glm::mat4>(modelAsset, ibmAccessor, ibmValues.data());
+                        const std::size_t copyCount = std::min(parsedSkin.inverseBindMatrices.size(), ibmValues.size());
+                        for (std::size_t i = 0; i < copyCount; ++i) {
+                            parsedSkin.inverseBindMatrices[i] = ibmValues[i];
+                        }
+                    }
+                }
+            }
+
+            enemySkins_.push_back(std::move(parsedSkin));
+        }
+
+        for (const fastgltf::Animation& animation : modelAsset.animations) {
+            EnemyAnimationClip clip;
+            clip.name = animation.name.empty() ? "walk" : std::string(animation.name);
+
+            for (const fastgltf::AnimationChannel& channel : animation.channels) {
+                if (!channel.nodeIndex.has_value()) {
+                    continue;
+                }
+                if (channel.samplerIndex >= animation.samplers.size()) {
+                    continue;
+                }
+
+                const fastgltf::AnimationSampler& sampler = animation.samplers[channel.samplerIndex];
+                if (sampler.inputAccessor >= modelAsset.accessors.size() ||
+                    sampler.outputAccessor >= modelAsset.accessors.size()) {
+                    continue;
+                }
+
+                const fastgltf::Accessor& inputAccessor = modelAsset.accessors[sampler.inputAccessor];
+                const fastgltf::Accessor& outputAccessor = modelAsset.accessors[sampler.outputAccessor];
+
+                AnimationTrack track;
+                track.nodeIndex = static_cast<int>(*channel.nodeIndex);
+                track.stepInterpolation = sampler.interpolation == fastgltf::AnimationInterpolation::Step;
+                track.times.resize(inputAccessor.count);
+                if (!track.times.empty()) {
+                    fastgltf::copyFromAccessor<float>(modelAsset, inputAccessor, track.times.data());
+                    clip.durationSeconds = std::max(clip.durationSeconds, track.times.back());
+                }
+
+                if (channel.path == fastgltf::AnimationPath::Translation ||
+                    channel.path == fastgltf::AnimationPath::Scale) {
+                    track.path = (channel.path == fastgltf::AnimationPath::Translation)
+                                     ? AnimationPath::Translation
+                                     : AnimationPath::Scale;
+                    std::vector<glm::vec3> packed(outputAccessor.count);
+                    if (!packed.empty()) {
+                        fastgltf::copyFromAccessor<glm::vec3>(modelAsset, outputAccessor, packed.data());
+                        if (sampler.interpolation == fastgltf::AnimationInterpolation::CubicSpline) {
+                            track.vec3Values.reserve(track.times.size());
+                            for (std::size_t i = 0; i < track.times.size(); ++i) {
+                                const std::size_t valueIndex = i * 3 + 1;
+                                if (valueIndex < packed.size()) {
+                                    track.vec3Values.push_back(packed[valueIndex]);
+                                }
+                            }
+                        } else {
+                            track.vec3Values = std::move(packed);
+                        }
+                    }
+                } else if (channel.path == fastgltf::AnimationPath::Rotation) {
+                    track.path = AnimationPath::Rotation;
+                    std::vector<glm::vec4> packed(outputAccessor.count);
+                    if (!packed.empty()) {
+                        fastgltf::copyFromAccessor<glm::vec4>(modelAsset, outputAccessor, packed.data());
+                        if (sampler.interpolation == fastgltf::AnimationInterpolation::CubicSpline) {
+                            track.quatValues.reserve(track.times.size());
+                            for (std::size_t i = 0; i < track.times.size(); ++i) {
+                                const std::size_t valueIndex = i * 3 + 1;
+                                if (valueIndex < packed.size()) {
+                                    const glm::vec4& q = packed[valueIndex];
+                                    track.quatValues.emplace_back(q.w, q.x, q.y, q.z);
+                                }
+                            }
+                        } else {
+                            track.quatValues.reserve(packed.size());
+                            for (const glm::vec4& q : packed) {
+                                track.quatValues.emplace_back(q.w, q.x, q.y, q.z);
+                            }
+                        }
+                    }
+                } else {
+                    continue;
+                }
+
+                if ((track.path == AnimationPath::Rotation && track.quatValues.size() < track.times.size()) ||
+                    ((track.path == AnimationPath::Translation || track.path == AnimationPath::Scale) &&
+                     track.vec3Values.size() < track.times.size())) {
+                    continue;
+                }
+
+                clip.tracks.push_back(std::move(track));
+            }
+
+            if (!clip.tracks.empty() && clip.durationSeconds > 0.0f) {
+                enemyAnimationClips_.push_back(std::move(clip));
+            }
+        }
+
+        if (!enemyAnimationClips_.empty()) {
+            auto normalizedName = [](std::string_view value) {
+                std::string out;
+                out.reserve(value.size());
+                for (const char c : value) {
+                    out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+                }
+                return out;
+            };
+
+            auto clipKeyScore = [](const EnemyAnimationClip& clip) {
+                std::size_t totalKeys = 0;
+                for (const AnimationTrack& track : clip.tracks) {
+                    totalKeys += track.times.size();
+                }
+                return totalKeys;
+            };
+
+            int bestIndex = 0;
+            std::size_t bestScore = 0;
+            int bestPriority = -1;
+
+            for (std::size_t i = 0; i < enemyAnimationClips_.size(); ++i) {
+                const EnemyAnimationClip& candidate = enemyAnimationClips_[i];
+                const std::string name = normalizedName(candidate.name);
+
+                int priority = 0;
+                if (name == "walking") {
+                    priority = 3;
+                } else if (name.find("walk") != std::string::npos) {
+                    priority = 2;
+                } else if (name.find("idle") != std::string::npos) {
+                    priority = 1;
+                }
+
+                const std::size_t score = clipKeyScore(candidate);
+                if (priority > bestPriority || (priority == bestPriority && score > bestScore)) {
+                    bestPriority = priority;
+                    bestScore = score;
+                    bestIndex = static_cast<int>(i);
+                }
+            }
+
+            activeEnemyAnimationClipIndex_ = bestIndex;
+            enemyAnimationEnabled_ = true;
+            enemyAnimationName_ = enemyAnimationClips_[activeEnemyAnimationClipIndex_].name;
+
+            int actionLikeCount = 0;
+            for (const EnemyAnimationClip& c : enemyAnimationClips_) {
+                const std::string n = normalizedName(c.name);
+                if (n.find("action") != std::string::npos) {
+                    ++actionLikeCount;
+                }
+            }
+            playAllEnemyAnimationClips_ = (enemyAnimationClips_.size() > 1) &&
+                                          (actionLikeCount >= static_cast<int>(enemyAnimationClips_.size() / 2));
+
+            spdlog::info("[WorldRenderer] Enemy animation selected: '{}' (clip {}/{}, {} tracks, {:.2f}s).",
+                         enemyAnimationName_, activeEnemyAnimationClipIndex_ + 1,
+                         enemyAnimationClips_.size(),
+                         enemyAnimationClips_[activeEnemyAnimationClipIndex_].tracks.size(),
+                         enemyAnimationClips_[activeEnemyAnimationClipIndex_].durationSeconds);
+            spdlog::info("[WorldRenderer] Enemy animation composite mode: {}.", playAllEnemyAnimationClips_ ? "ON" : "OFF");
+        }
+    };
+
+    routePoints_.clear();
+    if (markers.start.has_value()) {
+        routePoints_.push_back(*markers.start);
+    }
+    for (const auto& [index, waypoint] : markers.waypoints) {
+        (void)index;
+        routePoints_.push_back(waypoint);
+    }
+    if (markers.end.has_value()) {
+        routePoints_.push_back(*markers.end);
+    }
 
     if (!modelsDir.empty()) {
         if (markers.start.has_value()) {
             glm::mat4 portalPlacement = glm::translate(glm::mat4{1.0f}, *markers.start);
-            if (markers.waypoint1.has_value()) {
-                portalPlacement = makeYFacingTransform(*markers.start, *markers.waypoint1);
+            if (!markers.waypoints.empty()) {
+                portalPlacement = makeYFacingTransform(*markers.start, markers.waypoints.begin()->second);
             }
 
             std::filesystem::path portalPath = modelsDir / "portal.glb";
@@ -682,27 +1202,29 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
                     portalPath = fallbackPortal;
                 }
             }
-            loadAndStagePlacedModel(portalPath, portalPlacement, "portal");
+            loadAndStagePlacedModel(portalPath, portalPlacement, "portal", stagedMeshes_);
         }
 
         if (markers.end.has_value()) {
             glm::mat4 basePlacement = glm::translate(glm::mat4{1.0f}, *markers.end);
-            if (markers.lastWaypoint.has_value()) {
-                basePlacement = makeYFacingTransform(*markers.end, *markers.lastWaypoint);
+            if (!markers.waypoints.empty()) {
+                basePlacement = makeYFacingTransform(*markers.end, markers.waypoints.rbegin()->second);
             }
-            loadAndStagePlacedModel(modelsDir / "base.glb", basePlacement, "base");
+            loadAndStagePlacedModel(modelsDir / "base.glb", basePlacement, "base", stagedMeshes_);
         }
+
+        loadAndStageModelTemplate(modelsDir / "goblin1.glb", "goblin template", stagedEnemyMeshes_);
     } else {
         spdlog::warn("[WorldRenderer] Could not locate assets directory for portal/base placement. {}", modelsDir.string());
     }
 
-    if (markers.start.has_value() && markers.waypoint1.has_value()) {
+    if (markers.start.has_value() && !markers.waypoints.empty()) {
         spdlog::info("[WorldRenderer] Portal placed at Start, facing Waypoint_1.");
     } else if (markers.start.has_value()) {
         spdlog::warn("[WorldRenderer] Start marker found, but Waypoint_1 missing. Portal placed without facing target.");
     }
-    if (markers.end.has_value() && markers.lastWaypoint.has_value()) {
-        spdlog::info("[WorldRenderer] Base placed at End, facing Waypoint_{}.", markers.lastWaypointIndex);
+    if (markers.end.has_value() && !markers.waypoints.empty()) {
+        spdlog::info("[WorldRenderer] Base placed at End, facing last waypoint.");
     } else if (markers.end.has_value()) {
         spdlog::warn("[WorldRenderer] End marker found, but no Waypoint_X markers found. Base placed without facing target.");
     }
@@ -731,6 +1253,12 @@ void WorldRenderer::tickLoad() {
             const auto& sm = stagedMeshes_[gpuMeshCursor_];
             WorldMesh wm = uploadMesh(sm.vertices, sm.indices);
             wm.modelTransform = sm.modelTransform;
+            wm.sourceNodeIndex = sm.sourceNodeIndex;
+            wm.sourceSkinIndex = sm.sourceSkinIndex;
+            wm.localBoundsCenter = sm.localBoundsCenter;
+            wm.localBoundsRadius = sm.localBoundsRadius;
+            wm.debugGroup = sm.debugGroup;
+            wm.debugLabel = sm.debugLabel;
             meshes_.push_back(std::move(wm));
             meshImgIdx_.push_back(sm.imageIndex);
             totalVertices_ += static_cast<int>(sm.vertices.size());
@@ -738,6 +1266,27 @@ void WorldRenderer::tickLoad() {
             ++gpuMeshCursor_;
         }
         progress_.store(0.73f, std::memory_order_relaxed);
+        return;
+    }
+
+    if (gpuEnemyMeshCursor_ < stagedEnemyMeshes_.size()) {
+        const std::size_t total = stagedEnemyMeshes_.size();
+        setActivity(0.73f, "Uploading enemy template geometry (" + std::to_string(total) + " meshes)...");
+        while (gpuEnemyMeshCursor_ < total) {
+            const auto& sm = stagedEnemyMeshes_[gpuEnemyMeshCursor_];
+            WorldMesh wm = uploadMesh(sm.vertices, sm.indices);
+            wm.modelTransform = sm.modelTransform;
+            wm.sourceNodeIndex = sm.sourceNodeIndex;
+            wm.sourceSkinIndex = sm.sourceSkinIndex;
+            wm.localBoundsCenter = sm.localBoundsCenter;
+            wm.localBoundsRadius = sm.localBoundsRadius;
+            wm.debugGroup = sm.debugGroup;
+            wm.debugLabel = sm.debugLabel;
+            enemyTemplateMeshes_.push_back(std::move(wm));
+            enemyMeshImgIdx_.push_back(sm.imageIndex);
+            ++gpuEnemyMeshCursor_;
+        }
+        progress_.store(0.75f, std::memory_order_relaxed);
         return;
     }
 
@@ -770,6 +1319,11 @@ void WorldRenderer::tickLoad() {
             auto it = (imgIdx != SIZE_MAX) ? texDescSetCache_.find(imgIdx) : texDescSetCache_.end();
             meshes_[i].descriptorSet = (it != texDescSetCache_.end()) ? it->second : fallbackDescSet_;
         }
+        for (std::size_t i = 0; i < enemyTemplateMeshes_.size(); ++i) {
+            const std::size_t imgIdx = (i < enemyMeshImgIdx_.size()) ? enemyMeshImgIdx_[i] : SIZE_MAX;
+            auto it = (imgIdx != SIZE_MAX) ? texDescSetCache_.find(imgIdx) : texDescSetCache_.end();
+            enemyTemplateMeshes_[i].descriptorSet = (it != texDescSetCache_.end()) ? it->second : fallbackDescSet_;
+        }
         gpuDescsDone_ = true;
     }
 
@@ -795,8 +1349,316 @@ void WorldRenderer::tickLoad() {
               std::to_string(totalIndices_ / 3) + " tris";
     spdlog::info("[WorldRenderer] {}", status_);
 }
+
+void WorldRenderer::updateEnemyAnimation(float dtSeconds) {
+    enemyAnimationDebugInfo_.enabled = false;
+    enemyAnimationDebugInfo_.clipName.clear();
+    enemyAnimationDebugInfo_.selectedClipIndex = activeEnemyAnimationClipIndex_;
+    enemyAnimationDebugInfo_.clipCount = static_cast<int>(enemyAnimationClips_.size());
+    enemyAnimationDebugInfo_.compositeMode = playAllEnemyAnimationClips_;
+    enemyAnimationDebugInfo_.compositeAppliedClips = 0;
+    enemyAnimationDebugInfo_.timeSeconds = 0.0f;
+    enemyAnimationDebugInfo_.durationSeconds = 0.0f;
+    enemyAnimationDebugInfo_.trackCount = 0;
+    enemyAnimationDebugInfo_.keyCount = 0;
+    enemyAnimationDebugInfo_.keyIndex = 0;
+    enemyAnimationDebugInfo_.nextKeyIndex = 0;
+    enemyAnimationDebugInfo_.keyTimeSeconds = 0.0f;
+    enemyAnimationDebugInfo_.nextKeyTimeSeconds = 0.0f;
+    enemyAnimationDebugInfo_.segmentAlpha = 0.0f;
+    enemyAnimationDebugInfo_.stepInterpolation = false;
+
+    if (enemyNodeWorldTransforms_.empty()) {
+        return;
+    }
+
+    std::vector<glm::vec3> localT = enemyBaseTranslations_;
+    std::vector<glm::quat> localR = enemyBaseRotations_;
+    std::vector<glm::vec3> localS = enemyBaseScales_;
+
+    if (enemyAnimationEnabled_ && !enemyAnimationClips_.empty()) {
+        float timelineDuration = 0.0f;
+        if (playAllEnemyAnimationClips_) {
+            for (const EnemyAnimationClip& clip : enemyAnimationClips_) {
+                timelineDuration = std::max(timelineDuration, clip.durationSeconds);
+            }
+        } else if (activeEnemyAnimationClipIndex_ >= 0 &&
+                   static_cast<std::size_t>(activeEnemyAnimationClipIndex_) < enemyAnimationClips_.size()) {
+            timelineDuration = enemyAnimationClips_[activeEnemyAnimationClipIndex_].durationSeconds;
+        }
+
+        if (timelineDuration > 1e-5f) {
+            enemyAnimationTimeSeconds_ = std::fmod(enemyAnimationTimeSeconds_ + std::max(0.0f, dtSeconds), timelineDuration);
+        } else {
+            enemyAnimationTimeSeconds_ = 0.0f;
+        }
+
+        enemyAnimationDebugInfo_.enabled = true;
+        enemyAnimationDebugInfo_.durationSeconds = timelineDuration;
+        enemyAnimationDebugInfo_.timeSeconds = enemyAnimationTimeSeconds_;
+        enemyAnimationDebugInfo_.compositeMode = playAllEnemyAnimationClips_;
+
+        auto applyClip = [&](const EnemyAnimationClip& clip, float localTime) {
+            for (const AnimationTrack& track : clip.tracks) {
+                if (track.nodeIndex < 0 || static_cast<std::size_t>(track.nodeIndex) >= localT.size()) {
+                    continue;
+                }
+                if (track.times.empty()) {
+                    continue;
+                }
+
+                if (track.path == AnimationPath::Rotation) {
+                    if (track.quatValues.empty()) {
+                        continue;
+                    }
+                    if (track.times.size() == 1 || track.quatValues.size() == 1) {
+                        localR[track.nodeIndex] = glm::normalize(track.quatValues.front());
+                        continue;
+                    }
+
+                    const std::size_t seg = findAnimationSegment(track.times, localTime);
+                    const std::size_t next = std::min(seg + 1, track.quatValues.size() - 1);
+                    if (track.stepInterpolation) {
+                        localR[track.nodeIndex] = glm::normalize(track.quatValues[seg]);
+                    } else {
+                        const float alpha = normalizedSegmentT(track.times, seg, localTime);
+                        localR[track.nodeIndex] = glm::normalize(glm::slerp(track.quatValues[seg], track.quatValues[next], alpha));
+                    }
+                    continue;
+                }
+
+                if (track.vec3Values.empty()) {
+                    continue;
+                }
+                if (track.times.size() == 1 || track.vec3Values.size() == 1) {
+                    if (track.path == AnimationPath::Translation) {
+                        localT[track.nodeIndex] = track.vec3Values.front();
+                    } else if (track.path == AnimationPath::Scale) {
+                        localS[track.nodeIndex] = track.vec3Values.front();
+                    }
+                    continue;
+                }
+
+                const std::size_t seg = findAnimationSegment(track.times, localTime);
+                const std::size_t next = std::min(seg + 1, track.vec3Values.size() - 1);
+                glm::vec3 sampled = track.vec3Values[seg];
+                if (!track.stepInterpolation) {
+                    const float alpha = normalizedSegmentT(track.times, seg, localTime);
+                    sampled = glm::mix(track.vec3Values[seg], track.vec3Values[next], alpha);
+                }
+
+                if (track.path == AnimationPath::Translation) {
+                    localT[track.nodeIndex] = sampled;
+                } else if (track.path == AnimationPath::Scale) {
+                    localS[track.nodeIndex] = sampled;
+                }
+            }
+        };
+
+        const EnemyAnimationClip* debugClip = nullptr;
+        float debugClipTime = enemyAnimationTimeSeconds_;
+
+        if (playAllEnemyAnimationClips_) {
+            enemyAnimationDebugInfo_.clipName = "[COMPOSITE]";
+            enemyAnimationDebugInfo_.selectedClipIndex = -1;
+            enemyAnimationDebugInfo_.trackCount = 0;
+
+            for (const EnemyAnimationClip& clip : enemyAnimationClips_) {
+                const float localTime = (clip.durationSeconds > 1e-5f)
+                    ? std::fmod(enemyAnimationTimeSeconds_, clip.durationSeconds)
+                    : 0.0f;
+                applyClip(clip, localTime);
+                enemyAnimationDebugInfo_.trackCount += static_cast<int>(clip.tracks.size());
+                enemyAnimationDebugInfo_.compositeAppliedClips += 1;
+
+                if (!debugClip || clip.tracks.size() > debugClip->tracks.size()) {
+                    debugClip = &clip;
+                    debugClipTime = localTime;
+                }
+            }
+        } else if (activeEnemyAnimationClipIndex_ >= 0 &&
+                   static_cast<std::size_t>(activeEnemyAnimationClipIndex_) < enemyAnimationClips_.size()) {
+            const EnemyAnimationClip& clip = enemyAnimationClips_[activeEnemyAnimationClipIndex_];
+            enemyAnimationDebugInfo_.clipName = clip.name;
+            enemyAnimationDebugInfo_.selectedClipIndex = activeEnemyAnimationClipIndex_;
+            enemyAnimationDebugInfo_.trackCount = static_cast<int>(clip.tracks.size());
+            enemyAnimationDebugInfo_.compositeAppliedClips = 1;
+
+            const float localTime = (clip.durationSeconds > 1e-5f)
+                ? std::fmod(enemyAnimationTimeSeconds_, clip.durationSeconds)
+                : 0.0f;
+            applyClip(clip, localTime);
+            debugClip = &clip;
+            debugClipTime = localTime;
+        }
+
+        if (debugClip) {
+            const AnimationTrack* debugTrack = nullptr;
+            for (const AnimationTrack& track : debugClip->tracks) {
+                if (track.times.size() > 1) {
+                    debugTrack = &track;
+                    break;
+                }
+            }
+            if (!debugTrack && !debugClip->tracks.empty()) {
+                debugTrack = &debugClip->tracks.front();
+            }
+
+            if (debugTrack && !debugTrack->times.empty()) {
+                enemyAnimationDebugInfo_.keyCount = static_cast<int>(debugTrack->times.size());
+                enemyAnimationDebugInfo_.stepInterpolation = debugTrack->stepInterpolation;
+
+                if (debugTrack->times.size() == 1) {
+                    enemyAnimationDebugInfo_.keyIndex = 0;
+                    enemyAnimationDebugInfo_.nextKeyIndex = 0;
+                    enemyAnimationDebugInfo_.keyTimeSeconds = debugTrack->times.front();
+                    enemyAnimationDebugInfo_.nextKeyTimeSeconds = debugTrack->times.front();
+                    enemyAnimationDebugInfo_.segmentAlpha = 0.0f;
+                } else {
+                    const std::size_t seg = findAnimationSegment(debugTrack->times, debugClipTime);
+                    const std::size_t next = std::min(seg + 1, debugTrack->times.size() - 1);
+                    enemyAnimationDebugInfo_.keyIndex = static_cast<int>(seg);
+                    enemyAnimationDebugInfo_.nextKeyIndex = static_cast<int>(next);
+                    enemyAnimationDebugInfo_.keyTimeSeconds = debugTrack->times[seg];
+                    enemyAnimationDebugInfo_.nextKeyTimeSeconds = debugTrack->times[next];
+                    enemyAnimationDebugInfo_.segmentAlpha = normalizedSegmentT(debugTrack->times, seg, debugClipTime);
+                }
+            }
+        }
+    }
+
+    std::vector<glm::mat4> localMats(localT.size(), glm::mat4{1.0f});
+    for (std::size_t i = 0; i < localT.size(); ++i) {
+        localMats[i] = composeTRS(localT[i], localR[i], localS[i]);
+    }
+
+    std::function<void(std::size_t, const glm::mat4&)> propagate =
+        [&](std::size_t nodeIndex, const glm::mat4& parentWorld) {
+            if (nodeIndex >= enemyNodeWorldTransforms_.size()) {
+                return;
+            }
+
+            const glm::mat4 world = parentWorld * localMats[nodeIndex];
+            enemyNodeWorldTransforms_[nodeIndex] = world;
+
+            for (std::size_t child = 0; child < enemyNodeParents_.size(); ++child) {
+                if (enemyNodeParents_[child] == static_cast<int>(nodeIndex)) {
+                    propagate(child, world);
+                }
+            }
+        };
+
+    if (!enemySceneRootNodes_.empty()) {
+        for (std::size_t root : enemySceneRootNodes_) {
+            propagate(root, glm::mat4{1.0f});
+        }
+    } else {
+        for (std::size_t i = 0; i < enemyNodeParents_.size(); ++i) {
+            if (enemyNodeParents_[i] < 0) {
+                propagate(i, glm::mat4{1.0f});
+            }
+        }
+    }
+
+    for (EnemySkin& skin : enemySkins_) {
+        const std::size_t jointCount = std::min(skin.jointNodes.size(), skin.inverseBindMatrices.size());
+        if (skin.jointMatrices.size() != skin.jointNodes.size()) {
+            skin.jointMatrices.assign(skin.jointNodes.size(), glm::mat4{1.0f});
+        }
+
+        for (std::size_t i = 0; i < jointCount; ++i) {
+            const int jointNodeIndex = skin.jointNodes[i];
+            if (jointNodeIndex < 0 || static_cast<std::size_t>(jointNodeIndex) >= enemyNodeWorldTransforms_.size()) {
+                skin.jointMatrices[i] = glm::mat4{1.0f};
+                continue;
+            }
+
+            skin.jointMatrices[i] = enemyNodeWorldTransforms_[jointNodeIndex] * skin.inverseBindMatrices[i];
+        }
+    }
+}
+
+
+bool WorldRenderer::pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDir, WorldPickHit& outHit) const {
+    if (!loaded_) {
+        return false;
+    }
+
+    bool anyHit = false;
+    float bestT = std::numeric_limits<float>::max();
+    WorldPickHit best{};
+
+    auto testMesh = [&](const WorldMesh& mesh,
+                        const glm::mat4& world,
+                        int meshIndex,
+                        int enemyInstanceIndex) {
+        const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
+        const float worldRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
+
+        float t = 0.0f;
+        if (!raySphereIntersect(rayOrigin, rayDir, worldCenter, worldRadius, t)) {
+            return;
+        }
+
+        if (t >= bestT) {
+            return;
+        }
+
+        anyHit = true;
+        bestT = t;
+        best.hit = true;
+        best.distance = t;
+        best.worldPosition = rayOrigin + rayDir * t;
+        best.worldNormal = glm::normalize(best.worldPosition - worldCenter);
+        if (!std::isfinite(best.worldNormal.x) || !std::isfinite(best.worldNormal.y) || !std::isfinite(best.worldNormal.z)) {
+            best.worldNormal = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
+        best.group = mesh.debugGroup;
+        best.label = mesh.debugLabel;
+        best.meshIndex = meshIndex;
+        best.nodeIndex = mesh.sourceNodeIndex;
+        best.skinIndex = mesh.sourceSkinIndex;
+        best.enemyInstanceIndex = enemyInstanceIndex;
+    };
+
+    for (std::size_t i = 0; i < meshes_.size(); ++i) {
+        const WorldMesh& mesh = meshes_[i];
+        testMesh(mesh, mesh.modelTransform, static_cast<int>(i), -1);
+    }
+
+    for (std::size_t instanceIdx = 0; instanceIdx < enemyInstanceTransforms_.size(); ++instanceIdx) {
+        const glm::mat4& instanceTransform = enemyInstanceTransforms_[instanceIdx];
+        for (std::size_t meshIdx = 0; meshIdx < enemyTemplateMeshes_.size(); ++meshIdx) {
+            const WorldMesh& mesh = enemyTemplateMeshes_[meshIdx];
+            glm::mat4 animatedNodeTransform = mesh.modelTransform;
+            if (mesh.sourceNodeIndex >= 0 &&
+                static_cast<std::size_t>(mesh.sourceNodeIndex) < enemyNodeWorldTransforms_.size()) {
+                animatedNodeTransform = enemyNodeWorldTransforms_[mesh.sourceNodeIndex];
+            }
+            const glm::mat4 world = instanceTransform * animatedNodeTransform;
+            testMesh(mesh, world, static_cast<int>(meshIdx), static_cast<int>(instanceIdx));
+        }
+    }
+
+    if (anyHit) {
+        outHit = best;
+    }
+    return anyHit;
+}
+
 void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view) {
     if (!loaded_ || pipeline_ == VK_NULL_HANDLE) return;
+
+    const auto now = std::chrono::steady_clock::now();
+    float dtSeconds = 0.0f;
+    if (firstRenderTick_) {
+        firstRenderTick_ = false;
+        lastRenderTick_ = now;
+    } else {
+        dtSeconds = std::chrono::duration<float>(now - lastRenderTick_).count();
+        lastRenderTick_ = now;
+    }
+    updateEnemyAnimation(dtSeconds);
 
     // ── Projection ────────────────────────────────────────────────────────
     const float aspect = (extent.height > 0)
@@ -824,6 +1686,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     };
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    uploadIdentitySkinPalette();
 
     // ── Draw each mesh (bind its base-colour texture) ─────────────────────
     for (const WorldMesh& mesh : meshes_) {
@@ -839,6 +1702,43 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+    }
+
+    for (const glm::mat4& instanceTransform : enemyInstanceTransforms_) {
+        int activeSkinIndex = -2;
+        for (const WorldMesh& mesh : enemyTemplateMeshes_) {
+            glm::mat4 animatedNodeTransform = mesh.modelTransform;
+            if (mesh.sourceNodeIndex >= 0 &&
+                static_cast<std::size_t>(mesh.sourceNodeIndex) < enemyNodeWorldTransforms_.size()) {
+                animatedNodeTransform = enemyNodeWorldTransforms_[mesh.sourceNodeIndex];
+            }
+
+            if (mesh.sourceSkinIndex != activeSkinIndex) {
+                activeSkinIndex = mesh.sourceSkinIndex;
+                if (mesh.sourceSkinIndex >= 0 &&
+                    static_cast<std::size_t>(mesh.sourceSkinIndex) < enemySkins_.size()) {
+                    uploadSkinPalette(enemySkins_[mesh.sourceSkinIndex].jointMatrices);
+                } else {
+                    uploadIdentitySkinPalette();
+                }
+            }
+
+            const glm::mat4 world = instanceTransform * animatedNodeTransform;
+            const glm::mat4 mvp = proj * view * world;
+            const PushConstants pc{mvp, world};
+            vkCmdPushConstants(cmd, pipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+
+            VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
+            if (ds) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipelineLayout_, 0, 1, &ds, 0, nullptr);
+            }
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+        }
     }
 }
 
@@ -876,6 +1776,12 @@ void WorldRenderer::release() {
         vkDestroySampler(ctx_.device(), sampler_, nullptr);
         sampler_ = VK_NULL_HANDLE;
     }
+    if (skinPaletteBuffer_ != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(ctx_.allocator(), skinPaletteBuffer_, skinPaletteAlloc_);
+        skinPaletteBuffer_ = VK_NULL_HANDLE;
+        skinPaletteAlloc_ = nullptr;
+        skinPaletteMapped_ = nullptr;
+    }
 
     auto destroyTex = [&](WorldTexture& t) {
         if (t.view)  vkDestroyImageView(ctx_.device(), t.view, nullptr);
@@ -892,14 +1798,40 @@ void WorldRenderer::release() {
         if (mesh.indexBuffer != VK_NULL_HANDLE)
             vmaDestroyBuffer(ctx_.allocator(), mesh.indexBuffer, mesh.indexAlloc);
     }
+    for (WorldMesh& mesh : enemyTemplateMeshes_) {
+        if (mesh.vertexBuffer != VK_NULL_HANDLE)
+            vmaDestroyBuffer(ctx_.allocator(), mesh.vertexBuffer, mesh.vertexAlloc);
+        if (mesh.indexBuffer != VK_NULL_HANDLE)
+            vmaDestroyBuffer(ctx_.allocator(), mesh.indexBuffer, mesh.indexAlloc);
+    }
     meshes_.clear();
+    enemyTemplateMeshes_.clear();
     meshImgIdx_.clear();
+    enemyMeshImgIdx_.clear();
+    enemyInstanceTransforms_.clear();
+    routePoints_.clear();
+    enemyNodeParents_.clear();
+    enemyBaseTranslations_.clear();
+    enemyBaseRotations_.clear();
+    enemyBaseScales_.clear();
+    enemyNodeWorldTransforms_.clear();
+    enemySceneRootNodes_.clear();
+    enemySkins_.clear();
+    enemyAnimationClips_.clear();
+    activeEnemyAnimationClipIndex_ = -1;
+    playAllEnemyAnimationClips_ = false;
+    enemyAnimationEnabled_ = false;
+    enemyAnimationName_.clear();
+    enemyAnimationTimeSeconds_ = 0.0f;
+    firstRenderTick_ = true;
 
     // Reset async state
     stagedMeshes_.clear();
+    stagedEnemyMeshes_.clear();
     stagedTextures_.clear();
     failReason_.clear();
     gpuMeshCursor_ = 0;
+    gpuEnemyMeshCursor_ = 0;
     gpuTexCursor_  = 0;
     gpuDescsDone_  = false;
     gpuPipeDone_   = false;
@@ -1002,15 +1934,17 @@ void WorldRenderer::buildPipeline() {
     binding.stride    = sizeof(WorldVertex);
     binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription attribs[3]{};
+    VkVertexInputAttributeDescription attribs[5]{};
     attribs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(WorldVertex, position)};
     attribs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(WorldVertex, normal)};
     attribs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT,    offsetof(WorldVertex, uv)};
+    attribs[3] = {3, 0, VK_FORMAT_R16G16B16A16_UINT, offsetof(WorldVertex, joints)};
+    attribs[4] = {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(WorldVertex, weights)};
 
     VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vertexInput.vertexBindingDescriptionCount   = 1;
     vertexInput.pVertexBindingDescriptions      = &binding;
-    vertexInput.vertexAttributeDescriptionCount = 3;
+    vertexInput.vertexAttributeDescriptionCount = 5;
     vertexInput.pVertexAttributeDescriptions    = attribs;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};

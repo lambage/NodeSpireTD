@@ -2,11 +2,11 @@
 
 #include "VulkanContext.hpp"
 
-#include "lua.hpp"
-
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -15,10 +15,14 @@
 #include <vk_mem_alloc.h>
 #include <volk.h>
 
+struct lua_State;
+
 struct WorldVertex {
     glm::vec3 position{};
     glm::vec3 normal{0.0f, 1.0f, 0.0f};
     glm::vec2 uv{};
+    glm::u16vec4 joints{0, 0, 0, 0};
+    glm::vec4 weights{0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 struct WorldTexture {
@@ -36,6 +40,44 @@ struct WorldMesh {
     uint32_t        indexCount    = 0;
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     glm::mat4       modelTransform{1.0f};
+    int             sourceNodeIndex = -1;
+    int             sourceSkinIndex = -1;
+    glm::vec3       localBoundsCenter{0.0f, 0.0f, 0.0f};
+    float           localBoundsRadius = 0.5f;
+    std::string     debugGroup;
+    std::string     debugLabel;
+};
+
+struct WorldPickHit {
+    bool hit = false;
+    float distance = 0.0f;
+    glm::vec3 worldPosition{0.0f, 0.0f, 0.0f};
+    glm::vec3 worldNormal{0.0f, 1.0f, 0.0f};
+    std::string group;
+    std::string label;
+    int meshIndex = -1;
+    int nodeIndex = -1;
+    int skinIndex = -1;
+    int enemyInstanceIndex = -1;
+};
+
+struct EnemyAnimationDebugInfo {
+    bool enabled = false;
+    std::string clipName;
+    int selectedClipIndex = -1;
+    int clipCount = 0;
+    bool compositeMode = false;
+    int compositeAppliedClips = 0;
+    float timeSeconds = 0.0f;
+    float durationSeconds = 0.0f;
+    int trackCount = 0;
+    int keyCount = 0;
+    int keyIndex = 0;
+    int nextKeyIndex = 0;
+    float keyTimeSeconds = 0.0f;
+    float nextKeyTimeSeconds = 0.0f;
+    float segmentAlpha = 0.0f;
+    bool stepInterpolation = false;
 };
 
 class WorldRenderer {
@@ -62,6 +104,21 @@ class WorldRenderer {
     int meshCount()     const { return static_cast<int>(meshes_.size()); }
     int totalVertices() const { return totalVertices_; }
     int totalIndices()  const { return totalIndices_; }
+    bool hasEnemyAnimation() const { return enemyAnimationEnabled_; }
+    const std::string& enemyAnimationName() const { return enemyAnimationName_; }
+    int enemyAnimationClipCount() const { return static_cast<int>(enemyAnimationClips_.size()); }
+    int activeEnemyAnimationClipIndex() const { return activeEnemyAnimationClipIndex_; }
+    std::vector<std::string> enemyAnimationClipNames() const;
+    bool setActiveEnemyAnimationClipByIndex(int clipIndex);
+    bool setActiveEnemyAnimationClipByName(const std::string& clipName);
+    void setPlayAllEnemyAnimationClips(bool enabled) { playAllEnemyAnimationClips_ = enabled; }
+    bool playAllEnemyAnimationClips() const { return playAllEnemyAnimationClips_; }
+
+    void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms);
+    const std::vector<glm::vec3>& routePoints() const { return routePoints_; }
+    bool hasEnemyTemplate() const { return !enemyTemplateMeshes_.empty(); }
+    bool pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDir, WorldPickHit& outHit) const;
+    const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return enemyAnimationDebugInfo_; }
 
     void render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view);
     void release();
@@ -71,6 +128,7 @@ class WorldRenderer {
     VulkanContext& ctx_;
 
     std::vector<WorldMesh> meshes_;
+    std::vector<WorldMesh> enemyTemplateMeshes_;
     bool        loaded_        = false;
     bool        loadFailed_    = false;
     std::string status_;
@@ -96,6 +154,12 @@ class WorldRenderer {
         std::vector<uint32_t>   indices;
         std::size_t             imageIndex = SIZE_MAX;
         glm::mat4               modelTransform{1.0f};
+        int                     sourceNodeIndex = -1;
+        int                     sourceSkinIndex = -1;
+        std::string             debugGroup;
+        std::string             debugLabel;
+        glm::vec3               localBoundsCenter{0.0f, 0.0f, 0.0f};
+        float                   localBoundsRadius = 0.5f;
     };
     struct StagedTexture {
         std::size_t          imageIndex;
@@ -115,15 +179,71 @@ class WorldRenderer {
 
     // Written by background thread before cpuDone_, read by main thread after.
     std::vector<StagedMesh>    stagedMeshes_;
+    std::vector<StagedMesh>    stagedEnemyMeshes_;
     std::vector<StagedTexture> stagedTextures_;
     std::string                failReason_;
 
     // GPU upload cursors (main thread only)
     std::size_t              gpuMeshCursor_  = 0;
+    std::size_t              gpuEnemyMeshCursor_ = 0;
     std::size_t              gpuTexCursor_   = 0;
     bool                     gpuDescsDone_   = false;
     bool                     gpuPipeDone_    = false;
     std::vector<std::size_t> meshImgIdx_;   // parallel to meshes_
+    std::vector<std::size_t> enemyMeshImgIdx_; // parallel to enemyTemplateMeshes_
+
+    std::vector<glm::mat4> enemyInstanceTransforms_;
+    std::vector<glm::vec3> routePoints_;
+
+    static constexpr uint32_t kMaxSkinJoints = 128;
+    VkBuffer      skinPaletteBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation skinPaletteAlloc_  = nullptr;
+    void*         skinPaletteMapped_ = nullptr;
+
+    enum class AnimationPath {
+        Translation,
+        Rotation,
+        Scale
+    };
+    struct AnimationTrack {
+        int nodeIndex = -1;
+        AnimationPath path = AnimationPath::Translation;
+        bool stepInterpolation = false;
+        std::vector<float> times;
+        std::vector<glm::vec3> vec3Values;
+        std::vector<glm::quat> quatValues;
+    };
+    struct EnemyAnimationClip {
+        std::string name;
+        float durationSeconds = 0.0f;
+        std::vector<AnimationTrack> tracks;
+    };
+    struct EnemySkin {
+        std::vector<int> jointNodes;
+        std::vector<glm::mat4> inverseBindMatrices;
+        std::vector<glm::mat4> jointMatrices;
+    };
+
+    std::vector<int> enemyNodeParents_;
+    std::vector<glm::vec3> enemyBaseTranslations_;
+    std::vector<glm::quat> enemyBaseRotations_;
+    std::vector<glm::vec3> enemyBaseScales_;
+    std::vector<glm::mat4> enemyNodeWorldTransforms_;
+    std::vector<std::size_t> enemySceneRootNodes_;
+    std::vector<EnemySkin> enemySkins_;
+    std::vector<EnemyAnimationClip> enemyAnimationClips_;
+    int activeEnemyAnimationClipIndex_ = -1;
+    bool playAllEnemyAnimationClips_ = false;
+    bool enemyAnimationEnabled_ = false;
+    std::string enemyAnimationName_;
+    float enemyAnimationTimeSeconds_ = 0.0f;
+    EnemyAnimationDebugInfo enemyAnimationDebugInfo_{};
+    bool firstRenderTick_ = true;
+    std::chrono::steady_clock::time_point lastRenderTick_{};
+
+    void updateEnemyAnimation(float dtSeconds);
+    void uploadSkinPalette(const std::vector<glm::mat4>& joints);
+    void uploadIdentitySkinPalette();
     // ─────────────────────────────────────────────────────────────────────
 
     void setActivity(float progress, std::string activity);
