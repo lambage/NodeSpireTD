@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VulkanContext.hpp"
+#include "utility/AnimatedEntityInstanceSet.hpp"
 #include "utility/WorldAssetLoader.hpp"
 #include "utility/WorldGeometryTypes.hpp"
 #include "utility/TemplateAnimationDebugInfo.hpp"
@@ -163,7 +164,7 @@ class WorldRenderer {
     std::vector<std::size_t> meshImgIdx_;   // parallel to meshes_
     std::vector<std::size_t> enemyMeshImgIdx_; // parallel to enemyTemplateMeshes_
 
-    std::vector<glm::mat4> enemyInstanceTransforms_;
+    AnimatedEntityInstanceSet animatedEntityInstances_;
     std::vector<glm::vec3> routePoints_;
 
     static constexpr uint32_t kMaxSkinJoints = 128;

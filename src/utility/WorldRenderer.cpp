@@ -325,7 +325,7 @@ std::string WorldRenderer::loadActivity() const {
 }
 
 void WorldRenderer::setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms) {
-    enemyInstanceTransforms_ = transforms;
+    animatedEntityInstances_.setTransforms(transforms);
 }
 
 bool WorldRenderer::hasTemplateAnimation() const {
@@ -606,15 +606,14 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDi
         testMesh(mesh, mesh.modelTransform, static_cast<int>(i), -1);
     }
 
-    for (std::size_t instanceIdx = 0; instanceIdx < enemyInstanceTransforms_.size(); ++instanceIdx) {
-        const glm::mat4& instanceTransform = enemyInstanceTransforms_[instanceIdx];
-        for (std::size_t meshIdx = 0; meshIdx < enemyTemplateMeshes_.size(); ++meshIdx) {
-            const WorldMesh& mesh = enemyTemplateMeshes_[meshIdx];
-            const glm::mat4 animatedNodeTransform = templateAnimator_->resolveNodeTransform(mesh.sourceNodeIndex, mesh.modelTransform);
-            const glm::mat4 world = instanceTransform * animatedNodeTransform;
-            testMesh(mesh, world, static_cast<int>(meshIdx), static_cast<int>(instanceIdx));
-        }
-    }
+    animatedEntityInstances_.forEachMeshWorldTransform(
+        enemyTemplateMeshes_,
+        [this](int nodeIndex, const glm::mat4& fallback) {
+            return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+        },
+        [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+            testMesh(mesh, world, meshIndex, instanceIndex);
+        });
 
     if (anyHit) {
         outHit = best;
@@ -680,10 +679,19 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
     }
 
-    for (const glm::mat4& instanceTransform : enemyInstanceTransforms_) {
-        int activeSkinIndex = -2;
-        for (const WorldMesh& mesh : enemyTemplateMeshes_) {
-            const glm::mat4 animatedNodeTransform = templateAnimator_->resolveNodeTransform(mesh.sourceNodeIndex, mesh.modelTransform);
+    int currentInstanceIndex = -1;
+    int activeSkinIndex = -2;
+    animatedEntityInstances_.forEachMeshWorldTransform(
+        enemyTemplateMeshes_,
+        [this](int nodeIndex, const glm::mat4& fallback) {
+            return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+        },
+        [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+            (void)meshIndex;
+            if (instanceIndex != currentInstanceIndex) {
+                currentInstanceIndex = instanceIndex;
+                activeSkinIndex = -2;
+            }
 
             if (mesh.sourceSkinIndex != activeSkinIndex) {
                 activeSkinIndex = mesh.sourceSkinIndex;
@@ -695,7 +703,6 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
                 }
             }
 
-            const glm::mat4 world = instanceTransform * animatedNodeTransform;
             const glm::mat4 mvp = proj * view * world;
             const PushConstants pc{mvp, world};
             vkCmdPushConstants(cmd, pipelineLayout_,
@@ -710,8 +717,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
             vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
             vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
-        }
-    }
+        });
 }
 
 void WorldRenderer::release() {
@@ -780,7 +786,7 @@ void WorldRenderer::release() {
     enemyTemplateMeshes_.clear();
     meshImgIdx_.clear();
     enemyMeshImgIdx_.clear();
-    enemyInstanceTransforms_.clear();
+    animatedEntityInstances_.clear();
     routePoints_.clear();
     templateAnimator_->reset();
     firstRenderTick_ = true;
