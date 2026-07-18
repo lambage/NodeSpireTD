@@ -9,6 +9,7 @@ add_executable(NodeSpireTD
     LocalFileSaveSystem.cpp
     Scenes.cpp
     VulkanContext.cpp
+    LuaStateBootstrap.cpp
     utility/VulkanTexture.cpp
     utility/WorldRenderer.cpp
     ImGuiLayer.cpp

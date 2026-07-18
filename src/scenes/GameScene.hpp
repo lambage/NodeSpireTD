@@ -9,7 +9,7 @@ class ImGuiLayer;
 
 class GameScene : public IScene {
   public:
-    GameScene(lua_State* L) : IScene(L) {}
+    GameScene() = default;
 
     ~GameScene() override;
 

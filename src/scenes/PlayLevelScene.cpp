@@ -11,7 +11,7 @@
 #include <cmath>
 #include <filesystem>
 
-PlayLevelScene::PlayLevelScene(lua_State* L) : GameScene(L) {}
+PlayLevelScene::PlayLevelScene() = default;
 PlayLevelScene::~PlayLevelScene() = default;
 
 // ─── camera helpers ───────────────────────────────────────────────────────────

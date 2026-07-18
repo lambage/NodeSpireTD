@@ -2,11 +2,9 @@
 
 #include "scenes/GameScene.hpp"
 
-#include "lua.hpp"
-
 class OptionsScene final : public GameScene {
   public:
-    OptionsScene(lua_State* L) : GameScene(L) {}
+    OptionsScene() = default;
     ~OptionsScene() override;
 
     void onEnter(SceneSharedState&) override {}

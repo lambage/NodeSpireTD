@@ -1,8 +1,6 @@
 #pragma once
 #include "scenes/GameScene.hpp"
 
-#include "lua.hpp"
-
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <memory>
@@ -12,7 +10,7 @@ class WorldRenderer;
 
 class PlayLevelScene final : public GameScene {
   public:
-    PlayLevelScene(lua_State* L);
+    PlayLevelScene();
     ~PlayLevelScene() override;
 
     void onEnter(SceneSharedState&) override;

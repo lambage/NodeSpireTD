@@ -6,12 +6,12 @@
 #include "scenes/PlayLevelScene.hpp"
 #include "scenes/SplashScreen.hpp"
 
-SceneGraph createDefaultScenes(lua_State* L) {
+SceneGraph createDefaultScenes() {
     SceneGraph sceneGraph;
-    sceneGraph.emplace(SceneId::Splash, std::make_unique<SplashScene>(L));
-    sceneGraph.emplace(SceneId::MainMenu, std::make_unique<MainMenuScene>(L));
-    sceneGraph.emplace(SceneId::Options, std::make_unique<OptionsScene>(L));
-    sceneGraph.emplace(SceneId::LevelSelection, std::make_unique<LevelSelectionScene>(L));
-    sceneGraph.emplace(SceneId::PlayLevel, std::make_unique<PlayLevelScene>(L));
+    sceneGraph.emplace(SceneId::Splash, std::make_unique<SplashScene>());
+    sceneGraph.emplace(SceneId::MainMenu, std::make_unique<MainMenuScene>());
+    sceneGraph.emplace(SceneId::Options, std::make_unique<OptionsScene>());
+    sceneGraph.emplace(SceneId::LevelSelection, std::make_unique<LevelSelectionScene>());
+    sceneGraph.emplace(SceneId::PlayLevel, std::make_unique<PlayLevelScene>());
     return sceneGraph;
 }

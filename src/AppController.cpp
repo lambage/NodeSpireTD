@@ -188,14 +188,14 @@ int AppController::run() {
             window.setVerticalSyncEnabled(settings.vSyncEnabled);
 
             vulkanContext = std::make_unique<VulkanContext>(window);
-            imguiLayer = std::make_unique<ImGuiLayer>(L_);
+            imguiLayer = std::make_unique<ImGuiLayer>();
             imguiLayer->initializeVulkanBackend(*vulkanContext);
             imguiLayer->setDisplaySize(window.getSize().x, window.getSize().y);
         };
 
         rebuildRuntime(activeSettings);
 
-        SceneGraph sceneGraph = createDefaultScenes(L_);
+        SceneGraph sceneGraph = createDefaultScenes();
         SceneId currentSceneId = SceneId::Splash;
 
         struct PendingSceneTransition {

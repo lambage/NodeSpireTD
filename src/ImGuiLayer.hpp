@@ -1,7 +1,5 @@
 #pragma once
 
-#include "lua.hpp"
-
 #include <SFML/Window.hpp>
 #include <cstdint>
 #include <imgui.h>
@@ -11,7 +9,7 @@ class VulkanContext;
 
 class ImGuiLayer {
   public:
-    ImGuiLayer(lua_State* L);
+    ImGuiLayer();
     ~ImGuiLayer();
 
     ImGuiLayer(const ImGuiLayer&) = delete;
@@ -36,12 +34,8 @@ class ImGuiLayer {
     }
   private:
     static ImGuiKey translateSfmlKeyToImGui(sf::Keyboard::Key key);
-
-    void initLuaBindings();
     void applyModernStyle();
     void loadUiFonts();
-
-    lua_State* L_ = nullptr;
     ImFont* headingFont_ = nullptr;
     ImFont* titleFont_ = nullptr;
 };

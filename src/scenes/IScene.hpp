@@ -1,14 +1,13 @@
 #pragma once
 
 #include "ImGuiLayer.hpp"
+#include "lua.hpp"
 #include "scenes/SceneSharedState.hpp"
 
-#include "lua.hpp"
-
 #include <SFML/Window/Event.hpp>
-#include <lua.h>
 #include <string>
 #include <volk.h>
+
 
 enum class SceneId {
     Splash,
@@ -32,8 +31,17 @@ struct SceneFrameResult {
 
 class IScene {
   public:
-    IScene(lua_State* L) : L_(L) {}
-    virtual ~IScene() = default;
+    IScene() : L_(luaL_newstate()) {
+        if (L_) {
+            luaL_openlibs(L_);
+        }
+    }
+
+    virtual ~IScene() {
+        if (L_) {
+            lua_close(L_);
+        }
+    }
 
     virtual void onEnter(SceneSharedState&) = 0;
     virtual void onExit(SceneSharedState&) = 0;

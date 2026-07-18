@@ -17,4 +17,4 @@ struct SceneIdHash {
 
 using SceneGraph = std::unordered_map<SceneId, std::unique_ptr<IScene>, SceneIdHash>;
 
-SceneGraph createDefaultScenes(lua_State* L);
+SceneGraph createDefaultScenes();

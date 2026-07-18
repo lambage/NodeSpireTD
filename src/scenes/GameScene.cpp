@@ -1,6 +1,7 @@
 #include "scenes/GameScene.hpp"
 
 #include "ImGuiLayer.hpp"
+#include "LuaStateBootstrap.hpp"
 #include "VulkanContext.hpp"
 
 #include <SFML/Window/Event.hpp>
@@ -65,6 +66,8 @@ static void pushSceneState(lua_State* L, const SceneSharedState& state) {
 }
 
 int GameScene::loadLuaScript(SceneSharedState& state, const std::string& scriptPath) {
+    LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext);
+
     if (state.titleFont) {
         lua_pushlightuserdata(L_, state.titleFont);
     } else {
