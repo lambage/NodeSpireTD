@@ -6,6 +6,7 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <filesystem>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -52,8 +53,11 @@ class PlayLevelScene final : public GameScene {
 
     struct ActiveEnemy {
       std::string enemyId = "goblin1";
+      std::uint64_t runtimeId = 0;
       float distanceAlongPath = 0.0f;
+      float health = 1.0f;
       float moveSpeed = 1.0f;
+      float rewardMoney = 0.0f;
       float baseDamage = 1.0f;
       float renderScale = 1.0f;
       float facingYawOffsetDegrees = 0.0f;
@@ -63,9 +67,13 @@ class PlayLevelScene final : public GameScene {
       std::string id = "tower";
       std::string displayName = "Tower";
       std::string modelPath;
+      std::string projectileModelPath;
       std::string previewImagePath;
       int cost = 100;
+      float attackDamage = 1.0f;
       float attackRange = 5.0f;
+      float attackSpeed = 1.0f;
+      float projectileSpeed = 16.0f;
       float renderScale = 1.0f;
       float facingYawOffsetDegrees = 0.0f;
     };
@@ -73,8 +81,21 @@ class PlayLevelScene final : public GameScene {
     struct PlacedTower {
       std::string towerId;
       glm::vec3 position{0.0f};
+      float attackDamage = 1.0f;
       float attackRange = 0.0f;
+      float attackIntervalSeconds = 1.0f;
+      float attackCooldownRemainingSeconds = 0.0f;
+      float projectileSpeed = 16.0f;
       int cost = 0;
+    };
+
+    struct ActiveProjectile {
+      std::string towerId;
+      glm::vec3 position{0.0f};
+      glm::vec3 velocity{0.0f};
+      float damage = 1.0f;
+      float remainingLifeSeconds = 0.0f;
+      std::uint64_t targetEnemyRuntimeId = 0;
     };
 
     enum class GameplayCommandType {
@@ -124,11 +145,14 @@ class PlayLevelScene final : public GameScene {
     std::string defaultEnemyId_ = "goblin1";
     std::unordered_map<std::string, TowerArchetype> towerArchetypes_;
     std::unordered_map<std::string, int> towerTemplatePrototypeById_;
+    std::unordered_map<std::string, int> projectileTemplatePrototypeByTowerId_;
     std::vector<std::string> towerLoadoutIds_;
     std::unordered_map<std::string, std::vector<std::string>> towerPoolGroupsById_;
     std::unordered_map<std::string, std::string> towerGhostGroupById_;
     int selectedTowerLoadoutIndex_ = -1;
     std::vector<PlacedTower> placedTowers_;
+    std::vector<ActiveProjectile> activeProjectiles_;
+    std::uint64_t nextEnemyRuntimeId_ = 1;
     bool towerPlacementHasHit_ = false;
     bool towerPlacementCanPlace_ = false;
     glm::vec3 towerPlacementWorldPos_{0.0f};

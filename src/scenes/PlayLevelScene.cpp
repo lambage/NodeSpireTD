@@ -33,6 +33,8 @@ constexpr float kPickDynamicMinRadius = 0.65f;
 constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
 constexpr int kTowerPoolPlacementsPerType = 32;
 constexpr float kTowerHiddenY = -10000.0f;
+constexpr float kProjectileHitRadius = 0.45f;
+constexpr float kProjectileLifetimeSeconds = 2.0f;
 
 enum class ProjectionRejectReason {
     None = 0,
@@ -257,11 +259,14 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     gameplayState_.resetForNewRun();
     towerArchetypes_.clear();
     towerTemplatePrototypeById_.clear();
+    projectileTemplatePrototypeByTowerId_.clear();
     towerLoadoutIds_.clear();
     towerPoolGroupsById_.clear();
     towerGhostGroupById_.clear();
     selectedTowerLoadoutIndex_ = -1;
     placedTowers_.clear();
+    activeProjectiles_.clear();
+    nextEnemyRuntimeId_ = 1;
     towerPlacementHasHit_ = false;
     towerPlacementCanPlace_ = false;
     towerPlacementWorldPos_ = glm::vec3(0.0f);
@@ -342,6 +347,14 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         towerTemplate.modelPath = tower.modelPath;
         towerTemplatePrototypeById_[towerId] = static_cast<int>(worldAssetSpec_.towerTemplateModels.size());
         worldAssetSpec_.towerTemplateModels.push_back(std::move(towerTemplate));
+
+        if (!tower.projectileModelPath.empty()) {
+            WorldTemplateModelSpec projectileTemplate;
+            projectileTemplate.id = "projectile:" + towerId;
+            projectileTemplate.modelPath = tower.projectileModelPath;
+            projectileTemplatePrototypeByTowerId_[towerId] = static_cast<int>(worldAssetSpec_.towerTemplateModels.size());
+            worldAssetSpec_.towerTemplateModels.push_back(std::move(projectileTemplate));
+        }
     }
 
     publishLevelUiTextures(L_, worldAssetSpec_);
@@ -1094,6 +1107,7 @@ bool PlayLevelScene::parseTowerArchetypeScript(const std::string& scriptPath, To
     readStringField("id", outArchetype.id);
     readStringField("displayName", outArchetype.displayName);
     readStringField("model", outArchetype.modelPath);
+    readStringField("projectileModel", outArchetype.projectileModelPath);
     readStringField("previewImage", outArchetype.previewImagePath);
 
     lua_getfield(L_, -1, "stats");
@@ -1107,6 +1121,24 @@ bool PlayLevelScene::parseTowerArchetypeScript(const std::string& scriptPath, To
         lua_getfield(L_, -1, "attackRange");
         if (lua_isnumber(L_, -1)) {
             outArchetype.attackRange = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "attackDamage");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.attackDamage = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "attackSpeed");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.attackSpeed = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "projectileSpeed");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.projectileSpeed = static_cast<float>(lua_tonumber(L_, -1));
         }
         lua_pop(L_, 1);
     }
@@ -1141,6 +1173,15 @@ bool PlayLevelScene::parseTowerArchetypeScript(const std::string& scriptPath, To
     }
     if (outArchetype.attackRange <= 0.1f) {
         outArchetype.attackRange = 1.0f;
+    }
+    if (outArchetype.attackDamage <= 0.01f) {
+        outArchetype.attackDamage = 1.0f;
+    }
+    if (outArchetype.attackSpeed <= 0.01f) {
+        outArchetype.attackSpeed = 1.0f;
+    }
+    if (outArchetype.projectileSpeed <= 0.1f) {
+        outArchetype.projectileSpeed = 16.0f;
     }
     if (outArchetype.renderScale <= 0.01f) {
         outArchetype.renderScale = 1.0f;
@@ -1323,7 +1364,15 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
 
     if (towerPlacementCanPlace_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         if (requestSpendMoney(static_cast<float>(selected->cost))) {
-            placedTowers_.push_back(PlacedTower{selected->id, towerPlacementWorldPos_, selected->attackRange, selected->cost});
+            const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
+            placedTowers_.push_back(PlacedTower{selected->id,
+                                                towerPlacementWorldPos_,
+                                                selected->attackDamage,
+                                                selected->attackRange,
+                                                attackIntervalSeconds,
+                                                0.0f,
+                                                selected->projectileSpeed,
+                                                selected->cost});
         }
     }
 }
@@ -1416,6 +1465,39 @@ void PlayLevelScene::syncPlacedTowerModels() {
             ghost = buildTowerModelTransform(*tower, towerPlacementWorldPos_ + glm::vec3(0.0f, 0.02f, 0.0f));
         }
         pushTowerInstance(*tower, protoIt->second, ghost, ghostGroup, ghostGroup);
+    }
+
+    for (std::size_t i = 0; i < activeProjectiles_.size(); ++i) {
+        const ActiveProjectile& projectile = activeProjectiles_[i];
+        const auto protoIt = projectileTemplatePrototypeByTowerId_.find(projectile.towerId);
+        if (protoIt == projectileTemplatePrototypeByTowerId_.end()) {
+            continue;
+        }
+
+        const TowerArchetype* tower = findTowerArchetype(projectile.towerId);
+        if (!tower) {
+            continue;
+        }
+
+        glm::vec3 flatVelocity = projectile.velocity;
+        flatVelocity.y = 0.0f;
+        float yaw = 0.0f;
+        if (glm::dot(flatVelocity, flatVelocity) > 1e-6f) {
+            yaw = std::atan2(flatVelocity.x, flatVelocity.z);
+        }
+
+        const glm::mat4 model = glm::translate(glm::mat4{1.0f}, projectile.position) *
+                                glm::rotate(glm::mat4{1.0f},
+                                            yaw + glm::radians(tower->facingYawOffsetDegrees),
+                                            glm::vec3(0.0f, 1.0f, 0.0f)) *
+                                glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, tower->renderScale)));
+
+        AnimatedEntityInstanceSet::Instance instance;
+        instance.transform = model;
+        instance.prototypeIndex = protoIt->second;
+        instance.debugGroup = "tower_projectile:" + projectile.towerId;
+        instance.debugLabel = "tower_projectile:" + projectile.towerId + ":" + std::to_string(i);
+        instances.push_back(std::move(instance));
     }
 
     worldRenderer_->setTowerInstanceTransforms(instances);
@@ -2047,15 +2129,20 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
                     gameplayState_.enemiesToSpawn -= 1;
 
                     const EnemyArchetype* archetype = findEnemyArchetype(spawnDef.enemyId);
+                    const float health = archetype ? archetype->health : 1.0f;
                     const float moveSpeed = archetype ? archetype->moveSpeed : 1.0f;
+                    const float rewardMoney = archetype ? archetype->rewardMoney : 0.0f;
                     const float renderScale = archetype ? archetype->renderScale : 1.0f;
                     const float baseDamage = archetype ? archetype->baseDamage : 5.0f;
                     const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
 
                     activeEnemies_.push_back(ActiveEnemy{
                         spawnDef.enemyId,
+                        nextEnemyRuntimeId_++,
                         0.0f,
+                        std::max(1.0f, health),
                         std::max(0.05f, moveSpeed),
+                        std::max(0.0f, rewardMoney),
                         std::max(1.0f, baseDamage),
                         std::max(0.01f, renderScale),
                         facingYawOffsetDegrees,
@@ -2089,6 +2176,115 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
     }
     activeEnemies_.resize(writeIndex);
 
+    for (PlacedTower& tower : placedTowers_) {
+        tower.attackCooldownRemainingSeconds = std::max(0.0f, tower.attackCooldownRemainingSeconds - dt);
+        if (tower.attackCooldownRemainingSeconds > 0.0f) {
+            continue;
+        }
+
+        const float attackRangeSq = tower.attackRange * tower.attackRange;
+        int targetEnemyIndex = -1;
+        float bestDistSq = std::numeric_limits<float>::max();
+
+        for (int i = 0; i < static_cast<int>(activeEnemies_.size()); ++i) {
+            const ActiveEnemy& enemy = activeEnemies_[i];
+            const glm::vec3 enemyPos = sampleRoutePosition(enemy.distanceAlongPath);
+            const glm::vec3 delta = enemyPos - tower.position;
+            const float distSq = glm::dot(delta, delta);
+            if (distSq <= attackRangeSq && distSq < bestDistSq) {
+                bestDistSq = distSq;
+                targetEnemyIndex = i;
+            }
+        }
+
+        if (targetEnemyIndex < 0) {
+            continue;
+        }
+
+        const ActiveEnemy& targetEnemy = activeEnemies_[targetEnemyIndex];
+        const glm::vec3 launchPosition = tower.position + glm::vec3(0.0f, 0.7f, 0.0f);
+        const glm::vec3 targetPosition = sampleRoutePosition(targetEnemy.distanceAlongPath) + glm::vec3(0.0f, 0.4f, 0.0f);
+
+        glm::vec3 direction = targetPosition - launchPosition;
+        const float dirLenSq = glm::dot(direction, direction);
+        if (dirLenSq <= 1e-8f) {
+            direction = glm::vec3(0.0f, 0.0f, 1.0f);
+        } else {
+            direction = glm::normalize(direction);
+        }
+
+        ActiveProjectile projectile;
+        projectile.towerId = tower.towerId;
+        projectile.position = launchPosition;
+        projectile.velocity = direction * std::max(0.1f, tower.projectileSpeed);
+        projectile.damage = std::max(0.01f, tower.attackDamage);
+        projectile.remainingLifeSeconds = kProjectileLifetimeSeconds;
+        projectile.targetEnemyRuntimeId = targetEnemy.runtimeId;
+        activeProjectiles_.push_back(std::move(projectile));
+
+        tower.attackCooldownRemainingSeconds = std::max(0.01f, tower.attackIntervalSeconds);
+    }
+
+    std::size_t projectileWriteIndex = 0;
+    for (std::size_t i = 0; i < activeProjectiles_.size(); ++i) {
+        ActiveProjectile projectile = activeProjectiles_[i];
+
+        ActiveEnemy* targetEnemy = nullptr;
+        for (ActiveEnemy& enemy : activeEnemies_) {
+            if (enemy.runtimeId == projectile.targetEnemyRuntimeId) {
+                targetEnemy = &enemy;
+                break;
+            }
+        }
+
+        // Target already died or left simulation; retire this projectile.
+        if (!targetEnemy) {
+            continue;
+        }
+
+        const glm::vec3 enemyPos = sampleRoutePosition(targetEnemy->distanceAlongPath) + glm::vec3(0.0f, 0.4f, 0.0f);
+        glm::vec3 toEnemy = enemyPos - projectile.position;
+        const float distanceToEnemy = glm::length(toEnemy);
+
+        if (distanceToEnemy > 1e-6f) {
+            toEnemy /= distanceToEnemy;
+        } else {
+            toEnemy = glm::vec3(0.0f, 0.0f, 1.0f);
+        }
+
+        const float projectileSpeed = glm::length(projectile.velocity);
+        projectile.velocity = toEnemy * std::max(0.1f, projectileSpeed);
+        projectile.position += projectile.velocity * dt;
+        projectile.remainingLifeSeconds -= dt;
+
+        // TD lock-on behavior: once a target is chosen, the shot should land as long as target remains valid.
+        const float travelThisFrame = std::max(0.0f, glm::length(projectile.velocity) * dt);
+        const glm::vec3 postMoveToEnemy = enemyPos - projectile.position;
+        const float postMoveDistanceSq = glm::dot(postMoveToEnemy, postMoveToEnemy);
+        const bool reachedTarget = postMoveDistanceSq <= (kProjectileHitRadius * kProjectileHitRadius) ||
+                                   distanceToEnemy <= (travelThisFrame + kProjectileHitRadius);
+
+        if (reachedTarget || projectile.remainingLifeSeconds <= 0.0f) {
+            targetEnemy->health -= projectile.damage;
+            continue;
+        }
+
+        activeProjectiles_[projectileWriteIndex++] = std::move(projectile);
+    }
+    activeProjectiles_.resize(projectileWriteIndex);
+
+    std::size_t enemyWriteIndex = 0;
+    for (std::size_t i = 0; i < activeEnemies_.size(); ++i) {
+        ActiveEnemy enemy = activeEnemies_[i];
+        if (enemy.health <= 0.0f) {
+            gameplayState_.playerMoney += std::max(0.0f, enemy.rewardMoney);
+            gameplayState_.enemiesDefeated += 1;
+            continue;
+        }
+        activeEnemies_[enemyWriteIndex++] = std::move(enemy);
+    }
+    activeEnemies_.resize(enemyWriteIndex);
+
     gameplayState_.enemiesAlive = static_cast<int>(activeEnemies_.size());
 
     if (gameplayState_.matchStatus != MatchStatus::Running) {
@@ -2096,6 +2292,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         gameplayState_.waveCountdownActive = false;
         activeWaveIndex_ = -1;
         activeEnemies_.clear();
+        activeProjectiles_.clear();
         return;
     }
 
@@ -2409,10 +2606,16 @@ void PlayLevelScene::registerLuaGameplayApi() {
                     lua_setfield(L, -2, "displayName");
                     lua_pushinteger(L, archetype->cost);
                     lua_setfield(L, -2, "cost");
+                    lua_pushnumber(L, archetype->attackDamage);
+                    lua_setfield(L, -2, "attackDamage");
                     lua_pushnumber(L, archetype->attackRange);
                     lua_setfield(L, -2, "attackRange");
+                    lua_pushnumber(L, archetype->attackSpeed);
+                    lua_setfield(L, -2, "attackSpeed");
                     lua_pushstring(L, archetype->modelPath.c_str());
                     lua_setfield(L, -2, "modelPath");
+                    lua_pushstring(L, archetype->projectileModelPath.c_str());
+                    lua_setfield(L, -2, "projectileModelPath");
                     lua_pushstring(L, archetype->previewImagePath.c_str());
                     lua_setfield(L, -2, "previewImagePath");
                     const std::string textureId = makeTowerIconTextureId(archetype->id);

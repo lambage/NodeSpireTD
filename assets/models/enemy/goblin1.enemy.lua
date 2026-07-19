@@ -6,7 +6,7 @@ return {
     stats = {
         health = 35,
         moveSpeed = 2.8,
-        rewardMoney = 8,
+        rewardMoney = 20,
         baseDamage = 5
     },
 
