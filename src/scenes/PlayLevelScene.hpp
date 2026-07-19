@@ -123,6 +123,7 @@ class PlayLevelScene final : public GameScene {
     std::unordered_map<std::string, EnemyArchetype> enemyArchetypes_;
     std::string defaultEnemyId_ = "goblin1";
     std::unordered_map<std::string, TowerArchetype> towerArchetypes_;
+    std::unordered_map<std::string, int> towerTemplatePrototypeById_;
     std::vector<std::string> towerLoadoutIds_;
     std::unordered_map<std::string, std::vector<std::string>> towerPoolGroupsById_;
     std::unordered_map<std::string, std::string> towerGhostGroupById_;

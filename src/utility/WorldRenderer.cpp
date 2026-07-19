@@ -339,11 +339,17 @@ void WorldRenderer::setAnimatedEntityInstanceTransforms(const std::vector<glm::m
     }
 }
 
+void WorldRenderer::setTowerInstanceTransforms(const std::vector<AnimatedEntityInstanceSet::Instance>& instances) {
+    towerInstances_.setInstances(instances);
+}
+
 bool WorldRenderer::setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform) {
     bool updated = false;
     for (WorldMesh& mesh : meshes_) {
         if (mesh.debugGroup == debugGroup) {
-            mesh.modelTransform = transform;
+            const glm::mat4 local = glm::inverse(mesh.groupRootTransform) * mesh.modelTransform;
+            mesh.modelTransform = transform * local;
+            mesh.groupRootTransform = transform;
             updated = true;
         }
     }
@@ -464,6 +470,7 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
 
     stagedMeshes_ = std::move(loadResult.worldMeshes);
     stagedEnemyMeshes_ = std::move(loadResult.templateMeshes);
+    stagedTowerMeshes_ = std::move(loadResult.towerTemplateMeshes);
     stagedTextures_ = std::move(loadResult.textures);
     routePoints_ = std::move(loadResult.routePoints);
 
@@ -491,6 +498,8 @@ void WorldRenderer::tickLoad() {
             const auto& sm = stagedMeshes_[gpuMeshCursor_];
             WorldMesh wm = uploadMesh(sm.vertices, sm.indices);
             wm.modelTransform = sm.modelTransform;
+            wm.groupRootTransform = sm.groupRootTransform;
+            wm.templatePrototypeIndex = sm.templatePrototypeIndex;
             wm.sourceNodeIndex = sm.sourceNodeIndex;
             wm.sourceSkinIndex = sm.sourceSkinIndex;
             wm.localBoundsCenter = sm.localBoundsCenter;
@@ -514,6 +523,8 @@ void WorldRenderer::tickLoad() {
             const auto& sm = stagedEnemyMeshes_[gpuEnemyMeshCursor_];
             WorldMesh wm = uploadMesh(sm.vertices, sm.indices);
             wm.modelTransform = sm.modelTransform;
+            wm.groupRootTransform = sm.groupRootTransform;
+            wm.templatePrototypeIndex = sm.templatePrototypeIndex;
             wm.sourceNodeIndex = sm.sourceNodeIndex;
             wm.sourceSkinIndex = sm.sourceSkinIndex;
             wm.localBoundsCenter = sm.localBoundsCenter;
@@ -525,6 +536,29 @@ void WorldRenderer::tickLoad() {
             ++gpuEnemyMeshCursor_;
         }
         progress_.store(0.75f, std::memory_order_relaxed);
+        return;
+    }
+
+    if (gpuTowerMeshCursor_ < stagedTowerMeshes_.size()) {
+        const std::size_t total = stagedTowerMeshes_.size();
+        setActivity(0.75f, "Uploading tower template geometry (" + std::to_string(total) + " meshes)...");
+        while (gpuTowerMeshCursor_ < total) {
+            const auto& sm = stagedTowerMeshes_[gpuTowerMeshCursor_];
+            WorldMesh wm = uploadMesh(sm.vertices, sm.indices);
+            wm.modelTransform = sm.modelTransform;
+            wm.groupRootTransform = sm.groupRootTransform;
+            wm.templatePrototypeIndex = sm.templatePrototypeIndex;
+            wm.sourceNodeIndex = sm.sourceNodeIndex;
+            wm.sourceSkinIndex = sm.sourceSkinIndex;
+            wm.localBoundsCenter = sm.localBoundsCenter;
+            wm.localBoundsRadius = sm.localBoundsRadius;
+            wm.debugGroup = sm.debugGroup;
+            wm.debugLabel = sm.debugLabel;
+            towerTemplateMeshes_.push_back(std::move(wm));
+            towerMeshImgIdx_.push_back(sm.imageIndex);
+            ++gpuTowerMeshCursor_;
+        }
+        progress_.store(0.77f, std::memory_order_relaxed);
         return;
     }
 
@@ -561,6 +595,11 @@ void WorldRenderer::tickLoad() {
             const std::size_t imgIdx = (i < enemyMeshImgIdx_.size()) ? enemyMeshImgIdx_[i] : SIZE_MAX;
             auto it = (imgIdx != SIZE_MAX) ? texDescSetCache_.find(imgIdx) : texDescSetCache_.end();
             enemyTemplateMeshes_[i].descriptorSet = (it != texDescSetCache_.end()) ? it->second : fallbackDescSet_;
+        }
+        for (std::size_t i = 0; i < towerTemplateMeshes_.size(); ++i) {
+            const std::size_t imgIdx = (i < towerMeshImgIdx_.size()) ? towerMeshImgIdx_[i] : SIZE_MAX;
+            auto it = (imgIdx != SIZE_MAX) ? texDescSetCache_.find(imgIdx) : texDescSetCache_.end();
+            towerTemplateMeshes_[i].descriptorSet = (it != texDescSetCache_.end()) ? it->second : fallbackDescSet_;
         }
         gpuDescsDone_ = true;
     }
@@ -616,7 +655,9 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
     auto testMesh = [&](const WorldMesh& mesh,
                         const glm::mat4& world,
                         int meshIndex,
-                        int instanceIndex) {
+                        int instanceIndex,
+                        const std::string* instanceGroup,
+                        const std::string* instanceLabel) {
         const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
         const float baseRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
         const bool isDynamicInstance = instanceIndex >= 0;
@@ -632,8 +673,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
                 proxy.valid = true;
                 proxy.minBounds = worldCenter - extent;
                 proxy.maxBounds = worldCenter + extent;
-                proxy.group = mesh.debugGroup;
-                proxy.label = mesh.debugLabel;
+                proxy.group = (instanceGroup && !instanceGroup->empty()) ? *instanceGroup : mesh.debugGroup;
+                proxy.label = (instanceLabel && !instanceLabel->empty()) ? *instanceLabel : mesh.debugLabel;
                 proxy.meshIndex = meshIndex;
                 proxy.nodeIndex = mesh.sourceNodeIndex;
                 proxy.skinIndex = mesh.sourceSkinIndex;
@@ -661,8 +702,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         if (!std::isfinite(best.worldNormal.x) || !std::isfinite(best.worldNormal.y) || !std::isfinite(best.worldNormal.z)) {
             best.worldNormal = glm::vec3(0.0f, 1.0f, 0.0f);
         }
-        best.group = mesh.debugGroup;
-        best.label = mesh.debugLabel;
+        best.group = (instanceGroup && !instanceGroup->empty()) ? *instanceGroup : mesh.debugGroup;
+        best.label = (instanceLabel && !instanceLabel->empty()) ? *instanceLabel : mesh.debugLabel;
         best.meshIndex = meshIndex;
         best.nodeIndex = mesh.sourceNodeIndex;
         best.skinIndex = mesh.sourceSkinIndex;
@@ -671,7 +712,7 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
 
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         const WorldMesh& mesh = meshes_[i];
-        testMesh(mesh, mesh.modelTransform, static_cast<int>(i), -1);
+        testMesh(mesh, mesh.modelTransform, static_cast<int>(i), -1, nullptr, nullptr);
     }
 
     animatedEntityInstances_.forEachMeshWorldTransform(
@@ -681,7 +722,21 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
             return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
-            testMesh(mesh, world, meshIndex, instanceIndex);
+            testMesh(mesh, world, meshIndex, instanceIndex, nullptr, nullptr);
+        });
+
+    towerInstances_.forEachMeshWorldTransform(
+        towerTemplateMeshes_,
+        [](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+            (void)instanceIndex;
+            (void)nodeIndex;
+            return fallback;
+        },
+        [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+            const AnimatedEntityInstanceSet::Instance* instance = towerInstances_.instance(static_cast<std::size_t>(instanceIndex));
+            const std::string* instanceGroup = instance ? &instance->debugGroup : nullptr;
+            const std::string* instanceLabel = instance ? &instance->debugLabel : nullptr;
+            testMesh(mesh, world, meshIndex, -1, instanceGroup, instanceLabel);
         });
 
     constexpr float kDynamicProxyRadiusPadding = 0.20f;
@@ -918,6 +973,33 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
         });
 
+    uploadIdentitySkinPalette();
+    towerInstances_.forEachMeshWorldTransform(
+        towerTemplateMeshes_,
+        [](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+            (void)instanceIndex;
+            (void)nodeIndex;
+            return fallback;
+        },
+        [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+            (void)instanceIndex;
+            (void)meshIndex;
+            const glm::mat4 mvp = proj * view * world;
+            const PushConstants pc{mvp, world};
+            vkCmdPushConstants(cmd, pipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+
+            VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
+            if (ds) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipelineLayout_, 0, 1, &ds, 0, nullptr);
+            }
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+        });
+
     if (highlightPipeline_ != VK_NULL_HANDLE && highlightPipelineLayout_ != VK_NULL_HANDLE &&
         (hoveredInstanceIndex_ >= 0 || selectedInstanceIndex_ >= 0)) {
         const glm::mat4 invView = glm::inverse(view);
@@ -1070,11 +1152,20 @@ void WorldRenderer::release() {
         if (mesh.indexBuffer != VK_NULL_HANDLE)
             vmaDestroyBuffer(ctx_.allocator(), mesh.indexBuffer, mesh.indexAlloc);
     }
+    for (WorldMesh& mesh : towerTemplateMeshes_) {
+        if (mesh.vertexBuffer != VK_NULL_HANDLE)
+            vmaDestroyBuffer(ctx_.allocator(), mesh.vertexBuffer, mesh.vertexAlloc);
+        if (mesh.indexBuffer != VK_NULL_HANDLE)
+            vmaDestroyBuffer(ctx_.allocator(), mesh.indexBuffer, mesh.indexAlloc);
+    }
     meshes_.clear();
     enemyTemplateMeshes_.clear();
+    towerTemplateMeshes_.clear();
     meshImgIdx_.clear();
     enemyMeshImgIdx_.clear();
+    towerMeshImgIdx_.clear();
     animatedEntityInstances_.clear();
+    towerInstances_.clear();
     hoveredInstanceIndex_ = -1;
     selectedInstanceIndex_ = -1;
     routePoints_.clear();
@@ -1084,10 +1175,12 @@ void WorldRenderer::release() {
     // Reset async state
     stagedMeshes_.clear();
     stagedEnemyMeshes_.clear();
+    stagedTowerMeshes_.clear();
     stagedTextures_.clear();
     failReason_.clear();
     gpuMeshCursor_ = 0;
     gpuEnemyMeshCursor_ = 0;
+    gpuTowerMeshCursor_ = 0;
     gpuTexCursor_  = 0;
     gpuDescsDone_  = false;
     gpuPipeDone_   = false;

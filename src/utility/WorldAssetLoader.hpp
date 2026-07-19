@@ -32,10 +32,16 @@ struct WorldUiTextureSpec {
     std::filesystem::path texturePath;
 };
 
+struct WorldTemplateModelSpec {
+    std::string id;
+    std::filesystem::path modelPath;
+};
+
 struct WorldAssetSpec {
     std::filesystem::path startModelPath{};
     std::filesystem::path endModelPath{};
     std::vector<std::filesystem::path> animatedTemplateModelPaths{};
+    std::vector<WorldTemplateModelSpec> towerTemplateModels{};
     std::vector<WorldModelPlacementSpec> extraWorldModels;
     std::vector<WorldUiTextureSpec> uiTextures;
 };
@@ -45,6 +51,8 @@ struct WorldStagedMesh {
     std::vector<uint32_t> indices;
     std::size_t imageIndex = SIZE_MAX;
     glm::mat4 modelTransform{1.0f};
+    glm::mat4 groupRootTransform{1.0f};
+    int templatePrototypeIndex = -1;
     int sourceNodeIndex = -1;
     int sourceSkinIndex = -1;
     std::string debugGroup;
@@ -64,6 +72,7 @@ struct WorldStagedTexture {
 struct WorldAssetLoadResult {
     std::vector<WorldStagedMesh> worldMeshes;
     std::vector<WorldStagedMesh> templateMeshes;
+    std::vector<WorldStagedMesh> towerTemplateMeshes;
     std::vector<WorldStagedTexture> textures;
     std::vector<glm::vec3> routePoints;
 };

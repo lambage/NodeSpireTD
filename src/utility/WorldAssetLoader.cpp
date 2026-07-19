@@ -261,6 +261,8 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                                 std::string_view assetId,
                                 const fastgltf::Primitive& primitive,
                                 const glm::mat4& worldTransform,
+                                const glm::mat4& groupRootTransform,
+                                int templatePrototypeIndex,
                                 std::vector<WorldStagedMesh>& outMeshes,
                                 int sourceNodeIndex,
                                 int sourceSkinIndex,
@@ -380,6 +382,8 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         sm.indices = std::move(indices);
         sm.imageIndex = imgKey;
         sm.modelTransform = worldTransform;
+        sm.groupRootTransform = groupRootTransform;
+        sm.templatePrototypeIndex = templatePrototypeIndex;
         sm.sourceNodeIndex = sourceNodeIndex;
         sm.sourceSkinIndex = sourceSkinIndex;
         sm.debugGroup = std::string(debugGroup);
@@ -400,6 +404,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
     auto traverseScene = [&](const fastgltf::Asset& srcAsset,
                              std::string_view assetId,
                              const glm::mat4& rootTransform,
+                             int templatePrototypeIndex,
                              bool captureMarkers,
                              std::vector<WorldStagedMesh>& outMeshes,
                              std::string_view debugGroup,
@@ -438,7 +443,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                         label += std::string(node.name);
                     }
                     for (const auto& prim : srcAsset.meshes[*node.meshIndex].primitives) {
-                        processPrimitive(srcAsset, assetId, prim, world, outMeshes,
+                        processPrimitive(srcAsset, assetId, prim, world, rootTransform, templatePrototypeIndex, outMeshes,
                                          static_cast<int>(nodeIdx), nodeSkinIndex,
                                          debugGroup, label);
                     }
@@ -470,7 +475,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
     if (isCancelled()) {
         return false;
     }
-    traverseScene(mapAsset, mapAssetId, glm::mat4{1.0f}, true, outResult.worldMeshes, "map", assetPath.stem().string());
+    traverseScene(mapAsset, mapAssetId, glm::mat4{1.0f}, -1, true, outResult.worldMeshes, "map", assetPath.stem().string());
 
     auto loadAndStagePlacedModel = [&](const std::filesystem::path& modelPath,
                                        const glm::mat4& placement,
@@ -525,13 +530,16 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         if (isCancelled()) {
             return;
         }
-        traverseScene(modelAsset, modelAssetId, placement, false, outMeshes, debugGroup, label);
+        traverseScene(modelAsset, modelAssetId, placement, -1, false, outMeshes, debugGroup, label);
     };
 
     auto loadAndStageModelTemplate = [&](const std::filesystem::path& modelPath,
                                          const std::string& label,
+                                         const std::string& debugGroup,
+                                         int prototypeIndex,
                                          std::vector<WorldStagedMesh>& outMeshes,
                                          bool required,
+                                         bool initializeAnimator,
                                          bool& outFailed) {
         if (isCancelled()) {
             return;
@@ -579,8 +587,10 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         if (isCancelled()) {
             return;
         }
-        traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, false, outMeshes, "template", label);
-        animator.initializeFromAsset(modelAsset);
+        traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, prototypeIndex, false, outMeshes, debugGroup, label);
+        if (initializeAnimator) {
+            animator.initializeFromAsset(modelAsset);
+        }
     };
 
     outResult.routePoints.clear();
@@ -683,18 +693,37 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         return false;
     }
 
-    if (spec.animatedTemplateModelPaths.size() > 1) {
-        spdlog::info("[WorldAssetLoader] {} animated template models configured; currently loading first entry only.",
-                     spec.animatedTemplateModelPaths.size());
+    for (std::size_t i = 0; i < spec.animatedTemplateModelPaths.size(); ++i) {
+        const bool initializeAnimator = (i == 0);
+        const std::string label = "animated template " + std::to_string(i + 1);
+        loadAndStageModelTemplate(spec.animatedTemplateModelPaths[i],
+                                  label,
+                                  "template",
+                                  static_cast<int>(i),
+                                  outResult.templateMeshes,
+                                  true,
+                                  initializeAnimator,
+                                  loadFailed);
+        if (loadFailed) {
+            return false;
+        }
     }
 
-    loadAndStageModelTemplate(spec.animatedTemplateModelPaths.front(),
-                              "animated template",
-                              outResult.templateMeshes,
-                              true,
-                              loadFailed);
-    if (loadFailed) {
-        return false;
+    for (std::size_t i = 0; i < spec.towerTemplateModels.size(); ++i) {
+        const WorldTemplateModelSpec& towerTemplate = spec.towerTemplateModels[i];
+        const std::string label = "tower template:" + towerTemplate.id;
+        const std::string debugGroup = "tower_template:" + towerTemplate.id;
+        loadAndStageModelTemplate(towerTemplate.modelPath,
+                                  label,
+                                  debugGroup,
+                                  static_cast<int>(i),
+                                  outResult.towerTemplateMeshes,
+                                  true,
+                                  false,
+                                  loadFailed);
+        if (loadFailed) {
+            return false;
+        }
     }
 
     return true;

@@ -37,6 +37,8 @@ struct WorldMesh {
     uint32_t        indexCount    = 0;
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     glm::mat4       modelTransform{1.0f};
+    glm::mat4       groupRootTransform{1.0f};
+    int             templatePrototypeIndex = -1;
     int             sourceNodeIndex = -1;
     int             sourceSkinIndex = -1;
     glm::vec3       localBoundsCenter{0.0f, 0.0f, 0.0f};
@@ -120,6 +122,7 @@ class WorldRenderer {
     bool playAllEnemyAnimationClips() const { return compositeTemplateAnimationMode(); }
 
     void setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms);
+    void setTowerInstanceTransforms(const std::vector<AnimatedEntityInstanceSet::Instance>& instances);
     bool setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform);
     void setHighlightedInstances(int hoveredInstanceIndex, int selectedInstanceIndex);
     void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) { setAnimatedEntityInstanceTransforms(transforms); }
@@ -143,6 +146,7 @@ class WorldRenderer {
 
     std::vector<WorldMesh> meshes_;
     std::vector<WorldMesh> enemyTemplateMeshes_;
+    std::vector<WorldMesh> towerTemplateMeshes_;
     bool        loaded_        = false;
     bool        loadFailed_    = false;
     std::string status_;
@@ -177,6 +181,7 @@ class WorldRenderer {
     // Written by background thread before cpuDone_, read by main thread after.
     std::vector<WorldStagedMesh>    stagedMeshes_;
     std::vector<WorldStagedMesh>    stagedEnemyMeshes_;
+    std::vector<WorldStagedMesh>    stagedTowerMeshes_;
     std::vector<WorldStagedTexture> stagedTextures_;
     WorldAssetSpec            assetSpec_;
     std::string                failReason_;
@@ -184,13 +189,16 @@ class WorldRenderer {
     // GPU upload cursors (main thread only)
     std::size_t              gpuMeshCursor_  = 0;
     std::size_t              gpuEnemyMeshCursor_ = 0;
+    std::size_t              gpuTowerMeshCursor_ = 0;
     std::size_t              gpuTexCursor_   = 0;
     bool                     gpuDescsDone_   = false;
     bool                     gpuPipeDone_    = false;
     std::vector<std::size_t> meshImgIdx_;   // parallel to meshes_
     std::vector<std::size_t> enemyMeshImgIdx_; // parallel to enemyTemplateMeshes_
+    std::vector<std::size_t> towerMeshImgIdx_; // parallel to towerTemplateMeshes_
 
     AnimatedEntityInstanceSet animatedEntityInstances_;
+    AnimatedEntityInstanceSet towerInstances_;
     std::vector<float> animatedEntityPhaseOffsetsSeconds_;
     int hoveredInstanceIndex_ = -1;
     int selectedInstanceIndex_ = -1;

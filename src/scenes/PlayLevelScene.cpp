@@ -256,6 +256,7 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
 
     gameplayState_.resetForNewRun();
     towerArchetypes_.clear();
+    towerTemplatePrototypeById_.clear();
     towerLoadoutIds_.clear();
     towerPoolGroupsById_.clear();
     towerGhostGroupById_.clear();
@@ -329,30 +330,18 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         const std::string ghostGroup = "tower_pool_ghost:" + towerId;
         towerGhostGroupById_[towerId] = ghostGroup;
 
-        WorldModelPlacementSpec ghostPlacement;
-        ghostPlacement.modelPath = tower.modelPath;
-        ghostPlacement.debugGroup = ghostGroup;
-        ghostPlacement.debugLabel = tower.displayName + "_ghost";
-        ghostPlacement.positionOffset = glm::vec3(0.0f, kTowerHiddenY, 0.0f);
-        ghostPlacement.eulerDegrees = glm::vec3(0.0f, tower.facingYawOffsetDegrees, 0.0f);
-        ghostPlacement.scale = glm::vec3(std::max(0.01f, tower.renderScale));
-        worldAssetSpec_.extraWorldModels.push_back(std::move(ghostPlacement));
-
         auto& poolGroups = towerPoolGroupsById_[towerId];
         poolGroups.reserve(kTowerPoolPlacementsPerType);
         for (int i = 0; i < kTowerPoolPlacementsPerType; ++i) {
             const std::string poolGroup = "tower_pool:" + towerId + ":" + std::to_string(i);
             poolGroups.push_back(poolGroup);
-
-            WorldModelPlacementSpec placedPlacement;
-            placedPlacement.modelPath = tower.modelPath;
-            placedPlacement.debugGroup = poolGroup;
-            placedPlacement.debugLabel = tower.displayName + "_placed_" + std::to_string(i + 1);
-            placedPlacement.positionOffset = glm::vec3(0.0f, kTowerHiddenY, 0.0f);
-            placedPlacement.eulerDegrees = glm::vec3(0.0f, tower.facingYawOffsetDegrees, 0.0f);
-            placedPlacement.scale = glm::vec3(std::max(0.01f, tower.renderScale));
-            worldAssetSpec_.extraWorldModels.push_back(std::move(placedPlacement));
         }
+
+        WorldTemplateModelSpec towerTemplate;
+        towerTemplate.id = towerId;
+        towerTemplate.modelPath = tower.modelPath;
+        towerTemplatePrototypeById_[towerId] = static_cast<int>(worldAssetSpec_.towerTemplateModels.size());
+        worldAssetSpec_.towerTemplateModels.push_back(std::move(towerTemplate));
     }
 
     publishLevelUiTextures(L_, worldAssetSpec_);
@@ -1350,10 +1339,32 @@ void PlayLevelScene::syncPlacedTowerModels() {
         return;
     }
 
+    std::vector<AnimatedEntityInstanceSet::Instance> instances;
+    instances.reserve(towerArchetypes_.size() * (kTowerPoolPlacementsPerType + 1));
+
+    auto pushTowerInstance = [&](const TowerArchetype& tower,
+                                 int prototypeIndex,
+                                 const glm::mat4& transform,
+                                 const std::string& debugGroup,
+                                 const std::string& debugLabel) {
+        AnimatedEntityInstanceSet::Instance instance;
+        instance.transform = transform;
+        instance.prototypeIndex = prototypeIndex;
+        instance.debugGroup = debugGroup;
+        instance.debugLabel = debugLabel;
+        instances.push_back(std::move(instance));
+    };
+
+    const glm::mat4 hidden = glm::translate(glm::mat4{1.0f}, glm::vec3(0.0f, kTowerHiddenY, 0.0f));
     std::unordered_map<std::string, int> usedPerTower;
     for (const PlacedTower& placed : placedTowers_) {
         const TowerArchetype* tower = findTowerArchetype(placed.towerId);
         if (!tower) {
+            continue;
+        }
+
+        const auto protoIt = towerTemplatePrototypeById_.find(placed.towerId);
+        if (protoIt == towerTemplatePrototypeById_.end()) {
             continue;
         }
 
@@ -1368,14 +1379,23 @@ void PlayLevelScene::syncPlacedTowerModels() {
         }
 
         const glm::mat4 model = buildTowerModelTransform(*tower, placed.position);
-        worldRenderer_->setWorldModelTransformByDebugGroup(poolsIt->second[poolIndex], model);
+        const std::string& group = poolsIt->second[poolIndex];
+        pushTowerInstance(*tower, protoIt->second, model, group, group);
     }
 
     for (const auto& [towerId, groups] : towerPoolGroupsById_) {
+        const TowerArchetype* tower = findTowerArchetype(towerId);
+        if (!tower) {
+            continue;
+        }
+        const auto protoIt = towerTemplatePrototypeById_.find(towerId);
+        if (protoIt == towerTemplatePrototypeById_.end()) {
+            continue;
+        }
+
         const int usedCount = usedPerTower[towerId];
         for (int i = usedCount; i < static_cast<int>(groups.size()); ++i) {
-            const glm::mat4 hidden = glm::translate(glm::mat4{1.0f}, glm::vec3(0.0f, kTowerHiddenY, 0.0f));
-            worldRenderer_->setWorldModelTransformByDebugGroup(groups[i], hidden);
+            pushTowerInstance(*tower, protoIt->second, hidden, groups[i], groups[i]);
         }
     }
 
@@ -1385,13 +1405,20 @@ void PlayLevelScene::syncPlacedTowerModels() {
             continue;
         }
 
-        glm::mat4 ghost = glm::translate(glm::mat4{1.0f}, glm::vec3(0.0f, kTowerHiddenY, 0.0f));
+        const auto protoIt = towerTemplatePrototypeById_.find(towerId);
+        if (protoIt == towerTemplatePrototypeById_.end()) {
+            continue;
+        }
+
+        glm::mat4 ghost = hidden;
         const TowerArchetype* selected = selectedTowerArchetype();
         if (selected && selected->id == towerId && towerPlacementHasHit_) {
             ghost = buildTowerModelTransform(*tower, towerPlacementWorldPos_ + glm::vec3(0.0f, 0.02f, 0.0f));
         }
-        worldRenderer_->setWorldModelTransformByDebugGroup(ghostGroup, ghost);
+        pushTowerInstance(*tower, protoIt->second, ghost, ghostGroup, ghostGroup);
     }
+
+    worldRenderer_->setTowerInstanceTransforms(instances);
 }
 
 void PlayLevelScene::syncTowerInstanceTransforms() {
