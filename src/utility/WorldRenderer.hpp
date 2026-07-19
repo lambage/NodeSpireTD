@@ -55,7 +55,24 @@ struct WorldPickHit {
     int meshIndex = -1;
     int nodeIndex = -1;
     int skinIndex = -1;
-    int enemyInstanceIndex = -1;
+    int instanceIndex = -1;
+};
+
+struct WorldPickOptions {
+    float staticRadiusScale = 1.0f;
+    float staticRadiusPadding = 0.0f;
+    float staticMinRadius = 0.05f;
+    float dynamicRadiusScale = 1.45f;
+    float dynamicRadiusPadding = 0.35f;
+    float dynamicMinRadius = 0.65f;
+};
+
+struct WorldPickDebugSphere {
+    glm::vec3 center{0.0f, 0.0f, 0.0f};
+    float radius = 0.0f;
+    int instanceIndex = -1;
+    std::string group;
+    std::string label;
 };
 
 class WorldRenderer {
@@ -103,11 +120,17 @@ class WorldRenderer {
     bool playAllEnemyAnimationClips() const { return compositeTemplateAnimationMode(); }
 
     void setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms);
+    bool setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform);
+    void setHighlightedInstances(int hoveredInstanceIndex, int selectedInstanceIndex);
     void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) { setAnimatedEntityInstanceTransforms(transforms); }
     const std::vector<glm::vec3>& routePoints() const { return routePoints_; }
     bool hasAnimatedEntityTemplate() const { return !enemyTemplateMeshes_.empty(); }
     bool hasEnemyTemplate() const { return hasAnimatedEntityTemplate(); }
-    bool pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDir, WorldPickHit& outHit) const;
+    bool pickModel(const glm::vec3& rayOrigin,
+                   const glm::vec3& rayDir,
+                   WorldPickHit& outHit,
+                   const WorldPickOptions& options = {}) const;
+    std::vector<WorldPickDebugSphere> buildDynamicPickDebugSpheres(const WorldPickOptions& options = {}) const;
     const EnemyAnimationDebugInfo& templateAnimationDebugInfo() const;
     const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return templateAnimationDebugInfo(); }
 
@@ -130,6 +153,8 @@ class WorldRenderer {
     VkDescriptorSetLayout textureDescLayout_ = VK_NULL_HANDLE;
     VkPipelineLayout      pipelineLayout_    = VK_NULL_HANDLE;
     VkPipeline            pipeline_          = VK_NULL_HANDLE;
+    VkPipelineLayout      highlightPipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline            highlightPipeline_ = VK_NULL_HANDLE;
 
     // Textures
     VkSampler        sampler_         = VK_NULL_HANDLE;
@@ -166,6 +191,9 @@ class WorldRenderer {
     std::vector<std::size_t> enemyMeshImgIdx_; // parallel to enemyTemplateMeshes_
 
     AnimatedEntityInstanceSet animatedEntityInstances_;
+    std::vector<float> animatedEntityPhaseOffsetsSeconds_;
+    int hoveredInstanceIndex_ = -1;
+    int selectedInstanceIndex_ = -1;
     std::vector<glm::vec3> routePoints_;
 
     static constexpr uint32_t kMaxSkinJoints = 128;
@@ -185,6 +213,7 @@ class WorldRenderer {
     void backgroundLoad(std::filesystem::path assetPath);
 
     void buildPipeline();
+    void buildHighlightPipeline();
     void createSamplerLayoutAndPool();
     WorldTexture    uploadRGBAImage(const uint8_t* pixels, uint32_t w, uint32_t h);
     VkDescriptorSet makeTextureDescSet(VkImageView view);

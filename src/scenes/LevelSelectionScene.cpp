@@ -73,10 +73,6 @@ bool loadLevelEntryFromScript(const std::filesystem::path& levelDir,
         return false;
     }
 
-    if (mapAssetPath.is_relative()) {
-        mapAssetPath = levelDir / mapAssetPath;
-    }
-
     if (!std::filesystem::is_regular_file(mapAssetPath)) {
         return false;
     }

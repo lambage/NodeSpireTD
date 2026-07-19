@@ -21,7 +21,7 @@ class AnimatedEntityInstanceSet {
             for (std::size_t meshIdx = 0; meshIdx < templateMeshes.size(); ++meshIdx) {
                 const MeshT& mesh = templateMeshes[meshIdx];
                 const glm::mat4 animatedNodeTransform =
-                    resolveNodeTransform(mesh.sourceNodeIndex, mesh.modelTransform);
+            resolveNodeTransform(static_cast<int>(instanceIdx), mesh.sourceNodeIndex, mesh.modelTransform);
                 const glm::mat4 world = instanceTransform * animatedNodeTransform;
                 visitor(mesh, world, static_cast<int>(instanceIdx), static_cast<int>(meshIdx));
             }

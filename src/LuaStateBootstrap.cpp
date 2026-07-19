@@ -111,6 +111,26 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         0);
     lua_setfield(L, t, "EndChild");
 
+    // BeginGroup()
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImGui::BeginGroup();
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "BeginGroup");
+
+    // EndGroup()
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImGui::EndGroup();
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "EndGroup");
+
     // SetNextWindowPos(x, y, [cond])
     lua_pushcclosure(
         L,
@@ -835,6 +855,18 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         0);
     lua_setfield(L, t, "IsWindowHovered");
 
+    // IsKeyPressed(key, [repeat]) -> bool
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const ImGuiKey key = static_cast<ImGuiKey>(luaL_checkinteger(L, 1));
+            const bool repeat = lua_toboolean(L, 2) != 0;
+            lua_pushboolean(L, ImGui::IsKeyPressed(key, repeat));
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "IsKeyPressed");
+
     // SetTooltip(text)
     lua_pushcclosure(
         L,
@@ -1064,6 +1096,18 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
     lua_pushinteger(L, ImGuiStyleVar_GrabRounding);
     lua_setfield(L, -2, "GrabRounding");
     lua_setglobal(L, "ImGuiStyleVar");
+
+    // ImGuiKey constants
+    lua_newtable(L);
+    for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key) {
+        const ImGuiKey imguiKey = static_cast<ImGuiKey>(key);
+        const char* keyName = ImGui::GetKeyName(imguiKey);
+        if (keyName && keyName[0] != '\0') {
+            lua_pushinteger(L, key);
+            lua_setfield(L, -2, keyName);
+        }
+    }
+    lua_setglobal(L, "ImGuiKey");
 
     // Texture userdata ("NST.Texture")
     // Full userdata holds a heap-allocated VulkanTexture*; __gc deletes it.

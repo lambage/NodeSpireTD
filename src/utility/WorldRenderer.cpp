@@ -326,6 +326,33 @@ std::string WorldRenderer::loadActivity() const {
 
 void WorldRenderer::setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms) {
     animatedEntityInstances_.setTransforms(transforms);
+
+    if (animatedEntityPhaseOffsetsSeconds_.size() != transforms.size()) {
+        animatedEntityPhaseOffsetsSeconds_.resize(transforms.size(), 0.0f);
+        const float timelineDuration = std::max(0.0f, templateAnimator_->timelineDurationSeconds());
+        if (timelineDuration > 1e-5f) {
+            for (std::size_t i = 0; i < animatedEntityPhaseOffsetsSeconds_.size(); ++i) {
+                const float unitOffset = std::fmod(static_cast<float>(i) * 0.61803398875f, 1.0f);
+                animatedEntityPhaseOffsetsSeconds_[i] = unitOffset * timelineDuration;
+            }
+        }
+    }
+}
+
+bool WorldRenderer::setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform) {
+    bool updated = false;
+    for (WorldMesh& mesh : meshes_) {
+        if (mesh.debugGroup == debugGroup) {
+            mesh.modelTransform = transform;
+            updated = true;
+        }
+    }
+    return updated;
+}
+
+void WorldRenderer::setHighlightedInstances(int hoveredInstanceIndex, int selectedInstanceIndex) {
+    hoveredInstanceIndex_ = hoveredInstanceIndex;
+    selectedInstanceIndex_ = selectedInstanceIndex;
 }
 
 bool WorldRenderer::hasTemplateAnimation() const {
@@ -543,6 +570,7 @@ void WorldRenderer::tickLoad() {
         setActivity(0.95f, "Building render pipeline...");
         try {
             buildPipeline();
+            buildHighlightPipeline();
         } catch (const std::exception& ex) {
             loadFailed_ = true;
             status_     = std::string("Pipeline build failed: ") + ex.what();
@@ -561,7 +589,10 @@ void WorldRenderer::tickLoad() {
     spdlog::info("[WorldRenderer] {}", status_);
 }
 
-bool WorldRenderer::pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDir, WorldPickHit& outHit) const {
+bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
+                              const glm::vec3& rayDir,
+                              WorldPickHit& outHit,
+                              const WorldPickOptions& options) const {
     if (!loaded_) {
         return false;
     }
@@ -570,12 +601,47 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDi
     float bestT = std::numeric_limits<float>::max();
     WorldPickHit best{};
 
+    struct DynamicInstanceProxyBounds {
+        bool valid = false;
+        glm::vec3 minBounds{0.0f};
+        glm::vec3 maxBounds{0.0f};
+        std::string group;
+        std::string label;
+        int meshIndex = -1;
+        int nodeIndex = -1;
+        int skinIndex = -1;
+    };
+    std::unordered_map<int, DynamicInstanceProxyBounds> dynamicProxyBounds;
+
     auto testMesh = [&](const WorldMesh& mesh,
                         const glm::mat4& world,
                         int meshIndex,
-                        int enemyInstanceIndex) {
+                        int instanceIndex) {
         const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
-        const float worldRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
+        const float baseRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
+        const bool isDynamicInstance = instanceIndex >= 0;
+        const float radiusScale = isDynamicInstance ? options.dynamicRadiusScale : options.staticRadiusScale;
+        const float radiusPadding = isDynamicInstance ? options.dynamicRadiusPadding : options.staticRadiusPadding;
+        const float minRadius = isDynamicInstance ? options.dynamicMinRadius : options.staticMinRadius;
+        const float worldRadius = std::max(minRadius, (baseRadius * radiusScale) + radiusPadding);
+
+        if (instanceIndex >= 0) {
+            DynamicInstanceProxyBounds& proxy = dynamicProxyBounds[instanceIndex];
+            const glm::vec3 extent(worldRadius);
+            if (!proxy.valid) {
+                proxy.valid = true;
+                proxy.minBounds = worldCenter - extent;
+                proxy.maxBounds = worldCenter + extent;
+                proxy.group = mesh.debugGroup;
+                proxy.label = mesh.debugLabel;
+                proxy.meshIndex = meshIndex;
+                proxy.nodeIndex = mesh.sourceNodeIndex;
+                proxy.skinIndex = mesh.sourceSkinIndex;
+            } else {
+                proxy.minBounds = glm::min(proxy.minBounds, worldCenter - extent);
+                proxy.maxBounds = glm::max(proxy.maxBounds, worldCenter + extent);
+            }
+        }
 
         float t = 0.0f;
         if (!raySphereIntersect(rayOrigin, rayDir, worldCenter, worldRadius, t)) {
@@ -600,7 +666,7 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDi
         best.meshIndex = meshIndex;
         best.nodeIndex = mesh.sourceNodeIndex;
         best.skinIndex = mesh.sourceSkinIndex;
-        best.enemyInstanceIndex = enemyInstanceIndex;
+        best.instanceIndex = instanceIndex;
     };
 
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
@@ -610,17 +676,129 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDi
 
     animatedEntityInstances_.forEachMeshWorldTransform(
         enemyTemplateMeshes_,
-        [this](int nodeIndex, const glm::mat4& fallback) {
+        [this](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+            (void)instanceIndex;
             return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             testMesh(mesh, world, meshIndex, instanceIndex);
         });
 
+    constexpr float kDynamicProxyRadiusPadding = 0.20f;
+    constexpr float kDynamicProxyDistanceSlack = 0.35f;
+    for (const auto& [instanceIndex, proxy] : dynamicProxyBounds) {
+        if (!proxy.valid) {
+            continue;
+        }
+
+        const glm::vec3 center = (proxy.minBounds + proxy.maxBounds) * 0.5f;
+        const float radius = std::max(options.dynamicMinRadius, glm::distance(proxy.minBounds, proxy.maxBounds) * 0.5f) +
+                             kDynamicProxyRadiusPadding;
+
+        float t = 0.0f;
+        if (!raySphereIntersect(rayOrigin, rayDir, center, radius, t)) {
+            continue;
+        }
+        if (t >= (bestT + kDynamicProxyDistanceSlack)) {
+            continue;
+        }
+
+        anyHit = true;
+        bestT = t;
+        best.hit = true;
+        best.distance = t;
+        best.worldPosition = rayOrigin + rayDir * t;
+        best.worldNormal = glm::normalize(best.worldPosition - center);
+        if (!std::isfinite(best.worldNormal.x) || !std::isfinite(best.worldNormal.y) || !std::isfinite(best.worldNormal.z)) {
+            best.worldNormal = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
+        best.group = proxy.group;
+        best.label = proxy.label;
+        best.meshIndex = proxy.meshIndex;
+        best.nodeIndex = proxy.nodeIndex;
+        best.skinIndex = proxy.skinIndex;
+        best.instanceIndex = instanceIndex;
+    }
+
     if (anyHit) {
         outHit = best;
     }
     return anyHit;
+}
+
+std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(const WorldPickOptions& options) const {
+    std::vector<WorldPickDebugSphere> spheres;
+    if (!loaded_) {
+        return spheres;
+    }
+
+    struct DynamicInstanceProxyBounds {
+        bool valid = false;
+        glm::vec3 minBounds{0.0f};
+        glm::vec3 maxBounds{0.0f};
+        std::string group;
+        std::string label;
+    };
+    std::unordered_map<int, DynamicInstanceProxyBounds> dynamicProxyBounds;
+
+    auto accumulateDynamicMesh = [&](const WorldMesh& mesh,
+                                     const glm::mat4& world,
+                                     int instanceIndex) {
+        if (instanceIndex < 0) {
+            return;
+        }
+
+        const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
+        const float baseRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
+        const float worldRadius = std::max(options.dynamicMinRadius, (baseRadius * options.dynamicRadiusScale) +
+                                                                       options.dynamicRadiusPadding);
+
+        DynamicInstanceProxyBounds& proxy = dynamicProxyBounds[instanceIndex];
+        const glm::vec3 extent(worldRadius);
+        if (!proxy.valid) {
+            proxy.valid = true;
+            proxy.minBounds = worldCenter - extent;
+            proxy.maxBounds = worldCenter + extent;
+            proxy.group = mesh.debugGroup;
+            proxy.label = mesh.debugLabel;
+        } else {
+            proxy.minBounds = glm::min(proxy.minBounds, worldCenter - extent);
+            proxy.maxBounds = glm::max(proxy.maxBounds, worldCenter + extent);
+        }
+    };
+
+    animatedEntityInstances_.forEachMeshWorldTransform(
+        enemyTemplateMeshes_,
+        [this](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+            (void)instanceIndex;
+            return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+        },
+        [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+            (void)meshIndex;
+            accumulateDynamicMesh(mesh, world, instanceIndex);
+        });
+
+    constexpr float kDynamicProxyRadiusPadding = 0.20f;
+    spheres.reserve(dynamicProxyBounds.size());
+    for (const auto& [instanceIndex, proxy] : dynamicProxyBounds) {
+        if (!proxy.valid) {
+            continue;
+        }
+
+        WorldPickDebugSphere sphere;
+        sphere.center = (proxy.minBounds + proxy.maxBounds) * 0.5f;
+        sphere.radius = std::max(options.dynamicMinRadius, glm::distance(proxy.minBounds, proxy.maxBounds) * 0.5f) +
+                        kDynamicProxyRadiusPadding;
+        sphere.instanceIndex = instanceIndex;
+        sphere.group = proxy.group;
+        sphere.label = proxy.label;
+        spheres.push_back(std::move(sphere));
+    }
+
+    std::sort(spheres.begin(), spheres.end(), [](const WorldPickDebugSphere& a, const WorldPickDebugSphere& b) {
+        return a.instanceIndex < b.instanceIndex;
+    });
+    return spheres;
 }
 
 void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view) {
@@ -662,6 +840,13 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         glm::mat4 model;
     };
 
+    struct HighlightPushConstants {
+        glm::mat4 mvp;
+        glm::mat4 model;
+        glm::vec4 highlightColor;
+        glm::vec4 cameraWorldPos;
+    };
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     uploadIdentitySkinPalette();
 
@@ -681,20 +866,32 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
     }
 
+    const float baseAnimationTime = templateAnimator_->currentTimeSeconds();
+    const float animationDuration = templateAnimator_->timelineDurationSeconds();
+
     int currentInstanceIndex = -1;
     int activeSkinIndex = -2;
     animatedEntityInstances_.forEachMeshWorldTransform(
         enemyTemplateMeshes_,
-        [this](int nodeIndex, const glm::mat4& fallback) {
+        [this, &currentInstanceIndex, &activeSkinIndex, baseAnimationTime, animationDuration](int instanceIndex,
+                                                                                               int nodeIndex,
+                                                                                               const glm::mat4& fallback) {
+            if (instanceIndex != currentInstanceIndex) {
+                currentInstanceIndex = instanceIndex;
+                activeSkinIndex = -2;
+
+                float sampleTime = baseAnimationTime;
+                if (animationDuration > 1e-5f && instanceIndex >= 0 &&
+                    static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
+                    sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
+                }
+                templateAnimator_->setPlaybackTimeSeconds(sampleTime);
+                templateAnimator_->update(0.0f);
+            }
             return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             (void)meshIndex;
-            if (instanceIndex != currentInstanceIndex) {
-                currentInstanceIndex = instanceIndex;
-                activeSkinIndex = -2;
-            }
-
             if (mesh.sourceSkinIndex != activeSkinIndex) {
                 activeSkinIndex = mesh.sourceSkinIndex;
                 const std::vector<glm::mat4>* jointPalette = templateAnimator_->skinJointMatricesForSkin(mesh.sourceSkinIndex);
@@ -720,6 +917,87 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
             vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
         });
+
+    if (highlightPipeline_ != VK_NULL_HANDLE && highlightPipelineLayout_ != VK_NULL_HANDLE &&
+        (hoveredInstanceIndex_ >= 0 || selectedInstanceIndex_ >= 0)) {
+        const glm::mat4 invView = glm::inverse(view);
+        const glm::vec3 cameraPos = glm::vec3(invView[3]);
+
+        auto drawHighlightInstance = [&](int targetInstanceIndex, const glm::vec4& color) {
+            if (targetInstanceIndex < 0) {
+                return;
+            }
+
+            int highlightCurrentInstance = -1;
+            int highlightActiveSkin = -2;
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, highlightPipeline_);
+
+            animatedEntityInstances_.forEachMeshWorldTransform(
+                enemyTemplateMeshes_,
+                [this, &highlightCurrentInstance, &highlightActiveSkin, baseAnimationTime, animationDuration,
+                 targetInstanceIndex](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+                    if (instanceIndex != targetInstanceIndex) {
+                        return glm::mat4(0.0f);
+                    }
+                    if (instanceIndex != highlightCurrentInstance) {
+                        highlightCurrentInstance = instanceIndex;
+                        highlightActiveSkin = -2;
+
+                        float sampleTime = baseAnimationTime;
+                        if (animationDuration > 1e-5f && instanceIndex >= 0 &&
+                            static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
+                            sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
+                        }
+                        templateAnimator_->setPlaybackTimeSeconds(sampleTime);
+                        templateAnimator_->update(0.0f);
+                    }
+                    return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+                },
+                [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+                    (void)meshIndex;
+                    if (instanceIndex != targetInstanceIndex) {
+                        return;
+                    }
+
+                    if (mesh.sourceSkinIndex != highlightActiveSkin) {
+                        highlightActiveSkin = mesh.sourceSkinIndex;
+                        const std::vector<glm::mat4>* jointPalette =
+                            templateAnimator_->skinJointMatricesForSkin(mesh.sourceSkinIndex);
+                        if (jointPalette) {
+                            uploadSkinPalette(*jointPalette);
+                        } else {
+                            uploadIdentitySkinPalette();
+                        }
+                    }
+
+                    const glm::mat4 mvp = proj * view * world;
+                    const HighlightPushConstants pc{mvp, world, color, glm::vec4(cameraPos, 1.0f)};
+                    vkCmdPushConstants(cmd, highlightPipelineLayout_,
+                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                       0, sizeof(HighlightPushConstants), &pc);
+
+                    VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
+                    if (ds) {
+                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                highlightPipelineLayout_, 0, 1, &ds, 0, nullptr);
+                    }
+                    const VkDeviceSize offset = 0;
+                    vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+                    vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+                });
+        };
+
+        if (hoveredInstanceIndex_ >= 0 && hoveredInstanceIndex_ != selectedInstanceIndex_) {
+            drawHighlightInstance(hoveredInstanceIndex_, glm::vec4(1.0f, 0.85f, 0.20f, 0.75f));
+        }
+        if (selectedInstanceIndex_ >= 0) {
+            drawHighlightInstance(selectedInstanceIndex_, glm::vec4(0.20f, 0.95f, 1.0f, 0.85f));
+        }
+    }
+
+    templateAnimator_->setPlaybackTimeSeconds(baseAnimationTime);
+    templateAnimator_->update(0.0f);
 }
 
 void WorldRenderer::release() {
@@ -737,9 +1015,17 @@ void WorldRenderer::release() {
         vkDestroyPipeline(ctx_.device(), pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
     }
+    if (highlightPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_.device(), highlightPipeline_, nullptr);
+        highlightPipeline_ = VK_NULL_HANDLE;
+    }
     if (pipelineLayout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(ctx_.device(), pipelineLayout_, nullptr);
         pipelineLayout_ = VK_NULL_HANDLE;
+    }
+    if (highlightPipelineLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_.device(), highlightPipelineLayout_, nullptr);
+        highlightPipelineLayout_ = VK_NULL_HANDLE;
     }
 
     if (ownDescPool_ != VK_NULL_HANDLE) {
@@ -789,6 +1075,8 @@ void WorldRenderer::release() {
     meshImgIdx_.clear();
     enemyMeshImgIdx_.clear();
     animatedEntityInstances_.clear();
+    hoveredInstanceIndex_ = -1;
+    selectedInstanceIndex_ = -1;
     routePoints_.clear();
     templateAnimator_->reset();
     firstRenderTick_ = true;
@@ -997,5 +1285,127 @@ void WorldRenderer::buildPipeline() {
 
     if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to create graphics pipeline.");
+    }
+}
+
+void WorldRenderer::buildHighlightPipeline() {
+    VkShaderModule vert = loadSpirv("assets/shaders/highlight.vert.spv");
+    VkShaderModule frag = loadSpirv("assets/shaders/highlight.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag;
+    stages[1].pName = "main";
+
+    VkVertexInputBindingDescription binding{};
+    binding.binding = 0;
+    binding.stride = sizeof(WorldVertex);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attribs[5]{};
+    attribs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(WorldVertex, position)};
+    attribs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(WorldVertex, normal)};
+    attribs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(WorldVertex, uv)};
+    attribs[3] = {3, 0, VK_FORMAT_R16G16B16A16_UINT, offsetof(WorldVertex, joints)};
+    attribs[4] = {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(WorldVertex, weights)};
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 5;
+    vertexInput.pVertexAttributeDescriptions = attribs;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset = 0;
+    pushRange.size = static_cast<uint32_t>((sizeof(glm::mat4) * 2) + (sizeof(glm::vec4) * 2));
+
+    VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts = &textureDescLayout_;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
+
+    if (vkCreatePipelineLayout(ctx_.device(), &layoutInfo, nullptr, &highlightPipelineLayout_) != VK_SUCCESS) {
+        vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+        vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+        throw std::runtime_error("Failed to create highlight pipeline layout.");
+    }
+
+    VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkPipelineColorBlendAttachmentState blendAttach{};
+    blendAttach.blendEnable = VK_TRUE;
+    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.colorBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blending.attachmentCount = 1;
+    blending.pAttachments = &blendAttach;
+
+    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynState.dynamicStateCount = 2;
+    dynState.pDynamicStates = dynStates;
+
+    const VkFormat colorFmt = ctx_.swapchainColorFormat();
+    const VkFormat depthFmt = ctx_.depthFormat();
+    VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachmentFormats = &colorFmt;
+    renderingInfo.depthAttachmentFormat = depthFmt;
+
+    VkGraphicsPipelineCreateInfo pipelineCI{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipelineCI.pNext = &renderingInfo;
+    pipelineCI.stageCount = 2;
+    pipelineCI.pStages = stages;
+    pipelineCI.pVertexInputState = &vertexInput;
+    pipelineCI.pInputAssemblyState = &inputAssembly;
+    pipelineCI.pViewportState = &viewportState;
+    pipelineCI.pRasterizationState = &rasterizer;
+    pipelineCI.pMultisampleState = &multisampling;
+    pipelineCI.pDepthStencilState = &depthStencil;
+    pipelineCI.pColorBlendState = &blending;
+    pipelineCI.pDynamicState = &dynState;
+    pipelineCI.layout = highlightPipelineLayout_;
+
+    VkResult result =
+        vkCreateGraphicsPipelines(ctx_.device(), VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &highlightPipeline_);
+
+    vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+    vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create highlight graphics pipeline.");
     }
 }

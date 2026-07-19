@@ -59,6 +59,24 @@ class PlayLevelScene final : public GameScene {
       float facingYawOffsetDegrees = 0.0f;
     };
 
+    struct TowerArchetype {
+      std::string id = "tower";
+      std::string displayName = "Tower";
+      std::string modelPath;
+      std::string previewImagePath;
+      int cost = 100;
+      float attackRange = 5.0f;
+      float renderScale = 1.0f;
+      float facingYawOffsetDegrees = 0.0f;
+    };
+
+    struct PlacedTower {
+      std::string towerId;
+      glm::vec3 position{0.0f};
+      float attackRange = 0.0f;
+      int cost = 0;
+    };
+
     enum class GameplayCommandType {
       SpendMoney,
       DamageBase,
@@ -77,16 +95,42 @@ class PlayLevelScene final : public GameScene {
       int meshIndex = -1;
       int nodeIndex = -1;
       int skinIndex = -1;
-      int enemyInstanceIndex = -1;
+      int instanceIndex = -1;
       float distance = 0.0f;
       glm::vec3 hitPosition{0.0f};
       glm::vec3 hitNormal{0.0f, 1.0f, 0.0f};
+    };
+
+    struct DebugOverlayStats {
+      int sphereTotal = 0;
+      int sphereDrawn = 0;
+      int rejectBehindCamera = 0;
+      int rejectClipW = 0;
+      int rejectNdcZ = 0;
+      int rejectRadius = 0;
+      int hoveredSphereFound = 0;
+      int hoveredRejectReason = 0;
+      float hoveredDepth = 0.0f;
+      float hoveredRadiusPixels = 0.0f;
+      float displayWidth = 0.0f;
+      float displayHeight = 0.0f;
+      float renderWidth = 0.0f;
+      float renderHeight = 0.0f;
     };
 
     std::unique_ptr<WorldRenderer> worldRenderer_;
     PlayLevelState gameplayState_{};
     std::unordered_map<std::string, EnemyArchetype> enemyArchetypes_;
     std::string defaultEnemyId_ = "goblin1";
+    std::unordered_map<std::string, TowerArchetype> towerArchetypes_;
+    std::vector<std::string> towerLoadoutIds_;
+    std::unordered_map<std::string, std::vector<std::string>> towerPoolGroupsById_;
+    std::unordered_map<std::string, std::string> towerGhostGroupById_;
+    int selectedTowerLoadoutIndex_ = -1;
+    std::vector<PlacedTower> placedTowers_;
+    bool towerPlacementHasHit_ = false;
+    bool towerPlacementCanPlace_ = false;
+    glm::vec3 towerPlacementWorldPos_{0.0f};
     std::vector<WaveDefinition> waveDefinitions_;
     std::vector<ActiveEnemy> activeEnemies_;
     int activeWaveIndex_ = -1;
@@ -102,13 +146,20 @@ class PlayLevelScene final : public GameScene {
     std::vector<GameplayCommand> pendingCommands_;
     std::string loadStatus_;
     bool debugPickEnabled_ = true;
+    bool debugDrawPickSpheres_ = false;
+    bool debugDrawHoverHighlight_ = false;
     DebugSelection debugSelection_{};
+    DebugSelection hoverSelection_{};
+    int hoveredInstanceIndex_ = -1;
+    int selectedInstanceIndex_ = -1;
     std::string debugPickStatus_;
 
     // Flying camera state
     glm::vec3 camPos_{0.0f, 5.0f, 20.0f};
     float camYaw_   = 3.14159f;
     float camPitch_ = -0.25f;
+    VkExtent2D lastRenderExtent_{};
+    mutable DebugOverlayStats debugOverlayStats_{};
 
     bool requestSpendMoney(float amount);
     bool requestDamageBase(float amount);
@@ -116,6 +167,18 @@ class PlayLevelScene final : public GameScene {
     bool loadLevelDefinition(SceneSharedState& state);
     bool loadEnemyArchetype(const std::string& scriptPath);
     bool parseEnemyArchetypeScript(const std::string& scriptPath, EnemyArchetype& outArchetype);
+    bool parseTowerArchetypeScript(const std::string& scriptPath, TowerArchetype& outArchetype);
+    bool loadTowerArchetype(const std::string& scriptPath);
+    void discoverTowerArchetypes();
+    const TowerArchetype* findTowerArchetype(const std::string& towerId) const;
+    const TowerArchetype* selectedTowerArchetype() const;
+    bool raycastGroundAtCursor(glm::vec3& outHit) const;
+    std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
+    void updateTowerPlacementFromInput();
+    glm::mat4 buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
+    void syncPlacedTowerModels();
+    void syncTowerInstanceTransforms();
+    void drawTowerPlacementOverlay() const;
     bool loadWaveDefinitions(const std::string& scriptPath);
     const EnemyArchetype* findEnemyArchetype(const std::string& enemyId) const;
     bool updateRouteFromWorld();
@@ -131,7 +194,10 @@ class PlayLevelScene final : public GameScene {
     void registerLuaGameplayApi();
     bool pickModelAtScreen(float screenX, float screenY, DebugSelection& outSelection) const;
     bool pickModelAtCursor(DebugSelection& outSelection) const;
+    bool updateDebugHoverFromMouse();
     void updateDebugPickFromMouse();
+    void drawDebugPickSpheresOverlay() const;
+    void drawHoverHighlightOverlay() const;
 
     glm::mat4 buildViewMatrix() const;
     void updateCamera(float dt);

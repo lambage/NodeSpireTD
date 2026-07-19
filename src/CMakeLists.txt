@@ -72,16 +72,24 @@ if(GLSLC_EXECUTABLE)
         OUTPUT
             "${SHADER_SRC}/mesh.vert.spv"
             "${SHADER_SRC}/mesh.frag.spv"
+            "${SHADER_SRC}/highlight.vert.spv"
+            "${SHADER_SRC}/highlight.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.vert" -o "${SHADER_SRC}/mesh.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.frag" -o "${SHADER_SRC}/mesh.frag.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.vert" -o "${SHADER_SRC}/highlight.vert.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.frag" -o "${SHADER_SRC}/highlight.frag.spv"
         DEPENDS
             "${SHADER_SRC}/mesh.vert"
             "${SHADER_SRC}/mesh.frag"
+            "${SHADER_SRC}/highlight.vert"
+            "${SHADER_SRC}/highlight.frag"
         COMMENT "Compiling mesh shaders"
     )
     add_custom_target(MeshShaders DEPENDS
         "${SHADER_SRC}/mesh.vert.spv"
         "${SHADER_SRC}/mesh.frag.spv"
+        "${SHADER_SRC}/highlight.vert.spv"
+        "${SHADER_SRC}/highlight.frag.spv"
     )
     add_dependencies(NodeSpireTD MeshShaders)
 else()

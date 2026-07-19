@@ -1,16 +1,80 @@
 local M = {}
 
 local lastResult = ""
+local lastLoadoutResult = ""
 local debugAutoPick = true
+local debugPickSpheresVisible = false
+local debugUiVisible = true
+local towerSlotTextures = {}
+
+local function UiTextWrapped(text)
+    if ImGui.TextWrapped then
+        ImGui.TextWrapped(tostring(text or ""))
+    else
+        ImGui.Text(tostring(text or ""))
+    end
+end
+
+local function getTowerPreviewTexture(slot)
+    if not slot or not slot.available then
+        return nil
+    end
+
+    local key = tostring(slot.id or slot.displayName or "")
+    if key == "" then
+        return nil
+    end
+
+    if towerSlotTextures[key] ~= nil then
+        return towerSlotTextures[key] or nil
+    end
+
+    local path = tostring(slot.previewImagePath or "")
+    if path == "" or not Texture or not Texture.load then
+        towerSlotTextures[key] = false
+        return nil
+    end
+
+    local tex = Texture.load(VulkanContext, path)
+    if tex and tex.isValid and tex:isValid() then
+        towerSlotTextures[key] = tex
+        return tex
+    end
+
+    towerSlotTextures[key] = false
+    return nil
+end
 
 function M.onEnter()
     lastResult = "PlayLevel script loaded"
     Gameplay.setDebugPickEnabled(debugAutoPick)
+    if Gameplay.getDebugPickSpheresVisible then
+        debugPickSpheresVisible = Gameplay.getDebugPickSpheresVisible()
+    end
+    if Gameplay.setDebugPickSpheresVisible then
+        Gameplay.setDebugPickSpheresVisible(debugPickSpheresVisible)
+    end
 end
 
 function M.render(state, dt, elapsed)
     local gs = Gameplay.getState()
     local frameResult = {}
+
+    if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.GraveAccent then
+        if ImGui.IsKeyPressed(ImGuiKey.GraveAccent, false) then
+            debugUiVisible = not debugUiVisible
+        end
+    end
+
+    if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.H then
+        if ImGui.IsKeyPressed(ImGuiKey.H, false) then
+            debugPickSpheresVisible = not debugPickSpheresVisible
+            if Gameplay.setDebugPickSpheresVisible then
+                Gameplay.setDebugPickSpheresVisible(debugPickSpheresVisible)
+            end
+            lastResult = string.format("Pick spheres -> %s", debugPickSpheresVisible and "ON" or "OFF")
+        end
+    end
 
     if gs.worldLoading then
         local displayW, displayH = ImGui.GetDisplaySize()
@@ -30,9 +94,107 @@ function M.render(state, dt, elapsed)
         ImGui.End()
         return frameResult
     end
+    
+    local loadout = nil
+    if Gameplay.getTowerLoadout then
+        loadout = Gameplay.getTowerLoadout()
+    end
+    local placement = nil
+    if Gameplay.getTowerPlacementState then
+        placement = Gameplay.getTowerPlacementState()
+    end
 
     local displayW, displayH = ImGui.GetDisplaySize()
     local hudW, hudH = 460, 320
+
+    local slotW, slotH = 150, 108
+    local previewH = 52
+    local gap = 8
+    local barW = slotW * 5 + gap * 4 + 20
+    local barH = slotH + 54
+    ImGui.SetNextWindowPos((displayW - barW) * 0.5, displayH - barH - 12, ImGuiCond.Always)
+    ImGui.SetNextWindowSize(barW, barH, ImGuiCond.Always)
+    ImGui.SetNextWindowBgAlpha(0.84)
+    ImGui.Begin("TowerLoadout", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+
+    for i = 1, 5 do
+        local slot = loadout and loadout[i] or nil
+        local available = slot and slot.available
+        local selected = slot and slot.selected
+
+        if i > 1 then
+            ImGui.SameLine()
+        end
+
+        if selected then
+            ImGui.PushStyleColor(ImGuiCol.Button, 0.20, 0.54, 0.28, 0.88)
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0.26, 0.66, 0.34, 0.95)
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0.16, 0.48, 0.24, 0.98)
+        end
+
+        ImGui.BeginGroup()
+        local previewClicked = false
+        if available then
+            local preview = getTowerPreviewTexture(slot)
+            if preview then
+                if ImGui.ImageButton then
+                    previewClicked = ImGui.ImageButton(string.format("tower_preview_%d", i), preview, slotW, previewH)
+                else
+                    ImGui.Image(preview, slotW, previewH)
+                end
+            else
+                previewClicked = ImGui.Button(string.format("[%d] Preview", i), slotW, previewH)
+            end
+        else
+            previewClicked = ImGui.Button(string.format("[%d] Empty", i), slotW, previewH)
+        end
+
+        local label = string.format("[%d]", i)
+        if available then
+            local displayName = tostring((slot and slot.displayName) or (slot and slot.id) or "Tower")
+            local cost = math.floor(tonumber((slot and slot.cost) or 0) or 0)
+            label = string.format("[%d] %s\n$%d", i, displayName, cost)
+        else
+            label = string.format("[%d] Empty", i)
+        end
+
+        local slotButtonClicked = ImGui.Button(label, slotW, slotH - previewH)
+        if previewClicked or slotButtonClicked then
+            if available and Gameplay.selectTowerSlot then
+                local r = Gameplay.selectTowerSlot(i)
+                lastLoadoutResult = string.format("Slot %d -> ok=%s reason=%s", i, tostring(r.ok), tostring(r.reason))
+            end
+        end
+
+        ImGui.EndGroup()
+
+        if selected then
+            ImGui.PopStyleColor(3)
+        end
+    end
+
+    if placement and placement.active then
+        local reason = tostring(placement.reason or "")
+        local verdict = placement.canPlace and "VALID" or "INVALID"
+        ImGui.Text(string.format("Placement: %s  |  %s", verdict, tostring(placement.displayName or placement.towerId or "tower")))
+        ImGui.Text(string.format("Range: %.1f  |  Esc: cancel", tonumber(placement.attackRange or 0.0)))
+        if reason ~= "" then
+            UiTextWrapped(reason)
+        end
+    else
+        ImGui.Text("Select a tower with 1-5 or click a slot. Esc exits placement mode.")
+    end
+
+    if lastLoadoutResult ~= "" then
+        UiTextWrapped(lastLoadoutResult)
+    end
+
+    ImGui.End()    
+    
+    if not debugUiVisible then
+        return frameResult
+    end
+
     ImGui.SetNextWindowPos(16, displayH - hudH - 16, ImGuiCond.Once)
     ImGui.SetNextWindowSize(hudW, hudH, ImGuiCond.Once)
     ImGui.SetNextWindowBgAlpha(0.70)
@@ -52,7 +214,7 @@ function M.render(state, dt, elapsed)
         ImGui.Text("RMB+drag: look   WASD: fly   Space/Q: up/down   Shift: sprint")
     else
         ImGui.Text("Status: LOAD FAILED")
-        ImGui.TextWrapped(tostring(gs.worldStatus or "Unknown loading failure"))
+        UiTextWrapped(gs.worldStatus or "Unknown loading failure")
     end
 
     ImGui.Spacing()
@@ -111,6 +273,7 @@ function M.render(state, dt, elapsed)
 
     ImGui.Text("Model Debugger (Lua-driven)")
     ImGui.Separator()
+    ImGui.Text(string.format("[H] Pick Spheres: %s", debugPickSpheresVisible and "ON" or "OFF"))
 
     if ImGui.Button(debugAutoPick and "Auto Pick: ON" or "Auto Pick: OFF", 160, 0) then
         debugAutoPick = not debugAutoPick
@@ -128,6 +291,29 @@ function M.render(state, dt, elapsed)
     local sel = Gameplay.getDebugSelection()
     ImGui.Text(string.format("Status: %s", sel.status or ""))
     ImGui.Text(string.format("Enemy Clip: %s", sel.enemyAnimationName or "none"))
+
+    local od = sel.overlayDebug
+    if od then
+        ImGui.Separator()
+        ImGui.Text("Overlay Debug")
+        ImGui.Text(string.format("Spheres total=%d drawn=%d", od.sphereTotal or 0, od.sphereDrawn or 0))
+        ImGui.Text(string.format("Reject behind=%d clipW=%d ndcZ=%d radius=%d",
+            od.rejectBehindCamera or 0,
+            od.rejectClipW or 0,
+            od.rejectNdcZ or 0,
+            od.rejectRadius or 0))
+        ImGui.Text(string.format("Hovered sphere found=%d rejectReason=%d depth=%.2f rPx=%.2f",
+            od.hoveredSphereFound or 0,
+            od.hoveredRejectReason or 0,
+            od.hoveredDepth or 0.0,
+            od.hoveredRadiusPixels or 0.0))
+        ImGui.Text(string.format("Display %.0fx%.0f  Render %.0fx%.0f",
+            od.displayWidth or 0.0,
+            od.displayHeight or 0.0,
+            od.renderWidth or 0.0,
+            od.renderHeight or 0.0))
+        ImGui.Text(string.format("Camera yaw=%.3f pitch=%.3f", od.cameraYaw or 0.0, od.cameraPitch or 0.0))
+    end
 
     local clips = Gameplay.getAnimationClips()
     local clipCount = clips.count or 0
@@ -182,7 +368,7 @@ function M.render(state, dt, elapsed)
         ImGui.Text(string.format("Group: %s", tostring(sel.group)))
         ImGui.Text(string.format("Label: %s", tostring(sel.label)))
         ImGui.Text(string.format("Mesh: %d  Node: %d  Skin: %d", sel.meshIndex or -1, sel.nodeIndex or -1, sel.skinIndex or -1))
-        ImGui.Text(string.format("Enemy Instance: %d", sel.enemyInstanceIndex or -1))
+        ImGui.Text(string.format("Instance: %d", sel.instanceIndex or -1))
         ImGui.Text(string.format("Distance: %.3f", sel.distance or 0.0))
         if sel.hitPosition then
             ImGui.Text(string.format("Hit Pos: (%.2f, %.2f, %.2f)", sel.hitPosition.x or 0.0, sel.hitPosition.y or 0.0, sel.hitPosition.z or 0.0))
@@ -201,6 +387,7 @@ function M.render(state, dt, elapsed)
 end
 
 function M.onExit()
+    towerSlotTextures = {}
 end
 
 return M

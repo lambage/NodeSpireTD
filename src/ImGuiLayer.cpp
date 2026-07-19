@@ -1,6 +1,7 @@
 #include "ImGuiLayer.hpp"
 
 #include "VulkanContext.hpp"
+#include "imgui.h"
 
 #include <algorithm>
 #include <array>
@@ -104,6 +105,8 @@ ImGuiKey ImGuiLayer::translateSfmlKeyToImGui(sf::Keyboard::Key key) {
         return ImGuiKey_Backspace;
     case sf::Keyboard::Key::Tab:
         return ImGuiKey_Tab;
+    case sf::Keyboard::Key::Grave:
+        return ImGuiKey_GraveAccent;
     case sf::Keyboard::Key::Left:
         return ImGuiKey_LeftArrow;
     case sf::Keyboard::Key::Right:

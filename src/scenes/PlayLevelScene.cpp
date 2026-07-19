@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <glm/geometric.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 #include <spdlog/spdlog.h>
@@ -22,6 +23,28 @@ namespace {
 
 constexpr float kPreWaveCountdownSeconds = 5.0f;
 constexpr float kDefaultWaveRoundDurationSeconds = 30.0f;
+
+constexpr float kPickStaticRadiusScale = 1.0f;
+constexpr float kPickStaticRadiusPadding = 0.05f;
+constexpr float kPickStaticMinRadius = 0.10f;
+constexpr float kPickDynamicRadiusScale = 1.45f;
+constexpr float kPickDynamicRadiusPadding = 0.35f;
+constexpr float kPickDynamicMinRadius = 0.65f;
+constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
+constexpr int kTowerPoolPlacementsPerType = 32;
+constexpr float kTowerHiddenY = -10000.0f;
+
+enum class ProjectionRejectReason {
+    None = 0,
+    BehindCamera = 1,
+    ClipW = 2,
+    NdcZ = 3,
+};
+
+bool isProjectAssetPath(const std::filesystem::path& path) {
+    const std::string normalized = path.generic_string();
+    return normalized.rfind("assets/", 0) == 0;
+}
 
 PlayLevelScene* luaSceneSelf(lua_State* L) {
     return static_cast<PlayLevelScene*>(lua_touserdata(L, lua_upvalueindex(1)));
@@ -83,6 +106,89 @@ void publishLevelUiTextures(lua_State* L, const WorldAssetSpec& spec) {
         lua_seti(L, rootTable, static_cast<lua_Integer>(i + 1));
     }
     lua_setglobal(L, "LevelUiTextures");
+}
+
+bool projectWorldToScreen(const glm::vec3& worldPos,
+                          const glm::mat4& view,
+                          const glm::mat4& proj,
+                          const ImVec2& displaySize,
+                          const ImVec2& renderSize,
+                          ImVec2& outScreen,
+                          float& outDepthAbs,
+                          ProjectionRejectReason* outRejectReason = nullptr) {
+    if (outRejectReason) {
+        *outRejectReason = ProjectionRejectReason::None;
+    }
+
+    const glm::vec4 viewPos = view * glm::vec4(worldPos, 1.0f);
+    // Camera looks down -Z in view space; z >= 0 means behind camera.
+    if (viewPos.z >= -1e-4f) {
+        if (outRejectReason) {
+            *outRejectReason = ProjectionRejectReason::BehindCamera;
+        }
+        return false;
+    }
+    outDepthAbs = -viewPos.z;
+
+    const glm::vec4 clip = proj * viewPos;
+    if (clip.w <= 1e-6f) {
+        if (outRejectReason) {
+            *outRejectReason = ProjectionRejectReason::ClipW;
+        }
+        return false;
+    }
+
+    const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+    if (ndc.z < 0.0f || ndc.z > 1.0f) {
+        if (outRejectReason) {
+            *outRejectReason = ProjectionRejectReason::NdcZ;
+        }
+        return false;
+    }
+
+    const float renderX = (ndc.x * 0.5f + 0.5f) * renderSize.x;
+    const float renderY = (ndc.y * 0.5f + 0.5f) * renderSize.y;
+
+    const float sx = (renderSize.x > 1e-5f) ? (displaySize.x / renderSize.x) : 1.0f;
+    const float sy = (renderSize.y > 1e-5f) ? (displaySize.y / renderSize.y) : 1.0f;
+    outScreen.x = renderX * sx;
+    outScreen.y = renderY * sy;
+    return true;
+}
+
+bool parseTowerPoolGroup(const std::string& group, std::string& outTowerId, int& outPoolIndex) {
+    constexpr const char* kPrefix = "tower_pool:";
+    if (group.rfind(kPrefix, 0) != 0) {
+        return false;
+    }
+
+    const std::size_t idStart = std::char_traits<char>::length(kPrefix);
+    const std::size_t sep = group.find(':', idStart);
+    if (sep == std::string::npos || sep <= idStart) {
+        return false;
+    }
+
+    const std::string towerId = group.substr(idStart, sep - idStart);
+    const std::string indexPart = group.substr(sep + 1);
+    if (towerId.empty() || indexPart.empty()) {
+        return false;
+    }
+
+    int value = 0;
+    for (char c : indexPart) {
+        if (c < '0' || c > '9') {
+            return false;
+        }
+        value = value * 10 + (c - '0');
+    }
+
+    outTowerId = towerId;
+    outPoolIndex = value;
+    return true;
+}
+
+std::string makeTowerIconTextureId(const std::string& towerId) {
+    return "tower_icon:" + towerId;
 }
 
 } // namespace
@@ -149,6 +255,15 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     registerLuaGameplayApi();
 
     gameplayState_.resetForNewRun();
+    towerArchetypes_.clear();
+    towerLoadoutIds_.clear();
+    towerPoolGroupsById_.clear();
+    towerGhostGroupById_.clear();
+    selectedTowerLoadoutIndex_ = -1;
+    placedTowers_.clear();
+    towerPlacementHasHit_ = false;
+    towerPlacementCanPlace_ = false;
+    towerPlacementWorldPos_ = glm::vec3(0.0f);
     pendingCommands_.clear();
     activeEnemies_.clear();
     enemyArchetypes_.clear();
@@ -160,6 +275,11 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     activeWaveSpawnIndex_ = 0;
     activeWaveSpawnedFromCurrent_ = 0;
     debugSelection_ = {};
+    hoverSelection_ = {};
+    hoveredInstanceIndex_ = -1;
+    selectedInstanceIndex_ = -1;
+    debugDrawPickSpheres_ = false;
+    debugDrawHoverHighlight_ = true;
     debugPickEnabled_ = true;
     debugPickStatus_ = "click in world to inspect";
     selectedMapAssetPath_ = state.activeLevelAssetPath;
@@ -191,6 +311,51 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         fallback.spawns.push_back(WaveSpawnDefinition{});
         waveDefinitions_.push_back(std::move(fallback));
     }
+
+    discoverTowerArchetypes();
+
+    for (const auto& [towerId, tower] : towerArchetypes_) {
+        if (tower.modelPath.empty()) {
+            continue;
+        }
+
+        if (!tower.previewImagePath.empty()) {
+            WorldUiTextureSpec iconTex;
+            iconTex.id = makeTowerIconTextureId(towerId);
+            iconTex.texturePath = tower.previewImagePath;
+            worldAssetSpec_.uiTextures.push_back(std::move(iconTex));
+        }
+
+        const std::string ghostGroup = "tower_pool_ghost:" + towerId;
+        towerGhostGroupById_[towerId] = ghostGroup;
+
+        WorldModelPlacementSpec ghostPlacement;
+        ghostPlacement.modelPath = tower.modelPath;
+        ghostPlacement.debugGroup = ghostGroup;
+        ghostPlacement.debugLabel = tower.displayName + "_ghost";
+        ghostPlacement.positionOffset = glm::vec3(0.0f, kTowerHiddenY, 0.0f);
+        ghostPlacement.eulerDegrees = glm::vec3(0.0f, tower.facingYawOffsetDegrees, 0.0f);
+        ghostPlacement.scale = glm::vec3(std::max(0.01f, tower.renderScale));
+        worldAssetSpec_.extraWorldModels.push_back(std::move(ghostPlacement));
+
+        auto& poolGroups = towerPoolGroupsById_[towerId];
+        poolGroups.reserve(kTowerPoolPlacementsPerType);
+        for (int i = 0; i < kTowerPoolPlacementsPerType; ++i) {
+            const std::string poolGroup = "tower_pool:" + towerId + ":" + std::to_string(i);
+            poolGroups.push_back(poolGroup);
+
+            WorldModelPlacementSpec placedPlacement;
+            placedPlacement.modelPath = tower.modelPath;
+            placedPlacement.debugGroup = poolGroup;
+            placedPlacement.debugLabel = tower.displayName + "_placed_" + std::to_string(i + 1);
+            placedPlacement.positionOffset = glm::vec3(0.0f, kTowerHiddenY, 0.0f);
+            placedPlacement.eulerDegrees = glm::vec3(0.0f, tower.facingYawOffsetDegrees, 0.0f);
+            placedPlacement.scale = glm::vec3(std::max(0.01f, tower.renderScale));
+            worldAssetSpec_.extraWorldModels.push_back(std::move(placedPlacement));
+        }
+    }
+
+    publishLevelUiTextures(L_, worldAssetSpec_);
 
     {
         std::vector<std::filesystem::path> templateModels;
@@ -246,6 +411,7 @@ void PlayLevelScene::onExit(SceneSharedState& state) {
 }
 
 void PlayLevelScene::renderWorld(VkCommandBuffer cmd, VkExtent2D extent) {
+    lastRenderExtent_ = extent;
     if (worldRenderer_ && worldRenderer_->isLoaded()) {
         worldRenderer_->render(cmd, extent, buildViewMatrix());
     }
@@ -268,9 +434,20 @@ SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
 
     if (isLoaded) {
         updateRouteFromWorld();
-        syncEnemyInstanceTransforms();
+        syncTowerInstanceTransforms();
+        syncPlacedTowerModels();
         updateCamera(dt);
+        updateTowerPlacementFromInput();
+        syncTowerInstanceTransforms();
+        syncPlacedTowerModels();
+        const bool hoverChanged = updateDebugHoverFromMouse();
+        if (hoverChanged) {
+            // Re-apply instance transforms so hover visual feedback is in the same frame as hover detection.
+            syncTowerInstanceTransforms();
+            syncPlacedTowerModels();
+        }
         updateDebugPickFromMouse();
+        worldRenderer_->setHighlightedInstances(hoveredInstanceIndex_, selectedInstanceIndex_);
     }
 
     SceneFrameResult luaResult = luaOnRender(state, scriptRef_, dt);
@@ -291,6 +468,12 @@ SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
         result.transitionTarget = luaResult.transitionTarget;
         result.transitionMessage = luaResult.transitionMessage;
         result.transitionMinDurationSeconds = luaResult.transitionMinDurationSeconds;
+    }
+
+    if (isLoaded) {
+        drawTowerPlacementOverlay();
+        drawDebugPickSpheresOverlay();
+        drawHoverHighlightOverlay();
     }
 
     return result;
@@ -416,7 +599,7 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
     if (lua_isstring(L_, -1)) {
         std::filesystem::path rawPath = lua_tostring(L_, -1);
         if (!rawPath.empty()) {
-            if (rawPath.is_relative()) {
+            if (rawPath.is_relative() && !isProjectAssetPath(rawPath)) {
                 rawPath = scriptDir / rawPath;
             }
             selectedMapAssetPath_ = rawPath;
@@ -428,7 +611,7 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
     if (lua_isstring(L_, -1)) {
         std::filesystem::path rawPath = lua_tostring(L_, -1);
         if (!rawPath.empty()) {
-            if (rawPath.is_relative()) {
+            if (rawPath.is_relative() && !isProjectAssetPath(rawPath)) {
                 rawPath = scriptDir / rawPath;
             }
             selectedWavesScriptPath_ = rawPath.string();
@@ -888,6 +1071,433 @@ bool PlayLevelScene::loadEnemyArchetype(const std::string& scriptPath) {
     return true;
 }
 
+bool PlayLevelScene::parseTowerArchetypeScript(const std::string& scriptPath, TowerArchetype& outArchetype) {
+    if (!L_) {
+        return false;
+    }
+
+    if (luaL_loadfile(L_, scriptPath.c_str()) != LUA_OK) {
+        spdlog::error("PlayLevelScene: failed to load tower archetype {}: {}", scriptPath, lua_tostring(L_, -1));
+        lua_pop(L_, 1);
+        return false;
+    }
+
+    if (lua_pcall(L_, 0, 1, 0) != LUA_OK) {
+        spdlog::error("PlayLevelScene: tower archetype script error {}: {}", scriptPath, lua_tostring(L_, -1));
+        lua_pop(L_, 1);
+        return false;
+    }
+
+    if (!lua_istable(L_, -1)) {
+        spdlog::error("PlayLevelScene: tower archetype script must return a table: {}", scriptPath);
+        lua_pop(L_, 1);
+        return false;
+    }
+
+    auto readStringField = [&](const char* key, std::string& out) {
+        lua_getfield(L_, -1, key);
+        if (lua_isstring(L_, -1)) {
+            out = lua_tostring(L_, -1);
+        }
+        lua_pop(L_, 1);
+    };
+
+    readStringField("id", outArchetype.id);
+    readStringField("displayName", outArchetype.displayName);
+    readStringField("model", outArchetype.modelPath);
+    readStringField("previewImage", outArchetype.previewImagePath);
+
+    lua_getfield(L_, -1, "stats");
+    if (lua_istable(L_, -1)) {
+        lua_getfield(L_, -1, "cost");
+        if (lua_isinteger(L_, -1)) {
+            outArchetype.cost = static_cast<int>(lua_tointeger(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "attackRange");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.attackRange = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+    }
+    lua_pop(L_, 1);
+
+    lua_getfield(L_, -1, "render");
+    if (lua_istable(L_, -1)) {
+        lua_getfield(L_, -1, "renderScale");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.renderScale = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "facingYawOffsetDegrees");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.facingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+    }
+    lua_pop(L_, 1);
+
+    lua_pop(L_, 1);
+
+    if (outArchetype.id.empty()) {
+        outArchetype.id = std::filesystem::path(scriptPath).stem().string();
+    }
+    if (outArchetype.displayName.empty()) {
+        outArchetype.displayName = outArchetype.id;
+    }
+    if (outArchetype.cost <= 0) {
+        outArchetype.cost = 1;
+    }
+    if (outArchetype.attackRange <= 0.1f) {
+        outArchetype.attackRange = 1.0f;
+    }
+    if (outArchetype.renderScale <= 0.01f) {
+        outArchetype.renderScale = 1.0f;
+    }
+
+    return true;
+}
+
+bool PlayLevelScene::loadTowerArchetype(const std::string& scriptPath) {
+    TowerArchetype archetype;
+    if (!parseTowerArchetypeScript(scriptPath, archetype)) {
+        return false;
+    }
+
+    if (archetype.previewImagePath.empty() && !archetype.modelPath.empty()) {
+        std::filesystem::path candidate = std::filesystem::path(archetype.modelPath).replace_extension(".png");
+        if (std::filesystem::exists(candidate)) {
+            archetype.previewImagePath = candidate.string();
+        }
+    }
+
+    towerArchetypes_[archetype.id] = archetype;
+    if (towerLoadoutIds_.size() < 5) {
+        towerLoadoutIds_.push_back(archetype.id);
+    }
+    return true;
+}
+
+void PlayLevelScene::discoverTowerArchetypes() {
+    const std::filesystem::path towersDir = "assets/models/towers";
+    if (!std::filesystem::exists(towersDir)) {
+        return;
+    }
+
+    std::vector<std::filesystem::path> scripts;
+    for (const auto& entry : std::filesystem::directory_iterator(towersDir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const std::string name = entry.path().filename().string();
+        if (name.size() >= 10 && name.rfind(".tower.lua") == (name.size() - 10)) {
+            scripts.push_back(entry.path());
+        }
+    }
+    std::sort(scripts.begin(), scripts.end());
+
+    for (const auto& path : scripts) {
+        loadTowerArchetype(path.string());
+    }
+
+    if (!towerLoadoutIds_.empty()) {
+        selectedTowerLoadoutIndex_ = 0;
+    }
+}
+
+const PlayLevelScene::TowerArchetype* PlayLevelScene::findTowerArchetype(const std::string& towerId) const {
+    auto it = towerArchetypes_.find(towerId);
+    if (it == towerArchetypes_.end()) {
+        return nullptr;
+    }
+    return &it->second;
+}
+
+const PlayLevelScene::TowerArchetype* PlayLevelScene::selectedTowerArchetype() const {
+    if (selectedTowerLoadoutIndex_ < 0 || selectedTowerLoadoutIndex_ >= static_cast<int>(towerLoadoutIds_.size())) {
+        return nullptr;
+    }
+    return findTowerArchetype(towerLoadoutIds_[selectedTowerLoadoutIndex_]);
+}
+
+bool PlayLevelScene::raycastGroundAtCursor(glm::vec3& outHit) const {
+    const ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 displaySize = io.DisplaySize;
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
+        return false;
+    }
+
+    const ImVec2 mousePos = io.MousePos;
+    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
+        return false;
+    }
+
+    const float ndcX = (2.0f * mousePos.x) / displaySize.x - 1.0f;
+    const float ndcY = 1.0f - (2.0f * mousePos.y) / displaySize.y;
+    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+
+    const glm::vec3 fwd = cameraForward(camYaw_, camPitch_);
+    const glm::vec3 right = glm::normalize(glm::cross(fwd, glm::vec3(0.0f, 1.0f, 0.0f)));
+    const glm::vec3 up = glm::normalize(glm::cross(right, fwd));
+
+    constexpr float kFovYRadians = glm::radians(60.0f);
+    const float tanHalfFovY = std::tan(kFovYRadians * 0.5f);
+
+    glm::vec3 rayDir = fwd + right * (ndcX * aspect * tanHalfFovY) + up * (ndcY * tanHalfFovY);
+    const float dirLen2 = glm::dot(rayDir, rayDir);
+    if (dirLen2 <= 1e-8f) {
+        return false;
+    }
+    rayDir = glm::normalize(rayDir);
+
+    if (std::abs(rayDir.y) <= 1e-5f) {
+        return false;
+    }
+
+    const float t = -camPos_.y / rayDir.y;
+    if (t <= 0.0f) {
+        return false;
+    }
+
+    outHit = camPos_ + rayDir * t;
+    return std::isfinite(outHit.x) && std::isfinite(outHit.y) && std::isfinite(outHit.z);
+}
+
+std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const {
+    if (gameplayState_.matchStatus != MatchStatus::Running) {
+        return "match is not running";
+    }
+    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return "world is still loading";
+    }
+    if (gameplayState_.playerMoney < static_cast<float>(archetype.cost)) {
+        return "insufficient funds";
+    }
+
+    constexpr float kMinTowerSpacing = 1.7f;
+    for (const PlacedTower& tower : placedTowers_) {
+        const glm::vec3 delta = worldPos - tower.position;
+        const float dist2 = glm::dot(delta, delta);
+        if (dist2 < (kMinTowerSpacing * kMinTowerSpacing)) {
+            return "too close to another tower";
+        }
+    }
+
+    return {};
+}
+
+void PlayLevelScene::updateTowerPlacementFromInput() {
+    const ImGuiIO& io = ImGui::GetIO();
+
+    if (ImGui::IsKeyPressed(ImGuiKey_1, false)) {
+        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 1) ? 0 : -1;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_2, false)) {
+        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 2) ? 1 : -1;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_3, false)) {
+        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 3) ? 2 : -1;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_4, false)) {
+        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 4) ? 3 : -1;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_5, false)) {
+        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 5) ? 4 : -1;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        selectedTowerLoadoutIndex_ = -1;
+        towerPlacementHasHit_ = false;
+        towerPlacementCanPlace_ = false;
+        return;
+    }
+
+    const TowerArchetype* selected = selectedTowerArchetype();
+    if (!selected) {
+        towerPlacementHasHit_ = false;
+        towerPlacementCanPlace_ = false;
+        return;
+    }
+
+    glm::vec3 hitPos{0.0f};
+    towerPlacementHasHit_ = raycastGroundAtCursor(hitPos);
+    if (!towerPlacementHasHit_) {
+        towerPlacementCanPlace_ = false;
+        return;
+    }
+
+    towerPlacementWorldPos_ = hitPos;
+    towerPlacementWorldPos_.y = 0.0f;
+    towerPlacementCanPlace_ = validateTowerPlacement(*selected, towerPlacementWorldPos_).empty();
+
+    if (io.WantCaptureMouse) {
+        return;
+    }
+
+    if (towerPlacementCanPlace_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (requestSpendMoney(static_cast<float>(selected->cost))) {
+            placedTowers_.push_back(PlacedTower{selected->id, towerPlacementWorldPos_, selected->attackRange, selected->cost});
+        }
+    }
+}
+
+glm::mat4 PlayLevelScene::buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const {
+    return glm::translate(glm::mat4{1.0f}, worldPos) *
+           glm::rotate(glm::mat4{1.0f}, glm::radians(archetype.facingYawOffsetDegrees), glm::vec3(0.0f, 1.0f, 0.0f)) *
+           glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, archetype.renderScale)));
+}
+
+void PlayLevelScene::syncPlacedTowerModels() {
+    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return;
+    }
+
+    std::unordered_map<std::string, int> usedPerTower;
+    for (const PlacedTower& placed : placedTowers_) {
+        const TowerArchetype* tower = findTowerArchetype(placed.towerId);
+        if (!tower) {
+            continue;
+        }
+
+        const auto poolsIt = towerPoolGroupsById_.find(placed.towerId);
+        if (poolsIt == towerPoolGroupsById_.end()) {
+            continue;
+        }
+
+        const int poolIndex = usedPerTower[placed.towerId]++;
+        if (poolIndex < 0 || poolIndex >= static_cast<int>(poolsIt->second.size())) {
+            continue;
+        }
+
+        const glm::mat4 model = buildTowerModelTransform(*tower, placed.position);
+        worldRenderer_->setWorldModelTransformByDebugGroup(poolsIt->second[poolIndex], model);
+    }
+
+    for (const auto& [towerId, groups] : towerPoolGroupsById_) {
+        const int usedCount = usedPerTower[towerId];
+        for (int i = usedCount; i < static_cast<int>(groups.size()); ++i) {
+            const glm::mat4 hidden = glm::translate(glm::mat4{1.0f}, glm::vec3(0.0f, kTowerHiddenY, 0.0f));
+            worldRenderer_->setWorldModelTransformByDebugGroup(groups[i], hidden);
+        }
+    }
+
+    for (const auto& [towerId, ghostGroup] : towerGhostGroupById_) {
+        const TowerArchetype* tower = findTowerArchetype(towerId);
+        if (!tower) {
+            continue;
+        }
+
+        glm::mat4 ghost = glm::translate(glm::mat4{1.0f}, glm::vec3(0.0f, kTowerHiddenY, 0.0f));
+        const TowerArchetype* selected = selectedTowerArchetype();
+        if (selected && selected->id == towerId && towerPlacementHasHit_) {
+            ghost = buildTowerModelTransform(*tower, towerPlacementWorldPos_ + glm::vec3(0.0f, 0.02f, 0.0f));
+        }
+        worldRenderer_->setWorldModelTransformByDebugGroup(ghostGroup, ghost);
+    }
+}
+
+void PlayLevelScene::syncTowerInstanceTransforms() {
+    if (!worldRenderer_) {
+        return;
+    }
+
+    std::vector<glm::mat4> transforms;
+    transforms.reserve(activeEnemies_.size());
+
+    for (const ActiveEnemy& enemy : activeEnemies_) {
+        const glm::vec3 pos = sampleRoutePosition(enemy.distanceAlongPath);
+        const float yaw =
+            sampleRouteYaw(enemy.distanceAlongPath) + (enemy.facingYawOffsetDegrees * 0.01745329251994329577f);
+        const glm::mat4 model = glm::translate(glm::mat4{1.0f}, pos) *
+                                glm::rotate(glm::mat4{1.0f}, yaw, glm::vec3(0.0f, 1.0f, 0.0f)) *
+                                glm::scale(glm::mat4{1.0f}, glm::vec3(enemy.renderScale));
+        transforms.push_back(model);
+    }
+
+    worldRenderer_->setAnimatedEntityInstanceTransforms(transforms);
+}
+
+void PlayLevelScene::drawTowerPlacementOverlay() const {
+    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
+        return;
+    }
+
+    const ImVec2 renderSize(
+        (lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
+        (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height) : displaySize.y);
+
+    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+    glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
+    proj[1][1] *= -1.0f;
+    const glm::mat4 view = buildViewMatrix();
+
+    auto drawWorldRing = [&](const glm::vec3& center, float radius, ImU32 color, int segments, float thickness) {
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        ImVec2 prev{};
+        bool prevValid = false;
+        for (int i = 0; i <= segments; ++i) {
+            const float t = static_cast<float>(i) / static_cast<float>(segments);
+            const float a = t * 6.2831853071795864769f;
+            const glm::vec3 worldPoint = center + glm::vec3(std::cos(a) * radius, 0.02f, std::sin(a) * radius);
+
+            ImVec2 screenPoint{};
+            float depthAbs = 0.0f;
+            if (!projectWorldToScreen(worldPoint, view, proj, displaySize, renderSize, screenPoint, depthAbs, nullptr)) {
+                prevValid = false;
+                continue;
+            }
+            if (prevValid) {
+                drawList->AddLine(prev, screenPoint, color, thickness);
+            }
+            prev = screenPoint;
+            prevValid = true;
+        }
+    };
+
+    std::string selectedTowerId;
+    int selectedTowerPoolIndex = -1;
+    if (debugSelection_.valid) {
+        parseTowerPoolGroup(debugSelection_.group, selectedTowerId, selectedTowerPoolIndex);
+    }
+
+    if (!selectedTowerId.empty() && selectedTowerPoolIndex >= 0) {
+        int perTypeIndex = 0;
+        for (const PlacedTower& tower : placedTowers_) {
+            if (tower.towerId != selectedTowerId) {
+                continue;
+            }
+            if (perTypeIndex == selectedTowerPoolIndex) {
+                drawWorldRing(tower.position, std::max(0.5f, tower.attackRange), IM_COL32(75, 175, 255, 165), 64, 2.0f);
+                break;
+            }
+            ++perTypeIndex;
+        }
+    }
+
+    const TowerArchetype* selected = selectedTowerArchetype();
+    if (!selected || !towerPlacementHasHit_) {
+        return;
+    }
+
+    const ImU32 col = towerPlacementCanPlace_ ? IM_COL32(90, 255, 120, 210) : IM_COL32(255, 90, 90, 210);
+    drawWorldRing(towerPlacementWorldPos_, std::max(0.5f, selected->attackRange), col, 64, 2.0f);
+
+    ImVec2 centerScreen{};
+    float depthAbs = 0.0f;
+    if (projectWorldToScreen(towerPlacementWorldPos_ + glm::vec3(0.0f, 0.05f, 0.0f),
+                             view,
+                             proj,
+                             displaySize,
+                             renderSize,
+                             centerScreen,
+                             depthAbs,
+                             nullptr)) {
+        ImDrawList* drawList = ImGui::GetForegroundDrawList();
+        const ImU32 fill = towerPlacementCanPlace_ ? IM_COL32(90, 255, 120, 85) : IM_COL32(255, 90, 90, 85);
+        drawList->AddCircleFilled(centerScreen, 8.0f, fill, 24);
+        drawList->AddCircle(centerScreen, 8.0f, col, 24, 2.0f);
+    }
+}
+
 const PlayLevelScene::EnemyArchetype* PlayLevelScene::findEnemyArchetype(const std::string& enemyId) const {
     auto it = enemyArchetypes_.find(enemyId);
     if (it != enemyArchetypes_.end()) {
@@ -982,23 +1592,7 @@ float PlayLevelScene::sampleRouteYaw(float distanceAlongPath) const {
 }
 
 void PlayLevelScene::syncEnemyInstanceTransforms() {
-    if (!worldRenderer_) {
-        return;
-    }
-
-    std::vector<glm::mat4> transforms;
-    transforms.reserve(activeEnemies_.size());
-    for (const ActiveEnemy& enemy : activeEnemies_) {
-        const glm::vec3 pos = sampleRoutePosition(enemy.distanceAlongPath);
-        const float yaw =
-            sampleRouteYaw(enemy.distanceAlongPath) + (enemy.facingYawOffsetDegrees * 0.01745329251994329577f);
-        const glm::mat4 model = glm::translate(glm::mat4{1.0f}, pos) *
-                                glm::rotate(glm::mat4{1.0f}, yaw, glm::vec3(0.0f, 1.0f, 0.0f)) *
-                                glm::scale(glm::mat4{1.0f}, glm::vec3(enemy.renderScale));
-        transforms.push_back(model);
-    }
-
-    worldRenderer_->setAnimatedEntityInstanceTransforms(transforms);
+    syncTowerInstanceTransforms();
 }
 
 bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, DebugSelection& outSelection) const {
@@ -1012,7 +1606,7 @@ bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, DebugSelect
     }
 
     const float ndcX = (2.0f * screenX) / displaySize.x - 1.0f;
-    const float ndcY = 1.0f - (2.0f * screenY) / displaySize.y;
+    const float ndcY = (2.0f * screenY) / displaySize.y - 1.0f;
 
     const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
     glm::mat4 proj = glm::perspective(glm::radians(60.0f), aspect, 0.05f, 2000.0f);
@@ -1031,7 +1625,7 @@ bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, DebugSelect
     nearWorld /= nearWorld.w;
     farWorld /= farWorld.w;
 
-    const glm::vec3 rayOrigin = glm::vec3(nearWorld);
+    const glm::vec3 rayOrigin = camPos_;
     glm::vec3 rayDir = glm::vec3(farWorld - nearWorld);
     const float dirLen2 = glm::dot(rayDir, rayDir);
     if (dirLen2 <= 1e-8f) {
@@ -1039,8 +1633,16 @@ bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, DebugSelect
     }
     rayDir = glm::normalize(rayDir);
 
+    WorldPickOptions pickOptions{};
+    pickOptions.staticRadiusScale = kPickStaticRadiusScale;
+    pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
+    pickOptions.staticMinRadius = kPickStaticMinRadius;
+    pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
+    pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
+    pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
+
     WorldPickHit hit{};
-    if (!worldRenderer_->pickModel(rayOrigin, rayDir, hit)) {
+    if (!worldRenderer_->pickModel(rayOrigin, rayDir, hit, pickOptions)) {
         return false;
     }
 
@@ -1050,7 +1652,7 @@ bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, DebugSelect
     outSelection.meshIndex = hit.meshIndex;
     outSelection.nodeIndex = hit.nodeIndex;
     outSelection.skinIndex = hit.skinIndex;
-    outSelection.enemyInstanceIndex = hit.enemyInstanceIndex;
+    outSelection.instanceIndex = hit.instanceIndex;
     outSelection.distance = hit.distance;
     outSelection.hitPosition = hit.worldPosition;
     outSelection.hitNormal = hit.worldNormal;
@@ -1066,6 +1668,10 @@ bool PlayLevelScene::pickModelAtCursor(DebugSelection& outSelection) const {
 }
 
 void PlayLevelScene::updateDebugPickFromMouse() {
+    if (selectedTowerLoadoutIndex_ >= 0) {
+        return;
+    }
+
     if (!debugPickEnabled_) {
         return;
     }
@@ -1079,12 +1685,274 @@ void PlayLevelScene::updateDebugPickFromMouse() {
     }
 
     DebugSelection selection{};
-    if (pickModelAtCursor(selection)) {
+    const auto isSelectableSelection = [](const DebugSelection& s) {
+        if (s.instanceIndex >= 0) {
+            return true;
+        }
+        return s.group.rfind("tower", 0) == 0;
+    };
+
+    // Hover path already applies dynamic proxy fallback; prefer it for click selection.
+    if (hoverSelection_.valid && isSelectableSelection(hoverSelection_)) {
+        debugSelection_ = hoverSelection_;
+        selectedInstanceIndex_ = hoverSelection_.instanceIndex;
+        debugPickStatus_ = "picked " + hoverSelection_.group + " / " + hoverSelection_.label;
+        return;
+    }
+
+    if (pickModelAtCursor(selection) && isSelectableSelection(selection)) {
         debugSelection_ = selection;
+        selectedInstanceIndex_ = selection.instanceIndex;
         debugPickStatus_ = "picked " + selection.group + " / " + selection.label;
+    } else if (selection.valid) {
+        debugSelection_ = {};
+        selectedInstanceIndex_ = -1;
+        debugPickStatus_ = "hit non-selectable model";
     } else {
+        selectedInstanceIndex_ = -1;
         debugPickStatus_ = "no model hit at cursor";
     }
+}
+
+bool PlayLevelScene::updateDebugHoverFromMouse() {
+    const int previousHoveredInstanceIndex = hoveredInstanceIndex_;
+    const bool previousHoverValid = hoverSelection_.valid;
+
+    hoveredInstanceIndex_ = -1;
+    hoverSelection_ = {};
+
+    if (!debugPickEnabled_) {
+        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) {
+        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
+    }
+
+    const ImVec2 mousePos = io.MousePos;
+    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
+        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
+    }
+
+    DebugSelection hover{};
+    if (pickModelAtCursor(hover) && hover.instanceIndex >= 0) {
+        hoverSelection_ = hover;
+        hoveredInstanceIndex_ = hover.instanceIndex;
+        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
+    }
+
+    if (worldRenderer_ && worldRenderer_->isLoaded()) {
+        const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+        const ImVec2 renderSize(
+            (lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
+            (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height) : displaySize.y);
+        const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+        glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
+        proj[1][1] *= -1.0f;
+        const glm::mat4 view = buildViewMatrix();
+
+        WorldPickOptions pickOptions{};
+        pickOptions.staticRadiusScale = kPickStaticRadiusScale;
+        pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
+        pickOptions.staticMinRadius = kPickStaticMinRadius;
+        pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
+        pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
+        pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
+
+        const std::vector<WorldPickDebugSphere> spheres = worldRenderer_->buildDynamicPickDebugSpheres(pickOptions);
+        const float focalPixels = displaySize.y / (2.0f * std::tan(kDebugOverlayFovRadians * 0.5f));
+
+        int bestInstance = -1;
+        float bestNormalizedDist2 = std::numeric_limits<float>::max();
+        glm::vec3 bestCenter{0.0f};
+        std::string bestGroup;
+        std::string bestLabel;
+
+        for (const WorldPickDebugSphere& sphere : spheres) {
+            ImVec2 screenPos{};
+            float depthAbs = 0.0f;
+            if (!projectWorldToScreen(sphere.center, view, proj, displaySize, renderSize, screenPos, depthAbs, nullptr)) {
+                continue;
+            }
+
+            const float radiusPixels = sphere.radius * focalPixels / std::max(0.1f, depthAbs);
+            if (!std::isfinite(radiusPixels) || radiusPixels < 1.0f) {
+                continue;
+            }
+
+            const float dx = mousePos.x - screenPos.x;
+            const float dy = mousePos.y - screenPos.y;
+            const float dist2 = dx * dx + dy * dy;
+            if (dist2 > radiusPixels * radiusPixels) {
+                continue;
+            }
+
+            const float normalizedDist2 = dist2 / std::max(1.0f, radiusPixels * radiusPixels);
+            if (normalizedDist2 < bestNormalizedDist2) {
+                bestNormalizedDist2 = normalizedDist2;
+                bestInstance = sphere.instanceIndex;
+                bestCenter = sphere.center;
+                bestGroup = sphere.group;
+                bestLabel = sphere.label;
+            }
+        }
+
+        if (bestInstance >= 0) {
+            hoverSelection_.valid = true;
+            hoverSelection_.instanceIndex = bestInstance;
+            hoverSelection_.group = bestGroup;
+            hoverSelection_.label = bestLabel;
+            hoverSelection_.hitPosition = bestCenter;
+            hoveredInstanceIndex_ = bestInstance;
+        }
+    }
+
+    return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
+}
+
+void PlayLevelScene::drawDebugPickSpheresOverlay() const {
+    debugOverlayStats_ = {};
+
+    if (!debugDrawPickSpheres_ || !worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return;
+    }
+
+    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
+        return;
+    }
+    const ImVec2 renderSize(
+        (lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
+        (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height) : displaySize.y);
+    debugOverlayStats_.displayWidth = displaySize.x;
+    debugOverlayStats_.displayHeight = displaySize.y;
+    debugOverlayStats_.renderWidth = renderSize.x;
+    debugOverlayStats_.renderHeight = renderSize.y;
+
+    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+    glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
+    proj[1][1] *= -1.0f;
+    const glm::mat4 view = buildViewMatrix();
+
+    WorldPickOptions pickOptions{};
+    pickOptions.staticRadiusScale = kPickStaticRadiusScale;
+    pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
+    pickOptions.staticMinRadius = kPickStaticMinRadius;
+    pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
+    pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
+    pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
+
+    const std::vector<WorldPickDebugSphere> spheres = worldRenderer_->buildDynamicPickDebugSpheres(pickOptions);
+    debugOverlayStats_.sphereTotal = static_cast<int>(spheres.size());
+    if (spheres.empty()) {
+        return;
+    }
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    const float focalPixels = displaySize.y / (2.0f * std::tan(kDebugOverlayFovRadians * 0.5f));
+
+    for (const WorldPickDebugSphere& sphere : spheres) {
+        const glm::vec3 center = sphere.center;
+        const float sphereRadius = sphere.radius;
+
+        ImVec2 screenPos{};
+        float depthAbs = 0.0f;
+        ProjectionRejectReason rejectReason = ProjectionRejectReason::None;
+        if (!projectWorldToScreen(center, view, proj, displaySize, renderSize, screenPos, depthAbs, &rejectReason)) {
+            if (rejectReason == ProjectionRejectReason::BehindCamera) {
+                ++debugOverlayStats_.rejectBehindCamera;
+            } else if (rejectReason == ProjectionRejectReason::ClipW) {
+                ++debugOverlayStats_.rejectClipW;
+            } else if (rejectReason == ProjectionRejectReason::NdcZ) {
+                ++debugOverlayStats_.rejectNdcZ;
+            }
+            continue;
+        }
+
+        const float radiusPixels = sphereRadius * focalPixels / std::max(0.1f, depthAbs);
+        if (!std::isfinite(radiusPixels) || radiusPixels < 1.0f) {
+            ++debugOverlayStats_.rejectRadius;
+            continue;
+        }
+
+        const bool hovered = (sphere.instanceIndex == hoveredInstanceIndex_);
+        const ImU32 col = hovered ? IM_COL32(255, 220, 64, 235) : IM_COL32(64, 200, 255, 180);
+        drawList->AddCircle(screenPos, radiusPixels, col, 42, hovered ? 2.5f : 1.5f);
+        ++debugOverlayStats_.sphereDrawn;
+    }
+}
+
+void PlayLevelScene::drawHoverHighlightOverlay() const {
+    if (!debugDrawHoverHighlight_) {
+        return;
+    }
+    if (hoveredInstanceIndex_ < 0 || !worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return;
+    }
+
+    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
+        return;
+    }
+
+    const ImVec2 renderSize(
+        (lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
+        (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height) : displaySize.y);
+
+    WorldPickOptions pickOptions{};
+    pickOptions.staticRadiusScale = kPickStaticRadiusScale;
+    pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
+    pickOptions.staticMinRadius = kPickStaticMinRadius;
+    pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
+    pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
+    pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
+
+    const std::vector<WorldPickDebugSphere> spheres = worldRenderer_->buildDynamicPickDebugSpheres(pickOptions);
+    const WorldPickDebugSphere* hoveredSphere = nullptr;
+    for (const WorldPickDebugSphere& sphere : spheres) {
+        if (sphere.instanceIndex == hoveredInstanceIndex_) {
+            hoveredSphere = &sphere;
+            break;
+        }
+    }
+    if (!hoveredSphere) {
+        debugOverlayStats_.hoveredSphereFound = 0;
+        return;
+    }
+    debugOverlayStats_.hoveredSphereFound = 1;
+
+    const glm::vec3 center = hoveredSphere->center;
+    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+    glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
+    proj[1][1] *= -1.0f;
+    const glm::mat4 view = buildViewMatrix();
+
+    ImVec2 screenPos{};
+    float depthAbs = 0.0f;
+    ProjectionRejectReason rejectReason = ProjectionRejectReason::None;
+    if (!projectWorldToScreen(center, view, proj, displaySize, renderSize, screenPos, depthAbs, &rejectReason)) {
+        debugOverlayStats_.hoveredRejectReason = static_cast<int>(rejectReason);
+        return;
+    }
+    debugOverlayStats_.hoveredRejectReason = static_cast<int>(ProjectionRejectReason::None);
+    debugOverlayStats_.hoveredDepth = depthAbs;
+
+    const float focalPixels = displaySize.y / (2.0f * std::tan(kDebugOverlayFovRadians * 0.5f));
+    const float baseRadius = hoveredSphere->radius;
+    float radiusPixels = baseRadius * focalPixels / std::max(0.1f, depthAbs);
+    if (!std::isfinite(radiusPixels) || radiusPixels < 4.0f) {
+        debugOverlayStats_.hoveredRadiusPixels = radiusPixels;
+        return;
+    }
+    radiusPixels = std::max(6.0f, radiusPixels);
+    debugOverlayStats_.hoveredRadiusPixels = radiusPixels;
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    const ImU32 outerColor = IM_COL32(255, 228, 96, 230);
+    const ImU32 innerColor = IM_COL32(255, 244, 170, 180);
+    drawList->AddCircle(screenPos, radiusPixels * 1.08f, outerColor, 48, 3.0f);
+    drawList->AddCircle(screenPos, radiusPixels * 0.92f, innerColor, 40, 1.6f);
 }
 
 std::string PlayLevelScene::validateStartWaveRequest() const {
@@ -1478,10 +2346,150 @@ void PlayLevelScene::registerLuaGameplayApi() {
             }
             lua_pushstring(L, status);
             lua_setfield(L, -2, "matchStatus");
+            lua_pushinteger(L, self->selectedTowerLoadoutIndex_ + 1);
+            lua_setfield(L, -2, "selectedTowerSlot");
+            lua_pushinteger(L, static_cast<lua_Integer>(self->placedTowers_.size()));
+            lua_setfield(L, -2, "placedTowerCount");
             return 1;
         },
         1);
     lua_setfield(L_, gameplayTable, "getState");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_newtable(L);
+            for (std::size_t i = 0; i < 5; ++i) {
+                lua_newtable(L);
+                const int slotIdx = static_cast<int>(i);
+                const bool hasTower = slotIdx < static_cast<int>(self->towerLoadoutIds_.size());
+                const PlayLevelScene::TowerArchetype* archetype =
+                    hasTower ? self->findTowerArchetype(self->towerLoadoutIds_[slotIdx]) : nullptr;
+
+                lua_pushinteger(L, static_cast<lua_Integer>(slotIdx + 1));
+                lua_setfield(L, -2, "slot");
+                lua_pushboolean(L, archetype != nullptr);
+                lua_setfield(L, -2, "available");
+                lua_pushboolean(L, self->selectedTowerLoadoutIndex_ == slotIdx);
+                lua_setfield(L, -2, "selected");
+
+                if (archetype) {
+                    lua_pushstring(L, archetype->id.c_str());
+                    lua_setfield(L, -2, "id");
+                    lua_pushstring(L, archetype->displayName.c_str());
+                    lua_setfield(L, -2, "displayName");
+                    lua_pushinteger(L, archetype->cost);
+                    lua_setfield(L, -2, "cost");
+                    lua_pushnumber(L, archetype->attackRange);
+                    lua_setfield(L, -2, "attackRange");
+                    lua_pushstring(L, archetype->modelPath.c_str());
+                    lua_setfield(L, -2, "modelPath");
+                    lua_pushstring(L, archetype->previewImagePath.c_str());
+                    lua_setfield(L, -2, "previewImagePath");
+                    const std::string textureId = makeTowerIconTextureId(archetype->id);
+                    lua_pushstring(L, textureId.c_str());
+                    lua_setfield(L, -2, "previewTextureId");
+                }
+
+                lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+            }
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getTowerLoadout");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int requestedSlot = static_cast<int>(luaL_checkinteger(L, 1));
+            if (requestedSlot < 1 || requestedSlot > 5) {
+                return pushCommandResult(L, false, "slot must be in range 1..5");
+            }
+
+            const int slotIdx = requestedSlot - 1;
+            if (slotIdx >= static_cast<int>(self->towerLoadoutIds_.size())) {
+                return pushCommandResult(L, false, "loadout slot is empty");
+            }
+
+            const PlayLevelScene::TowerArchetype* tower = self->findTowerArchetype(self->towerLoadoutIds_[slotIdx]);
+            if (!tower) {
+                return pushCommandResult(L, false, "tower definition not found");
+            }
+
+            self->selectedTowerLoadoutIndex_ = slotIdx;
+            return pushCommandResult(L, true, "selected");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "selectTowerSlot");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            self->selectedTowerLoadoutIndex_ = -1;
+            self->towerPlacementHasHit_ = false;
+            self->towerPlacementCanPlace_ = false;
+            return pushCommandResult(L, true, "cancelled");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "cancelTowerPlacement");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_newtable(L);
+
+            const PlayLevelScene::TowerArchetype* tower = self->selectedTowerArchetype();
+            const bool active = tower != nullptr;
+            lua_pushboolean(L, active);
+            lua_setfield(L, -2, "active");
+            lua_pushinteger(L, self->selectedTowerLoadoutIndex_ + 1);
+            lua_setfield(L, -2, "selectedSlot");
+            lua_pushboolean(L, self->towerPlacementHasHit_);
+            lua_setfield(L, -2, "hasHit");
+            lua_pushboolean(L, self->towerPlacementCanPlace_);
+            lua_setfield(L, -2, "canPlace");
+
+            lua_newtable(L);
+            lua_pushnumber(L, self->towerPlacementWorldPos_.x);
+            lua_setfield(L, -2, "x");
+            lua_pushnumber(L, self->towerPlacementWorldPos_.y);
+            lua_setfield(L, -2, "y");
+            lua_pushnumber(L, self->towerPlacementWorldPos_.z);
+            lua_setfield(L, -2, "z");
+            lua_setfield(L, -2, "worldPos");
+
+            if (tower) {
+                lua_pushstring(L, tower->id.c_str());
+                lua_setfield(L, -2, "towerId");
+                lua_pushstring(L, tower->displayName.c_str());
+                lua_setfield(L, -2, "displayName");
+                lua_pushinteger(L, tower->cost);
+                lua_setfield(L, -2, "cost");
+                lua_pushnumber(L, tower->attackRange);
+                lua_setfield(L, -2, "attackRange");
+
+                std::string reason;
+                if (!self->towerPlacementHasHit_) {
+                    reason = "cursor is not over ground";
+                } else {
+                    reason = self->validateTowerPlacement(*tower, self->towerPlacementWorldPos_);
+                }
+                lua_pushstring(L, reason.c_str());
+                lua_setfield(L, -2, "reason");
+            }
+
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getTowerPlacementState");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(
@@ -1568,13 +2576,61 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
+            self->debugDrawPickSpheres_ = lua_toboolean(L, 1) != 0;
+            lua_pushboolean(L, self->debugDrawPickSpheres_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "setDebugPickSpheresVisible");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_pushboolean(L, self->debugDrawPickSpheres_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getDebugPickSpheresVisible");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            self->debugDrawHoverHighlight_ = lua_toboolean(L, 1) != 0;
+            lua_pushboolean(L, self->debugDrawHoverHighlight_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "setDebugHoverHighlightVisible");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_pushboolean(L, self->debugDrawHoverHighlight_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getDebugHoverHighlightVisible");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
             PlayLevelScene::DebugSelection selection{};
             const bool hit = self->pickModelAtCursor(selection);
+            const bool selectableHit = hit && (selection.instanceIndex >= 0 || selection.group.rfind("tower", 0) == 0);
             lua_newtable(L);
-            lua_pushboolean(L, hit);
+            lua_pushboolean(L, selectableHit);
             lua_setfield(L, -2, "hit");
-            if (hit) {
+            if (selectableHit) {
                 self->debugSelection_ = selection;
+                self->selectedInstanceIndex_ = selection.instanceIndex;
                 self->debugPickStatus_ = "picked " + selection.group + " / " + selection.label;
 
                 lua_pushstring(L, selection.group.c_str());
@@ -1587,8 +2643,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 lua_setfield(L, -2, "nodeIndex");
                 lua_pushinteger(L, selection.skinIndex);
                 lua_setfield(L, -2, "skinIndex");
-                lua_pushinteger(L, selection.enemyInstanceIndex);
-                lua_setfield(L, -2, "enemyInstanceIndex");
+                lua_pushinteger(L, selection.instanceIndex);
+                lua_setfield(L, -2, "instanceIndex");
                 lua_pushnumber(L, selection.distance);
                 lua_setfield(L, -2, "distance");
 
@@ -1609,7 +2665,12 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 lua_pushnumber(L, selection.hitNormal.z);
                 lua_setfield(L, -2, "z");
                 lua_setfield(L, -2, "hitNormal");
+            } else if (hit) {
+                self->debugSelection_ = {};
+                self->selectedInstanceIndex_ = -1;
+                self->debugPickStatus_ = "hit non-selectable model";
             } else {
+                self->selectedInstanceIndex_ = -1;
                 self->debugPickStatus_ = "no model hit at cursor";
             }
             return 1;
@@ -1627,6 +2688,58 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "valid");
             lua_pushstring(L, self->debugPickStatus_.c_str());
             lua_setfield(L, -2, "status");
+            lua_pushboolean(L, self->debugDrawPickSpheres_);
+            lua_setfield(L, -2, "debugPickSpheresVisible");
+            lua_pushboolean(L, self->debugDrawHoverHighlight_);
+            lua_setfield(L, -2, "debugHoverHighlightVisible");
+
+            lua_newtable(L);
+            lua_pushinteger(L, self->debugOverlayStats_.sphereTotal);
+            lua_setfield(L, -2, "sphereTotal");
+            lua_pushinteger(L, self->debugOverlayStats_.sphereDrawn);
+            lua_setfield(L, -2, "sphereDrawn");
+            lua_pushinteger(L, self->debugOverlayStats_.rejectBehindCamera);
+            lua_setfield(L, -2, "rejectBehindCamera");
+            lua_pushinteger(L, self->debugOverlayStats_.rejectClipW);
+            lua_setfield(L, -2, "rejectClipW");
+            lua_pushinteger(L, self->debugOverlayStats_.rejectNdcZ);
+            lua_setfield(L, -2, "rejectNdcZ");
+            lua_pushinteger(L, self->debugOverlayStats_.rejectRadius);
+            lua_setfield(L, -2, "rejectRadius");
+            lua_pushinteger(L, self->debugOverlayStats_.hoveredSphereFound);
+            lua_setfield(L, -2, "hoveredSphereFound");
+            lua_pushinteger(L, self->debugOverlayStats_.hoveredRejectReason);
+            lua_setfield(L, -2, "hoveredRejectReason");
+            lua_pushnumber(L, self->debugOverlayStats_.hoveredDepth);
+            lua_setfield(L, -2, "hoveredDepth");
+            lua_pushnumber(L, self->debugOverlayStats_.hoveredRadiusPixels);
+            lua_setfield(L, -2, "hoveredRadiusPixels");
+            lua_pushnumber(L, self->debugOverlayStats_.displayWidth);
+            lua_setfield(L, -2, "displayWidth");
+            lua_pushnumber(L, self->debugOverlayStats_.displayHeight);
+            lua_setfield(L, -2, "displayHeight");
+            lua_pushnumber(L, self->debugOverlayStats_.renderWidth);
+            lua_setfield(L, -2, "renderWidth");
+            lua_pushnumber(L, self->debugOverlayStats_.renderHeight);
+            lua_setfield(L, -2, "renderHeight");
+            lua_pushnumber(L, self->camYaw_);
+            lua_setfield(L, -2, "cameraYaw");
+            lua_pushnumber(L, self->camPitch_);
+            lua_setfield(L, -2, "cameraPitch");
+            lua_setfield(L, -2, "overlayDebug");
+
+            lua_newtable(L);
+            lua_pushboolean(L, self->hoverSelection_.valid);
+            lua_setfield(L, -2, "valid");
+            lua_pushinteger(L, self->hoveredInstanceIndex_);
+            lua_setfield(L, -2, "instanceIndex");
+            if (self->hoverSelection_.valid) {
+                lua_pushstring(L, self->hoverSelection_.group.c_str());
+                lua_setfield(L, -2, "group");
+                lua_pushstring(L, self->hoverSelection_.label.c_str());
+                lua_setfield(L, -2, "label");
+            }
+            lua_setfield(L, -2, "hover");
 
             if (self->debugSelection_.valid) {
                 const auto& s = self->debugSelection_;
@@ -1640,8 +2753,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 lua_setfield(L, -2, "nodeIndex");
                 lua_pushinteger(L, s.skinIndex);
                 lua_setfield(L, -2, "skinIndex");
-                lua_pushinteger(L, s.enemyInstanceIndex);
-                lua_setfield(L, -2, "enemyInstanceIndex");
+                lua_pushinteger(L, s.instanceIndex);
+                lua_setfield(L, -2, "instanceIndex");
                 lua_pushnumber(L, s.distance);
                 lua_setfield(L, -2, "distance");
 
@@ -1717,6 +2830,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
             self->debugSelection_ = {};
+            self->selectedInstanceIndex_ = -1;
             self->debugPickStatus_ = "selection cleared";
             return 0;
         },

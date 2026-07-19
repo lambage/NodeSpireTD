@@ -266,8 +266,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                                 int sourceSkinIndex,
                                 std::string_view debugGroup,
                                 std::string_view debugLabel) {
-        if (meshCount >= kMaxMeshes || primitive.type != fastgltf::PrimitiveType::Triangles ||
-            !primitive.indicesAccessor.has_value()) {
+        if (meshCount >= kMaxMeshes || primitive.type != fastgltf::PrimitiveType::Triangles) {
             return;
         }
 
@@ -332,28 +331,37 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
             maxPos = glm::max(maxPos, positions[i]);
         }
 
-        auto& idxAccessor = srcAsset.accessors[*primitive.indicesAccessor];
-        std::vector<uint32_t> indices(idxAccessor.count);
-        switch (idxAccessor.componentType) {
-            case fastgltf::ComponentType::UnsignedByte: {
-                std::vector<uint8_t> tmp(idxAccessor.count);
-                fastgltf::copyFromAccessor<uint8_t>(srcAsset, idxAccessor, tmp.data());
-                for (size_t i = 0; i < tmp.size(); ++i) {
-                    indices[i] = tmp[i];
+        std::vector<uint32_t> indices;
+        if (primitive.indicesAccessor.has_value()) {
+            auto& idxAccessor = srcAsset.accessors[*primitive.indicesAccessor];
+            indices.resize(idxAccessor.count);
+            switch (idxAccessor.componentType) {
+                case fastgltf::ComponentType::UnsignedByte: {
+                    std::vector<uint8_t> tmp(idxAccessor.count);
+                    fastgltf::copyFromAccessor<uint8_t>(srcAsset, idxAccessor, tmp.data());
+                    for (size_t i = 0; i < tmp.size(); ++i) {
+                        indices[i] = tmp[i];
+                    }
+                    break;
                 }
-                break;
-            }
-            case fastgltf::ComponentType::UnsignedShort: {
-                std::vector<uint16_t> tmp(idxAccessor.count);
-                fastgltf::copyFromAccessor<uint16_t>(srcAsset, idxAccessor, tmp.data());
-                for (size_t i = 0; i < tmp.size(); ++i) {
-                    indices[i] = tmp[i];
+                case fastgltf::ComponentType::UnsignedShort: {
+                    std::vector<uint16_t> tmp(idxAccessor.count);
+                    fastgltf::copyFromAccessor<uint16_t>(srcAsset, idxAccessor, tmp.data());
+                    for (size_t i = 0; i < tmp.size(); ++i) {
+                        indices[i] = tmp[i];
+                    }
+                    break;
                 }
-                break;
+                default:
+                    fastgltf::copyFromAccessor<uint32_t>(srcAsset, idxAccessor, indices.data());
+                    break;
             }
-            default:
-                fastgltf::copyFromAccessor<uint32_t>(srcAsset, idxAccessor, indices.data());
-                break;
+        } else {
+            // GLTF triangles may be non-indexed (drawArrays-style); synthesize a linear index buffer.
+            indices.resize(vertCount);
+            for (size_t i = 0; i < vertCount; ++i) {
+                indices[i] = static_cast<uint32_t>(i);
+            }
         }
 
         std::size_t imgKey = SIZE_MAX;

@@ -1,7 +1,8 @@
 local M = {
     displayName = "Grassy",
-    mapAssetPath = "grassy_map.glb",
+    mapAssetPath = "assets/levels/grassy/grassy_map.glb",
     wavesScriptPath = "assets/scenes/PlayLevelWaves.lua",
+    thumbnailImagePath = "assets/levels/grassy/grassy.png",
     inheritActiveSelection = false,
     worldAssets = {
         startModelPath = "assets/models/base/portal.glb",

@@ -31,6 +31,9 @@ class TemplateAnimator {
 
     void setCompositeMode(bool enabled) { playAllAnimationClips_ = enabled; }
     bool compositeMode() const { return playAllAnimationClips_; }
+    float currentTimeSeconds() const { return animationTimeSeconds_; }
+    float timelineDurationSeconds() const;
+    void setPlaybackTimeSeconds(float timeSeconds);
 
     const TemplateAnimationDebugInfo& debugInfo() const { return debugInfo_; }
 

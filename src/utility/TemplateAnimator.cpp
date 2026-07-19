@@ -114,6 +114,34 @@ bool TemplateAnimator::setActiveAnimationClipByName(const std::string& clipName)
     return false;
 }
 
+float TemplateAnimator::timelineDurationSeconds() const {
+    if (animationClips_.empty()) {
+        return 0.0f;
+    }
+
+    float timelineDuration = 0.0f;
+    if (playAllAnimationClips_) {
+        for (const AnimationClip& clip : animationClips_) {
+            timelineDuration = std::max(timelineDuration, clip.durationSeconds);
+        }
+    } else if (activeAnimationClipIndex_ >= 0 &&
+               static_cast<std::size_t>(activeAnimationClipIndex_) < animationClips_.size()) {
+        timelineDuration = animationClips_[activeAnimationClipIndex_].durationSeconds;
+    }
+    return timelineDuration;
+}
+
+void TemplateAnimator::setPlaybackTimeSeconds(float timeSeconds) {
+    const float duration = timelineDurationSeconds();
+    if (duration <= 1e-5f) {
+        animationTimeSeconds_ = 0.0f;
+        return;
+    }
+
+    const float wrapped = std::fmod(timeSeconds, duration);
+    animationTimeSeconds_ = (wrapped < 0.0f) ? (wrapped + duration) : wrapped;
+}
+
 void TemplateAnimator::initializeFromAsset(const fastgltf::Asset& modelAsset) {
     reset();
 
@@ -370,15 +398,7 @@ void TemplateAnimator::update(float dtSeconds) {
     std::vector<glm::vec3> localS = baseScales_;
 
     if (animationEnabled_ && !animationClips_.empty()) {
-        float timelineDuration = 0.0f;
-        if (playAllAnimationClips_) {
-            for (const AnimationClip& clip : animationClips_) {
-                timelineDuration = std::max(timelineDuration, clip.durationSeconds);
-            }
-        } else if (activeAnimationClipIndex_ >= 0 &&
-                   static_cast<std::size_t>(activeAnimationClipIndex_) < animationClips_.size()) {
-            timelineDuration = animationClips_[activeAnimationClipIndex_].durationSeconds;
-        }
+        const float timelineDuration = timelineDurationSeconds();
 
         if (timelineDuration > 1e-5f) {
             animationTimeSeconds_ = std::fmod(animationTimeSeconds_ + std::max(0.0f, dtSeconds), timelineDuration);
