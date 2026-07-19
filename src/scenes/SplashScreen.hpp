@@ -11,5 +11,5 @@ class SplashScene final : public GameScene {
 
     void onExit(SceneSharedState&) override;
 
-    SceneFrameResult render(SceneSharedState& state, float dt) override;
+    void render(SceneSharedState& state, float dt) override;
 };

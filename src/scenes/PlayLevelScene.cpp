@@ -421,8 +421,7 @@ void PlayLevelScene::renderWorld(VkCommandBuffer cmd, VkExtent2D extent) {
 
 // ─── per-frame ────────────────────────────────────────────────────────────────
 
-SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
-    SceneFrameResult result;
+void PlayLevelScene::render(SceneSharedState& state, float dt) {
 
     applyPendingGameplayCommands();
     updateWaveSimulation(dt);
@@ -452,33 +451,13 @@ SceneFrameResult PlayLevelScene::render(SceneSharedState& state, float dt) {
         worldRenderer_->setHighlightedInstances(hoveredInstanceIndex_, selectedInstanceIndex_);
     }
 
-    SceneFrameResult luaResult = luaOnRender(state, scriptRef_, dt);
-    if (luaResult.requestQuit) {
-        result.requestQuit = true;
-    }
-    if (luaResult.requestApplySettings) {
-        result.requestApplySettings = true;
-    }
-    if (luaResult.requestAcceptDisplayChanges) {
-        result.requestAcceptDisplayChanges = true;
-    }
-    if (luaResult.requestRevertDisplayChanges) {
-        result.requestRevertDisplayChanges = true;
-    }
-    if (luaResult.requestTransition) {
-        result.requestTransition = true;
-        result.transitionTarget = luaResult.transitionTarget;
-        result.transitionMessage = luaResult.transitionMessage;
-        result.transitionMinDurationSeconds = luaResult.transitionMinDurationSeconds;
-    }
+    luaOnRender(state, scriptRef_, dt);
 
     if (isLoaded) {
         drawTowerPlacementOverlay();
         drawDebugPickSpheresOverlay();
         drawHoverHighlightOverlay();
     }
-
-    return result;
 }
 
 bool PlayLevelScene::requestSpendMoney(float amount) {

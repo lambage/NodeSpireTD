@@ -1,5 +1,3 @@
----@diagnostic disable: undefined-global
-
 local M = {}
 
 function M.onLoad()
@@ -27,15 +25,5 @@ function M.onLoad()
         -- { entity = goblin2, count = 10, spawnIntervalSeconds = 1.0 },
     }, 40)
 end
-
--- Backward-compatible fallback shape if a scene still reads returned waves.
-M.waves = {
-    {
-        enemyId = "goblin1",
-        count = 6,
-        spawnIntervalSeconds = 0.9,
-        roundDurationSeconds = 30,
-    },
-}
 
 return M

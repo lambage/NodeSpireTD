@@ -1,11 +1,9 @@
-#include "scenes/LevelSelectionScene.hpp"
+#include "scenes/LobbyScene.hpp"
 
-#include "scenes/IScene.hpp"
 #include "scenes/SceneSharedState.hpp"
 
 #include <algorithm>
 #include <cctype>
-#include <imgui.h>
 #include <lua.hpp>
 
 namespace {
@@ -82,11 +80,24 @@ bool loadLevelEntryFromScript(const std::filesystem::path& levelDir,
     return true;
 }
 
+LobbyScene* luaSceneSelf(lua_State* L) {
+    return static_cast<LobbyScene*>(lua_touserdata(L, lua_upvalueindex(1)));
+}
+
+int pushCommandResult(lua_State* L, bool ok, const char* reason) {
+    lua_newtable(L);
+    lua_pushboolean(L, ok);
+    lua_setfield(L, -2, "ok");
+    lua_pushstring(L, reason);
+    lua_setfield(L, -2, "reason");
+    return 1;
+}
+
 } // namespace
 
-LevelSelectionScene::~LevelSelectionScene() = default;
+LobbyScene::~LobbyScene() = default;
 
-void LevelSelectionScene::onEnter(SceneSharedState&) {
+void LobbyScene::onEnter(SceneSharedState& state) {
     availableLevels_.clear();
     const std::filesystem::path levelsDir = "assets/levels";
     if (std::filesystem::is_directory(levelsDir)) {
@@ -115,83 +126,94 @@ void LevelSelectionScene::onEnter(SceneSharedState&) {
     } else {
         selectedLevelIndex_ = 0;
     }
+
+    scriptRef_ = loadLuaScript(state, "assets/scenes/Lobby.lua");
+    registerLuaGameplayApi();
+    luaOnEnter(scriptRef_);
 }
 
-SceneFrameResult LevelSelectionScene::render(SceneSharedState& state, float /*dt*/) {
-    SceneFrameResult result;
+void LobbyScene::onExit(SceneSharedState& state) {
+    luaOnExit(state, scriptRef_);
+}
 
-    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    const ImVec2 windowSize{820.0f, 480.0f};
-    ImGui::SetNextWindowPos(ImVec2((displaySize.x - windowSize.x) * 0.5f, (displaySize.y - windowSize.y) * 0.5f),
-                            ImGuiCond_Always);
-    ImGui::SetNextWindowSize(windowSize, ImGuiCond_Always);
-
-    constexpr ImGuiWindowFlags levelSelectFlags =
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar;
-    ImGui::Begin("LevelSelection", nullptr, levelSelectFlags);
-
-    if (state.headingFont != nullptr) {
-        ImGui::PushFont(state.headingFont);
-    }
-    ImGui::TextUnformatted("Mission Control");
-    if (state.headingFont != nullptr) {
-        ImGui::PopFont();
-    }
-
-    ImGui::TextUnformatted("Select a mission profile");
-    ImGui::Separator();
-
-    constexpr float missionListWidth = 260.0f;
-    ImGui::BeginChild("MissionList", ImVec2(missionListWidth, -56.0f), true, ImGuiWindowFlags_NoScrollbar);
-    for (int i = 0; i < static_cast<int>(availableLevels_.size()); ++i) {
-        const bool selected = (selectedLevelIndex_ == i);
-        if (ImGui::Selectable(availableLevels_[i].name.c_str(), selected)) {
-            selectedLevelIndex_ = i;
-        }
-    }
-    ImGui::EndChild();
-
-    ImGui::SameLine();
-    ImGui::BeginChild("MissionDetails", ImVec2(0.0f, -56.0f), true, ImGuiWindowFlags_NoScrollbar);
-    const bool hasLevels = !availableLevels_.empty();
-    if (hasLevels) {
+void LobbyScene::render(SceneSharedState& state, float dt) {
+    if (!availableLevels_.empty()) {
+        selectedLevelIndex_ = std::clamp(selectedLevelIndex_, 0, static_cast<int>(availableLevels_.size() - 1));
         state.activeLevelName = availableLevels_[selectedLevelIndex_].name;
         state.activeLevelAssetPath = availableLevels_[selectedLevelIndex_].assetPath.string();
         state.activeLevelScriptPath = availableLevels_[selectedLevelIndex_].scriptPath.string();
-        ImGui::Text("Selected mission: %s", state.activeLevelName.c_str());
-        ImGui::Spacing();
-        ImGui::TextWrapped("Scan complete. Terrain analytics, choke points, and enemy wave "
-                           "patterns are ready for deployment simulation.");
-        ImGui::Spacing();
-        ImGui::TextWrapped("Asset source: %s", state.activeLevelAssetPath.c_str());
-    } else {
-        ImGui::TextUnformatted("No valid levels found.");
-        ImGui::Spacing();
-        ImGui::TextWrapped("Each folder in assets/levels must provide a valid level.lua with mapAssetPath.");
-    }
-    ImGui::EndChild();
-
-    if (!hasLevels) {
-        ImGui::BeginDisabled();
-    }
-    if (ImGui::Button("Load Level", ImVec2(170.0f, 40.0f))) {
-        result.requestTransition = true;
-        result.transitionTarget = SceneId::PlayLevel;
-        result.transitionMessage = "Loading level: " + state.activeLevelName + "...";
-        result.transitionMinDurationSeconds = 0.0f;
-    }
-    if (!hasLevels) {
-        ImGui::EndDisabled();
     }
 
-    ImGui::SameLine();
-    if (ImGui::Button("Back", ImVec2(140.0f, 40.0f))) {
-        result.requestTransition = true;
-        result.transitionTarget = SceneId::MainMenu;
-        result.transitionMessage = "Returning to main menu...";
-        result.transitionMinDurationSeconds = 0.0f;
+    luaOnRender(state, scriptRef_, dt);
+}
+
+void LobbyScene::registerLuaGameplayApi() {
+    if (!L_) {
+        return;
     }
 
-    ImGui::End();
-    return result;
+    lua_getglobal(L_, "Gameplay");
+    if (!lua_istable(L_, -1)) {
+        lua_pop(L_, 1);
+        lua_newtable(L_);
+    }
+    const int gameplayTable = lua_gettop(L_);
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_newtable(L);
+
+            for (std::size_t i = 0; i < self->availableLevels_.size(); ++i) {
+                const auto& level = self->availableLevels_[i];
+                lua_newtable(L);
+
+                lua_pushstring(L, level.name.c_str());
+                lua_setfield(L, -2, "name");
+                lua_pushstring(L, level.assetPath.string().c_str());
+                lua_setfield(L, -2, "assetPath");
+                lua_pushstring(L, level.scriptPath.string().c_str());
+                lua_setfield(L, -2, "scriptPath");
+                lua_pushboolean(L, static_cast<int>(i) == self->selectedLevelIndex_);
+                lua_setfield(L, -2, "selected");
+
+                lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+            }
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getLobbyLevels");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int requested = static_cast<int>(luaL_checkinteger(L, 1));
+            const int zeroBased = requested - 1;
+
+            if (zeroBased < 0 || zeroBased >= static_cast<int>(self->availableLevels_.size())) {
+                return pushCommandResult(L, false, "index out of range");
+            }
+
+            self->selectedLevelIndex_ = zeroBased;
+            return pushCommandResult(L, true, "selected");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "selectLobbyLevel");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_pushinteger(L, self->selectedLevelIndex_ + 1);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getSelectedLobbyLevel");
+
+    lua_setglobal(L_, "Gameplay");
 }

@@ -23,7 +23,8 @@ class GameScene : public IScene {
 
     void luaOnEnter(int scriptRef);
     void luaOnExit(SceneSharedState& state, int scriptRef);
-    SceneFrameResult luaOnRender(SceneSharedState& state, int scriptRef, float dt);
+    void luaOnRender(SceneSharedState& state, int scriptRef, float dt);
+    void registerCoreGameplayApi();
 };
 
 SceneId SceneIdFromString(const std::string& name);

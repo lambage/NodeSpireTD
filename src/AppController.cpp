@@ -329,7 +329,7 @@ int AppController::run() {
 
             imguiLayer->beginFrame();
 
-            SceneFrameResult frameResult;
+            SceneRequestState sceneRequests;
             if (pendingSceneTransition.active) {
                 pendingSceneTransition.elapsedSeconds += dt;
 
@@ -347,19 +347,20 @@ int AppController::run() {
                 SceneSharedState sceneState = makeSceneState();
                 auto sceneIt = sceneGraph.find(currentSceneId);
                 if (sceneIt != sceneGraph.end()) {
-                    frameResult = sceneIt->second->render(sceneState, dt);
+                    sceneIt->second->render(sceneState, dt);
+                    sceneRequests = sceneIt->second->consumeSceneRequests();
                 }
 
-                if (frameResult.requestTransition) {
+                if (sceneRequests.sceneTransitionRequested) {
                     // Defer scene teardown/enter to a later frame so any textures used by
                     // this frame's ImGui draw data remain valid through submission.
                     pendingSceneTransition.active = true;
-                    pendingSceneTransition.targetSceneId = frameResult.transitionTarget;
+                    pendingSceneTransition.targetSceneId = sceneRequests.sceneTransition.target;
                     pendingSceneTransition.loadingMessage =
-                        frameResult.transitionMessage.empty() ? "Loading..." : frameResult.transitionMessage;
+                        sceneRequests.sceneTransition.message.empty() ? "Loading..." : sceneRequests.sceneTransition.message;
                     pendingSceneTransition.elapsedSeconds = 0.0f;
                     pendingSceneTransition.minDurationSeconds =
-                        std::max(0.0f, frameResult.transitionMinDurationSeconds);
+                        std::max(0.0f, sceneRequests.sceneTransition.minDurationSeconds);
 
                     if (pendingSceneTransition.minDurationSeconds > 0.0f) {
                         renderSceneLoadingOverlay(pendingSceneTransition.loadingMessage, 0.0f);
@@ -388,7 +389,7 @@ int AppController::run() {
                 windowResized = true;
             }
 
-            if (frameResult.requestQuit) {
+            if (sceneRequests.quitRequested) {
                 auto sceneIt = sceneGraph.find(currentSceneId);
                 if (sceneIt != sceneGraph.end()) {
                     SceneSharedState state = makeSceneState();
@@ -399,7 +400,7 @@ int AppController::run() {
 
             currentFrame = (currentFrame + 1) % VulkanContext::kMaxFramesInFlight;
 
-            if (frameResult.requestRevertDisplayChanges ||
+            if (sceneRequests.revertDisplayChangesRequested ||
                 (pendingDisplayConfirmation.active && pendingDisplayConfirmation.secondsRemaining <= 0.0f)) {
                 activeSettings = pendingDisplayConfirmation.previousSettings;
                 workingSettings = activeSettings;
@@ -415,7 +416,7 @@ int AppController::run() {
                 continue;
             }
 
-            if (frameResult.requestAcceptDisplayChanges && pendingDisplayConfirmation.active) {
+            if (sceneRequests.acceptDisplayChangesRequested && pendingDisplayConfirmation.active) {
                 activeSettings = pendingDisplayConfirmation.candidateSettings;
                 workingSettings = activeSettings;
                 selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
@@ -423,7 +424,7 @@ int AppController::run() {
                 pendingDisplayConfirmation = {};
             }
 
-            if (frameResult.requestApplySettings) {
+            if (sceneRequests.applySettingsRequested) {
                 const bool displayChanges = hasDisplayChanges(activeSettings, requestedSettings);
                 if (displayChanges) {
                     PendingDisplayConfirmation nextConfirmation;

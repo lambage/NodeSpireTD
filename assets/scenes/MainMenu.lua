@@ -65,19 +65,11 @@ function M.render(state, dt, elapsedSeconds)
     ImGui.End()
 
     if playClicked then
-        return {
-            requestTransition = true,
-            target            = "LevelSelection",
-            message           = "Loading level selection...",
-        }
+        Gameplay.requestScene(Gameplay.Scene.Lobby, "Loading level selection...")
     elseif optionsClicked then
-        return {
-            requestTransition = true,
-            target            = "Options",
-            message           = "Loading options...",
-        }
+        Gameplay.requestScene(Gameplay.Scene.Options, "Loading options...")
     elseif quitClicked then
-        return { requestQuit = true }
+        Gameplay.requestQuit()
     end
 end
 

@@ -13,11 +13,5 @@ return {
     render = {
         renderScale = 1.0,
         facingYawOffsetDegrees = 180.0,
-    },
-
-    behavior = {
-        -- Placeholder behavior fields so we can expand to script-driven logic later.
-        lanePreference = "default",
-        targetPriority = "base"
     }
 }

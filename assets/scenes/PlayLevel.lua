@@ -58,7 +58,6 @@ end
 
 function M.render(state, dt, elapsed)
     local gs = Gameplay.getState()
-    local frameResult = {}
 
     if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.GraveAccent then
         if ImGui.IsKeyPressed(ImGuiKey.GraveAccent, false) then
@@ -92,7 +91,7 @@ function M.render(state, dt, elapsed)
         ImGui.ProgressBar(gs.loadProgress or 0.0, -1.0, 18.0, "")
         ImGui.Text(string.format("  %.0f%%", (gs.loadProgress or 0.0) * 100.0))
         ImGui.End()
-        return frameResult
+        return
     end
     
     local loadout = nil
@@ -192,7 +191,7 @@ function M.render(state, dt, elapsed)
     ImGui.End()    
     
     if not debugUiVisible then
-        return frameResult
+        return
     end
 
     ImGui.SetNextWindowPos(16, displayH - hudH - 16, ImGuiCond.Once)
@@ -219,10 +218,7 @@ function M.render(state, dt, elapsed)
 
     ImGui.Spacing()
     if ImGui.Button("Exit to Mission Select", -1.0, 30.0) then
-        frameResult.requestTransition = true
-        frameResult.target = "LevelSelection"
-        frameResult.message = "Returning to mission select..."
-        frameResult.duration = 0.0
+        Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
     end
     ImGui.End()
 
@@ -382,8 +378,6 @@ function M.render(state, dt, elapsed)
     end
 
     ImGui.End()
-
-    return frameResult
 end
 
 function M.onExit()

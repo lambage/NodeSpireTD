@@ -6,16 +6,16 @@
 #include <string>
 #include <vector>
 
-class LevelSelectionScene final : public GameScene {
+class LobbyScene final : public GameScene {
   public:
-    LevelSelectionScene() = default;
-    ~LevelSelectionScene();
+    LobbyScene() = default;
+    ~LobbyScene();
 
     void onEnter(SceneSharedState&) override;
 
-    void onExit(SceneSharedState&) override {}
+    void onExit(SceneSharedState&) override;
 
-    SceneFrameResult render(SceneSharedState& state, float dt) override;
+    void render(SceneSharedState& state, float dt) override;
 
   private:
     struct LevelEntry {
@@ -26,4 +26,6 @@ class LevelSelectionScene final : public GameScene {
 
     std::vector<LevelEntry> availableLevels_;
     int selectedLevelIndex_ = 0;
+
+  void registerLuaGameplayApi();
 };

@@ -17,7 +17,7 @@ add_executable(NodeSpireTD
     ImGuiLayer.cpp
 
     scenes/GameScene.cpp
-    scenes/LevelSelectionScene.cpp
+    scenes/LobbyScene.cpp
     scenes/MainMenuScene.cpp
     scenes/OptionsScene.cpp
     scenes/PlayLevelScene.cpp

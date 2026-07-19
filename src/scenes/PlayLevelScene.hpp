@@ -22,7 +22,7 @@ class PlayLevelScene final : public GameScene {
     void onEnter(SceneSharedState&) override;
     void onExit(SceneSharedState&) override;
 
-    SceneFrameResult render(SceneSharedState& state, float dt) override;
+    void render(SceneSharedState& state, float dt) override;
     void renderWorld(VkCommandBuffer cmd, VkExtent2D extent) override;
 
   private:

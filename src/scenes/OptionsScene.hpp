@@ -10,5 +10,5 @@ class OptionsScene final : public GameScene {
     void onEnter(SceneSharedState&) override {}
     void onExit(SceneSharedState&) override {}
 
-    SceneFrameResult render(SceneSharedState& state, float dt) override;
+    void render(SceneSharedState& state, float dt) override;
 };

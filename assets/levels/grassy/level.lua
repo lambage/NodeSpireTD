@@ -7,21 +7,8 @@ local M = {
     worldAssets = {
         startModelPath = "assets/models/base/portal.glb",
         endModelPath = "assets/models/base/base.glb",
-        extraWorldModels = {
-            {
-                modelPath = "assets/models/base/base.glb",
-                debugGroup = "prop",
-                debugLabel = "home_base_preview",
-                anchor = "End",
-                facePath = true,
-                positionOffset = { x = 0.0, y = 0.0, z = -6.0 },
-                eulerDegrees = { x = 0.0, y = 0.0, z = 0.0 },
-                scale = { x = 0.4, y = 0.4, z = 0.4 },
-            },
-        },
-        uiTextures = {
-            { id = "goldIcon", path = "assets/images/gold.png" },
-        },
+        extraWorldModels = {},
+        uiTextures = {},
     },
 }
 

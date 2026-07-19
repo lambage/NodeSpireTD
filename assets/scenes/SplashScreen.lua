@@ -61,12 +61,7 @@ function M.render(state, dt, elapsedSeconds)
 
     -- Signal transition once loading is done and minimum time has elapsed
     if state.loadingComplete and elapsedSeconds >= kMinimumSplashSeconds then
-        return {
-            requestTransition = true,
-            target            = "MainMenu",
-            message           = "Loading main menu...",
-            duration          = 0.5,
-        }
+        Gameplay.requestScene(Gameplay.Scene.MainMenu, "Loading main menu...", 0.5)
     end
 end
 

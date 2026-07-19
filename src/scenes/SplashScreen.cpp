@@ -23,6 +23,6 @@ void SplashScene::onExit(SceneSharedState& state) {
     luaOnExit(state, scriptRef_);
 }
 
-SceneFrameResult SplashScene::render(SceneSharedState& state, float dt) {
-    return luaOnRender(state, scriptRef_, dt);
+void SplashScene::render(SceneSharedState& state, float dt) {
+    luaOnRender(state, scriptRef_, dt);
 }

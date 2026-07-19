@@ -13,6 +13,6 @@ void MainMenuScene::onExit(SceneSharedState& state) {
     luaOnExit(state, scriptRef_);
 }
 
-SceneFrameResult MainMenuScene::render(SceneSharedState& state, float dt) {
-    return luaOnRender(state, scriptRef_, dt);
+void MainMenuScene::render(SceneSharedState& state, float dt) {
+    luaOnRender(state, scriptRef_, dt);
 }

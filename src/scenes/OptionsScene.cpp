@@ -8,8 +8,8 @@
 
 OptionsScene::~OptionsScene() = default;
 
-SceneFrameResult OptionsScene::render(SceneSharedState& state, float dt) {
-    SceneFrameResult result;
+void OptionsScene::render(SceneSharedState& state, float dt) {
+    (void)dt;
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
     const ImVec2 optionsSize{760.0f, 460.0f};
@@ -83,12 +83,12 @@ SceneFrameResult OptionsScene::render(SceneSharedState& state, float dt) {
         ImGui::Separator();
 
         if (ImGui::Button("Accept Changes", ImVec2(170.0f, 0.0f))) {
-            result.requestAcceptDisplayChanges = true;
+            requestAcceptDisplayChanges();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
         if (ImGui::Button("Revert", ImVec2(120.0f, 0.0f))) {
-            result.requestRevertDisplayChanges = true;
+            requestRevertDisplayChanges();
             ImGui::CloseCurrentPopup();
         }
 
@@ -96,17 +96,13 @@ SceneFrameResult OptionsScene::render(SceneSharedState& state, float dt) {
     }
 
     if (ImGui::Button("Apply", ImVec2(140.0f, 40.0f))) {
-        result.requestApplySettings = true;
+        requestApplySettings();
     }
 
     ImGui::SameLine();
     if (ImGui::Button("Back", ImVec2(140.0f, 40.0f))) {
-        result.requestTransition = true;
-        result.transitionTarget = SceneId::MainMenu;
-        result.transitionMessage = "Returning to main menu...";
-        result.transitionMinDurationSeconds = 0.0f;
+        requestScene(SceneId::MainMenu, "Returning to main menu...", 0.0f);
     }
 
     ImGui::End();
-    return result;
 }

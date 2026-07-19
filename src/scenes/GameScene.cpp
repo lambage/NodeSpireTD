@@ -5,7 +5,49 @@
 #include "VulkanContext.hpp"
 
 #include <SFML/Window/Event.hpp>
+#include <algorithm>
 #include <spdlog/spdlog.h>
+
+namespace {
+
+GameScene* luaSceneSelf(lua_State* L) {
+    return static_cast<GameScene*>(lua_touserdata(L, lua_upvalueindex(1)));
+}
+
+int pushCommandResult(lua_State* L, bool ok, const char* reason) {
+    lua_newtable(L);
+    lua_pushboolean(L, ok);
+    lua_setfield(L, -2, "ok");
+    lua_pushstring(L, reason);
+    lua_setfield(L, -2, "reason");
+    return 1;
+}
+
+bool tryParseSceneId(const std::string& name, SceneId& outSceneId) {
+    if (name == "Splash") {
+        outSceneId = SceneId::Splash;
+        return true;
+    }
+    if (name == "MainMenu") {
+        outSceneId = SceneId::MainMenu;
+        return true;
+    }
+    if (name == "Options") {
+        outSceneId = SceneId::Options;
+        return true;
+    }
+    if (name == "Lobby") {
+        outSceneId = SceneId::Lobby;
+        return true;
+    }
+    if (name == "PlayLevel") {
+        outSceneId = SceneId::PlayLevel;
+        return true;
+    }
+    return false;
+}
+
+} // namespace
 
 GameScene::~GameScene() = default;
 
@@ -70,6 +112,7 @@ static void pushSceneState(lua_State* L, const SceneSharedState& state) {
 
 int GameScene::loadLuaScript(SceneSharedState& state, const std::string& scriptPath) {
     LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext);
+    registerCoreGameplayApi();
 
     if (state.titleFont) {
         lua_pushlightuserdata(L_, state.titleFont);
@@ -147,13 +190,11 @@ void GameScene::luaOnExit(SceneSharedState& state, int scriptRef) {
     luaL_unref(L_, LUA_REGISTRYINDEX, scriptRef);
 }
 
-SceneFrameResult GameScene::luaOnRender(SceneSharedState& state, int scriptRef, float dt) {
-    SceneFrameResult result;
-
+void GameScene::luaOnRender(SceneSharedState& state, int scriptRef, float dt) {
     elapsedSeconds_ += dt;
 
     if (scriptRef == LUA_NOREF) {
-        return result;
+        return;
     }
 
     lua_rawgeti(L_, LUA_REGISTRYINDEX, scriptRef);
@@ -162,80 +203,123 @@ SceneFrameResult GameScene::luaOnRender(SceneSharedState& state, int scriptRef, 
 
     if (!lua_isfunction(L_, -1)) {
         lua_pop(L_, 1);
-        return result;
+        return;
     }
 
     pushSceneState(L_, state); // push state table as first argument
     lua_pushnumber(L_, dt);
     lua_pushnumber(L_, elapsedSeconds_);
 
-    if (lua_pcall(L_, 3, 1, 0) != LUA_OK) {
+    if (lua_pcall(L_, 3, 0, 0) != LUA_OK) {
         spdlog::error("GameScene render error: {}", lua_tostring(L_, -1));
         lua_pop(L_, 1);
-        return result;
+        return;
+    }
+}
+
+void GameScene::registerCoreGameplayApi() {
+    if (!L_) {
+        return;
     }
 
-    // Parse optional result table returned by Lua
-    if (lua_istable(L_, -1)) {
-        lua_getfield(L_, -1, "requestQuit");
-        if (lua_toboolean(L_, -1)) { result.requestQuit = true; }
+    lua_getglobal(L_, "Gameplay");
+    if (!lua_istable(L_, -1)) {
         lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "requestApplySettings");
-        if (lua_toboolean(L_, -1)) { result.requestApplySettings = true; }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "requestAcceptDisplayChanges");
-        if (lua_toboolean(L_, -1)) { result.requestAcceptDisplayChanges = true; }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "requestRevertDisplayChanges");
-        if (lua_toboolean(L_, -1)) { result.requestRevertDisplayChanges = true; }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "requestTransition");
-        if (lua_toboolean(L_, -1)) {
-            result.requestTransition = true;
-
-            lua_pop(L_, 1);
-            lua_getfield(L_, -1, "target");
-            if (lua_isstring(L_, -1)) {
-                result.transitionTarget = SceneIdFromString(lua_tostring(L_, -1));
-            }
-
-            lua_pop(L_, 1);
-            lua_getfield(L_, -1, "message");
-            if (lua_isstring(L_, -1)) {
-                result.transitionMessage = lua_tostring(L_, -1);
-            }
-
-            lua_pop(L_, 1);
-            lua_getfield(L_, -1, "duration");
-            if (lua_isnumber(L_, -1)) {
-                result.transitionMinDurationSeconds = static_cast<float>(lua_tonumber(L_, -1));
-            }
-            lua_pop(L_, 1);
-        } else {
-            lua_pop(L_, 1);
-        }
+        lua_newtable(L_);
     }
-    lua_pop(L_, 1); // pop result table or nil
-    return result;
+    const int gameplayTable = lua_gettop(L_);
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            luaSceneSelf(L)->requestQuit();
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestQuit");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            luaSceneSelf(L)->requestApplySettings();
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestApplySettings");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            luaSceneSelf(L)->requestAcceptDisplayChanges();
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestAcceptDisplayChanges");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            luaSceneSelf(L)->requestRevertDisplayChanges();
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestRevertDisplayChanges");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+
+            SceneId sceneId = SceneId::MainMenu;
+            if (lua_isinteger(L, 1)) {
+                const int sceneValue = static_cast<int>(lua_tointeger(L, 1));
+                const int maxSceneValue = static_cast<int>(SceneId::PlayLevel);
+                if (sceneValue < 0 || sceneValue > maxSceneValue) {
+                    return pushCommandResult(L, false, "invalid scene enum value");
+                }
+                sceneId = static_cast<SceneId>(sceneValue);
+            } else if (lua_isstring(L, 1)) {
+                const std::string sceneName = lua_tostring(L, 1);
+                if (!tryParseSceneId(sceneName, sceneId)) {
+                    return pushCommandResult(L, false, "invalid scene name");
+                }
+            } else {
+                return pushCommandResult(L, false, "expected scene enum or scene name");
+            }
+
+            const char* message = luaL_optstring(L, 2, "");
+            const float duration = std::max(0.0f, static_cast<float>(luaL_optnumber(L, 3, 0.0)));
+            self->requestScene(sceneId, message != nullptr ? message : "", duration);
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestScene");
+
+    lua_newtable(L_);
+    lua_pushinteger(L_, static_cast<lua_Integer>(SceneId::Splash));
+    lua_setfield(L_, -2, "Splash");
+    lua_pushinteger(L_, static_cast<lua_Integer>(SceneId::MainMenu));
+    lua_setfield(L_, -2, "MainMenu");
+    lua_pushinteger(L_, static_cast<lua_Integer>(SceneId::Options));
+    lua_setfield(L_, -2, "Options");
+    lua_pushinteger(L_, static_cast<lua_Integer>(SceneId::Lobby));
+    lua_setfield(L_, -2, "Lobby");
+    lua_pushinteger(L_, static_cast<lua_Integer>(SceneId::PlayLevel));
+    lua_setfield(L_, -2, "PlayLevel");
+    lua_setfield(L_, gameplayTable, "Scene");
+
+    lua_setglobal(L_, "Gameplay");
 }
 
 SceneId SceneIdFromString(const std::string& name) {
-    const std::string n(name);
-    if (n == "MainMenu") {
-        return SceneId::MainMenu;
-    }
-    if (n == "Options") {
-        return SceneId::Options;
-    }
-    if (n == "LevelSelection") {
-        return SceneId::LevelSelection;
-    }
-    if (n == "PlayLevel") {
-        return SceneId::PlayLevel;
+    SceneId parsed = SceneId::Splash;
+    if (tryParseSceneId(name, parsed)) {
+        return parsed;
     }
     return SceneId::Splash;
 }
