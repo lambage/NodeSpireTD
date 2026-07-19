@@ -163,20 +163,33 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     debugPickEnabled_ = true;
     debugPickStatus_ = "click in world to inspect";
     selectedMapAssetPath_ = state.activeLevelAssetPath;
+    selectedLevelScriptPath_ = state.activeLevelScriptPath;
     selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
     worldAssetSpec_ = {};
 
-    loadLevelDefinition(state);
+    if (selectedLevelScriptPath_.empty()) {
+        selectedLevelScriptPath_ = "assets/scenes/PlayLevel.level.lua";
+    }
 
-    if (!loadEnemyArchetype("assets/models/enemy/goblin1.enemy.lua")) {
-        spdlog::warn("PlayLevelScene: using built-in enemy defaults because goblin archetype failed to load.");
+    if (!loadLevelDefinition(state)) {
+        spdlog::warn("PlayLevelScene: failed to load level definition {}.", selectedLevelScriptPath_.string());
+    }
+
+    if (enemyArchetypes_.empty() && !loadEnemyArchetype("assets/models/enemy/goblin1.enemy.lua")) {
+        spdlog::warn("PlayLevelScene: using built-in enemy defaults because no archetype could be loaded.");
         EnemyArchetype fallback{};
         enemyArchetypes_[fallback.id] = fallback;
         defaultEnemyId_ = fallback.id;
     }
-    if (!loadWaveDefinitions(selectedWavesScriptPath_)) {
-        spdlog::warn("PlayLevelScene: using fallback wave definition because {} failed to load.",
-                     selectedWavesScriptPath_);
+
+    if (waveDefinitions_.empty() && !selectedWavesScriptPath_.empty() && !loadWaveDefinitions(selectedWavesScriptPath_)) {
+        spdlog::warn("PlayLevelScene: using fallback wave definition because {} failed to load.", selectedWavesScriptPath_);
+    }
+
+    if (waveDefinitions_.empty()) {
+        WaveDefinition fallback;
+        fallback.spawns.push_back(WaveSpawnDefinition{});
+        waveDefinitions_.push_back(std::move(fallback));
     }
 
     {
@@ -372,7 +385,7 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
         return false;
     }
 
-    const std::filesystem::path scriptPath = "assets/scenes/PlayLevel.level.lua";
+    const std::filesystem::path scriptPath = selectedLevelScriptPath_;
     if (!std::filesystem::exists(scriptPath)) {
         return false;
     }
@@ -397,10 +410,15 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
         return false;
     }
 
+    const std::filesystem::path scriptDir = scriptPath.parent_path();
+
     lua_getfield(L_, -1, "mapAssetPath");
     if (lua_isstring(L_, -1)) {
-        const std::string rawPath = lua_tostring(L_, -1);
+        std::filesystem::path rawPath = lua_tostring(L_, -1);
         if (!rawPath.empty()) {
+            if (rawPath.is_relative()) {
+                rawPath = scriptDir / rawPath;
+            }
             selectedMapAssetPath_ = rawPath;
         }
     }
@@ -408,12 +426,28 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
 
     lua_getfield(L_, -1, "wavesScriptPath");
     if (lua_isstring(L_, -1)) {
-        const std::string rawPath = lua_tostring(L_, -1);
+        std::filesystem::path rawPath = lua_tostring(L_, -1);
         if (!rawPath.empty()) {
-            selectedWavesScriptPath_ = rawPath;
+            if (rawPath.is_relative()) {
+                rawPath = scriptDir / rawPath;
+            }
+            selectedWavesScriptPath_ = rawPath.string();
         }
     }
     lua_pop(L_, 1);
+
+    lua_getfield(L_, -1, "onLoad");
+    if (lua_isfunction(L_, -1)) {
+        lua_pushvalue(L_, -2);
+        if (lua_pcall(L_, 1, 0, 0) != LUA_OK) {
+            spdlog::error("PlayLevelScene: level definition onLoad() execution error {}: {}", scriptPath.string(),
+                          lua_tostring(L_, -1));
+            lua_pop(L_, 2);
+            return false;
+        }
+    } else {
+        lua_pop(L_, 1);
+    }
 
     lua_getfield(L_, -1, "inheritActiveSelection");
     const bool inheritActiveSelection = lua_isboolean(L_, -1) ? lua_toboolean(L_, -1) != 0 : true;
@@ -574,6 +608,10 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
 
     if (inheritActiveSelection) {
         selectedMapAssetPath_ = state.activeLevelAssetPath;
+    }
+
+    if (waveDefinitions_.empty() && !selectedWavesScriptPath_.empty()) {
+        loadWaveDefinitions(selectedWavesScriptPath_);
     }
 
     publishLevelUiTextures(L_, worldAssetSpec_);

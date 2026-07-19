@@ -14,9 +14,6 @@ return {
         -- Required by loader: map must include Start, End, and at least one Waypoint_N marker.
         startModelPath = "assets/models/base/portal.glb",
         endModelPath = "assets/models/base/base.glb",
-        animatedTemplateModelPaths = {
-            "assets/models/enemy/goblin1.glb",
-        },
 
         -- Optional extra world props.
         -- anchor: "Start", "End", or omitted.

@@ -23,6 +23,7 @@ struct SceneSharedState {
     bool loadingComplete = false;
     std::string& activeLevelName;
     std::string& activeLevelAssetPath;
+    std::string& activeLevelScriptPath;
     VulkanContext* vulkanContext = nullptr;
     ImFont* headingFont = nullptr;
     ImFont* titleFont = nullptr;

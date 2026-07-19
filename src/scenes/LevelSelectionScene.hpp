@@ -21,6 +21,7 @@ class LevelSelectionScene final : public GameScene {
     struct LevelEntry {
       std::string name;
       std::filesystem::path assetPath;
+      std::filesystem::path scriptPath;
     };
 
     std::vector<LevelEntry> availableLevels_;

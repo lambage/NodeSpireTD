@@ -235,6 +235,7 @@ int AppController::run() {
 
         std::string activeLevelName = "Forest Outskirts";
         std::string activeLevelAssetPath = "assets/terrain/Terrain003_4K.obj";
+        std::string activeLevelScriptPath = "";
         bool loadingComplete = true;
 
         auto makeSceneState = [&]() {
@@ -246,6 +247,7 @@ int AppController::run() {
                                     loadingComplete,
                                     activeLevelName,
                                     activeLevelAssetPath,
+                                    activeLevelScriptPath,
                                     vulkanContext.get(),
                                     imguiLayer->headingFont(),
                                     imguiLayer->titleFont()};

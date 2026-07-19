@@ -27,6 +27,9 @@ static void pushSceneState(lua_State* L, const SceneSharedState& state) {
     lua_pushstring(L, state.activeLevelAssetPath.c_str());
     lua_setfield(L, -2, "activeLevelAssetPath");
 
+    lua_pushstring(L, state.activeLevelScriptPath.c_str());
+    lua_setfield(L, -2, "activeLevelScriptPath");
+
     lua_pushboolean(L, state.displayConfirmationActive);
     lua_setfield(L, -2, "displayConfirmationActive");
 

@@ -6,10 +6,13 @@
 #include <algorithm>
 #include <cctype>
 #include <imgui.h>
+#include <lua.hpp>
 
-LevelSelectionScene::~LevelSelectionScene() = default;
+namespace {
 
-static std::string prettifyDirName(const std::string& dirName) {
+constexpr const char* kLevelDefinitionFilename = "level.lua";
+
+std::string prettifyDirName(const std::string& dirName) {
     std::string result = dirName;
     bool capitalizeNext = true;
     for (char& c : result) {
@@ -24,6 +27,69 @@ static std::string prettifyDirName(const std::string& dirName) {
     return result;
 }
 
+bool loadLevelEntryFromScript(const std::filesystem::path& levelDir,
+                              const std::filesystem::path& scriptPath,
+                              std::string& outDisplayName,
+                              std::filesystem::path& outMapAssetPath) {
+    lua_State* L = luaL_newstate();
+    if (!L) {
+        return false;
+    }
+
+    const std::string scriptPathString = scriptPath.string();
+    if (luaL_loadfile(L, scriptPathString.c_str()) != LUA_OK) {
+        lua_close(L);
+        return false;
+    }
+
+    if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+        lua_close(L);
+        return false;
+    }
+
+    if (!lua_istable(L, -1)) {
+        lua_close(L);
+        return false;
+    }
+
+    std::filesystem::path mapAssetPath;
+    std::string displayName;
+
+    lua_getfield(L, -1, "mapAssetPath");
+    if (lua_isstring(L, -1)) {
+        mapAssetPath = std::filesystem::path(lua_tostring(L, -1));
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, -1, "displayName");
+    if (lua_isstring(L, -1)) {
+        displayName = lua_tostring(L, -1);
+    }
+    lua_pop(L, 1);
+
+    lua_close(L);
+
+    if (mapAssetPath.empty()) {
+        return false;
+    }
+
+    if (mapAssetPath.is_relative()) {
+        mapAssetPath = levelDir / mapAssetPath;
+    }
+
+    if (!std::filesystem::is_regular_file(mapAssetPath)) {
+        return false;
+    }
+
+    outDisplayName = displayName.empty() ? prettifyDirName(levelDir.filename().string()) : displayName;
+    outMapAssetPath = mapAssetPath;
+    return true;
+}
+
+} // namespace
+
+LevelSelectionScene::~LevelSelectionScene() = default;
+
 void LevelSelectionScene::onEnter(SceneSharedState&) {
     availableLevels_.clear();
     const std::filesystem::path levelsDir = "assets/levels";
@@ -36,15 +102,15 @@ void LevelSelectionScene::onEnter(SceneSharedState&) {
         }
         std::sort(sortedDirs.begin(), sortedDirs.end());
         for (const auto& dir : sortedDirs) {
-            std::filesystem::path glbPath;
-            for (const auto& file : std::filesystem::directory_iterator(dir)) {
-                if (file.is_regular_file() && file.path().extension() == ".glb") {
-                    glbPath = file.path();
-                    break;
-                }
+            const std::filesystem::path scriptPath = dir / kLevelDefinitionFilename;
+            if (!std::filesystem::is_regular_file(scriptPath)) {
+                continue;
             }
-            if (!glbPath.empty()) {
-                availableLevels_.push_back({prettifyDirName(dir.filename().string()), glbPath});
+
+            std::string displayName;
+            std::filesystem::path mapAssetPath;
+            if (loadLevelEntryFromScript(dir, scriptPath, displayName, mapAssetPath)) {
+                availableLevels_.push_back({displayName, mapAssetPath, scriptPath});
             }
         }
     }
@@ -91,21 +157,35 @@ SceneFrameResult LevelSelectionScene::render(SceneSharedState& state, float /*dt
 
     ImGui::SameLine();
     ImGui::BeginChild("MissionDetails", ImVec2(0.0f, -56.0f), true, ImGuiWindowFlags_NoScrollbar);
-    state.activeLevelName = availableLevels_[selectedLevelIndex_].name;
-    state.activeLevelAssetPath = availableLevels_[selectedLevelIndex_].assetPath.string();
-    ImGui::Text("Selected mission: %s", state.activeLevelName.c_str());
-    ImGui::Spacing();
-    ImGui::TextWrapped("Scan complete. Terrain analytics, choke points, and enemy wave "
-                       "patterns are ready for deployment simulation.");
-    ImGui::Spacing();
-    ImGui::TextWrapped("Asset source: %s", state.activeLevelAssetPath.c_str());
+    const bool hasLevels = !availableLevels_.empty();
+    if (hasLevels) {
+        state.activeLevelName = availableLevels_[selectedLevelIndex_].name;
+        state.activeLevelAssetPath = availableLevels_[selectedLevelIndex_].assetPath.string();
+        state.activeLevelScriptPath = availableLevels_[selectedLevelIndex_].scriptPath.string();
+        ImGui::Text("Selected mission: %s", state.activeLevelName.c_str());
+        ImGui::Spacing();
+        ImGui::TextWrapped("Scan complete. Terrain analytics, choke points, and enemy wave "
+                           "patterns are ready for deployment simulation.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Asset source: %s", state.activeLevelAssetPath.c_str());
+    } else {
+        ImGui::TextUnformatted("No valid levels found.");
+        ImGui::Spacing();
+        ImGui::TextWrapped("Each folder in assets/levels must provide a valid level.lua with mapAssetPath.");
+    }
     ImGui::EndChild();
 
+    if (!hasLevels) {
+        ImGui::BeginDisabled();
+    }
     if (ImGui::Button("Load Level", ImVec2(170.0f, 40.0f))) {
         result.requestTransition = true;
         result.transitionTarget = SceneId::PlayLevel;
         result.transitionMessage = "Loading level: " + state.activeLevelName + "...";
         result.transitionMinDurationSeconds = 0.0f;
+    }
+    if (!hasLevels) {
+        ImGui::EndDisabled();
     }
 
     ImGui::SameLine();

@@ -93,6 +93,7 @@ class PlayLevelScene final : public GameScene {
     int activeWaveSpawnIndex_ = 0;
     int activeWaveSpawnedFromCurrent_ = 0;
     std::filesystem::path selectedMapAssetPath_;
+    std::filesystem::path selectedLevelScriptPath_;
     std::string selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
     WorldAssetSpec worldAssetSpec_{};
     std::vector<glm::vec3> routePoints_;

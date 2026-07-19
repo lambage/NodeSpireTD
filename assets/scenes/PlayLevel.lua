@@ -14,7 +14,7 @@ function M.render(state, dt, elapsed)
 
     if gs.worldLoading then
         local displayW, displayH = ImGui.GetDisplaySize()
-        local panelW, panelH = 600, 160
+        local panelW, panelH = 600, 260
 
         ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.5, ImGuiCond.Once)
         ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Once)
@@ -32,7 +32,7 @@ function M.render(state, dt, elapsed)
     end
 
     local displayW, displayH = ImGui.GetDisplaySize()
-    local hudW, hudH = 460, 200
+    local hudW, hudH = 460, 320
     ImGui.SetNextWindowPos(16, displayH - hudH - 16, ImGuiCond.Once)
     ImGui.SetNextWindowSize(hudW, hudH, ImGuiCond.Once)
     ImGui.SetNextWindowBgAlpha(0.70)

@@ -33,11 +33,9 @@ struct WorldUiTextureSpec {
 };
 
 struct WorldAssetSpec {
-    std::filesystem::path startModelPath = std::filesystem::path("assets") / "models" / "portal" / "portal.glb";
-    std::filesystem::path endModelPath = std::filesystem::path("assets") / "models" / "base" / "base.glb";
-    std::vector<std::filesystem::path> animatedTemplateModelPaths{
-        std::filesystem::path("assets") / "models" / "enemy" / "goblin1.glb"
-    };
+    std::filesystem::path startModelPath{};
+    std::filesystem::path endModelPath{};
+    std::vector<std::filesystem::path> animatedTemplateModelPaths{};
     std::vector<WorldModelPlacementSpec> extraWorldModels;
     std::vector<WorldUiTextureSpec> uiTextures;
 };
