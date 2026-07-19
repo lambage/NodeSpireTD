@@ -181,6 +181,16 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
     lua_pushcclosure(
         L,
         [](lua_State* L) -> int {
+            auto const str = luaL_checkstring(L, 1);
+            ImGui::TextWrapped(str);
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "TextWrapped");    
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
             ImGui::TextUnformatted(luaL_checkstring(L, 1));
             return 0;
         },
@@ -255,6 +265,16 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         },
         0);
     lua_setfield(L, t, "SmallButton");
+
+    lua_pushcclosure(L, [](lua_State* L) -> int {
+        const char* label = luaL_checkstring(L, 1);
+        bool v = lua_toboolean(L, 2) != 0;
+        bool changed = ImGui::Selectable(label, &v);
+        lua_pushboolean(L, changed);
+        lua_pushboolean(L, v);
+        return 2;
+    }, 0);
+    lua_setfield(L, t, "Selectable");
 
     // Checkbox(label, v) -> changed, v
     lua_pushcclosure(
