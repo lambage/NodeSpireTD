@@ -10,6 +10,38 @@
 
 class TemplateAnimator;
 
+enum class WorldMarkerAnchor {
+    None,
+    Start,
+    End
+};
+
+struct WorldModelPlacementSpec {
+    std::filesystem::path modelPath;
+    std::string debugGroup = "prop";
+    std::string debugLabel;
+    WorldMarkerAnchor anchor = WorldMarkerAnchor::None;
+    bool facePath = false;
+    glm::vec3 positionOffset{0.0f, 0.0f, 0.0f};
+    glm::vec3 eulerDegrees{0.0f, 0.0f, 0.0f};
+    glm::vec3 scale{1.0f, 1.0f, 1.0f};
+};
+
+struct WorldUiTextureSpec {
+    std::string id;
+    std::filesystem::path texturePath;
+};
+
+struct WorldAssetSpec {
+    std::filesystem::path startModelPath = std::filesystem::path("assets") / "models" / "portal" / "portal.glb";
+    std::filesystem::path endModelPath = std::filesystem::path("assets") / "models" / "base" / "base.glb";
+    std::vector<std::filesystem::path> animatedTemplateModelPaths{
+        std::filesystem::path("assets") / "models" / "enemy" / "goblin1.glb"
+    };
+    std::vector<WorldModelPlacementSpec> extraWorldModels;
+    std::vector<WorldUiTextureSpec> uiTextures;
+};
+
 struct WorldStagedMesh {
     std::vector<WorldVertex> vertices;
     std::vector<uint32_t> indices;
@@ -44,6 +76,7 @@ class WorldAssetLoader {
     using ActivityFn = std::function<void(float, const std::string&)>;
 
     bool load(const std::filesystem::path& assetPath,
+              const WorldAssetSpec& spec,
               TemplateAnimator& animator,
               const IsCancelledFn& isCancelled,
               const ActivityFn& setActivity,

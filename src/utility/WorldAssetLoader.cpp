@@ -26,7 +26,6 @@
 namespace {
 
 constexpr std::size_t kMaxMeshes = 512;
-const auto kModelsPath = std::filesystem::path("assets") / "models";
 
 std::size_t hashCombine(std::size_t seed, std::size_t value) {
     seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
@@ -75,9 +74,21 @@ glm::mat4 makeYFacingTransform(const glm::vec3& position, const glm::vec3& targe
            glm::rotate(glm::mat4{1.0f}, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
 }
 
+glm::mat4 composePlacementTransform(const glm::vec3& translation,
+                                    const glm::vec3& eulerDegrees,
+                                    const glm::vec3& scale) {
+    glm::mat4 transform = glm::translate(glm::mat4{1.0f}, translation);
+    transform = transform * glm::rotate(glm::mat4{1.0f}, glm::radians(eulerDegrees.y), glm::vec3(0.0f, 1.0f, 0.0f));
+    transform = transform * glm::rotate(glm::mat4{1.0f}, glm::radians(eulerDegrees.x), glm::vec3(1.0f, 0.0f, 0.0f));
+    transform = transform * glm::rotate(glm::mat4{1.0f}, glm::radians(eulerDegrees.z), glm::vec3(0.0f, 0.0f, 1.0f));
+    transform = transform * glm::scale(glm::mat4{1.0f}, scale);
+    return transform;
+}
+
 } // namespace
 
 bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
+                            const WorldAssetSpec& spec,
                             TemplateAnimator& animator,
                             const IsCancelledFn& isCancelled,
                             const ActivityFn& setActivity,
@@ -456,16 +467,32 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
     auto loadAndStagePlacedModel = [&](const std::filesystem::path& modelPath,
                                        const glm::mat4& placement,
                                        const std::string& label,
-                                       std::vector<WorldStagedMesh>& outMeshes) {
-        if (isCancelled() || !std::filesystem::exists(modelPath)) {
+                                       const std::string& debugGroup,
+                                       std::vector<WorldStagedMesh>& outMeshes,
+                                       bool required,
+                                       bool& outFailed) {
+        if (isCancelled()) {
+            return;
+        }
+        if (!std::filesystem::exists(modelPath)) {
+            if (required) {
+                outFailReason = "Required model not found: " + modelPath.string();
+                outFailed = true;
+            }
             return;
         }
 
         setActivity(0.62f, "Loading " + label + " model...");
         auto modelDataResult = fastgltf::GltfDataBuffer::FromPath(modelPath);
         if (modelDataResult.error() != fastgltf::Error::None) {
-            spdlog::warn("[WorldAssetLoader] Failed to read {}: {}", modelPath.string(),
-                         fastgltf::getErrorName(modelDataResult.error()));
+            if (required) {
+                outFailReason = "Failed to read model " + modelPath.string() + ": " +
+                                std::string(fastgltf::getErrorName(modelDataResult.error()));
+                outFailed = true;
+            } else {
+                spdlog::warn("[WorldAssetLoader] Failed to read {}: {}", modelPath.string(),
+                             fastgltf::getErrorName(modelDataResult.error()));
+            }
             return;
         }
 
@@ -473,8 +500,14 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         auto modelAssetResult = modelParser.loadGltf(modelDataResult.get(), modelPath.parent_path(),
                                                      fastgltf::Options::LoadExternalBuffers);
         if (modelAssetResult.error() != fastgltf::Error::None) {
-            spdlog::warn("[WorldAssetLoader] Failed to parse {}: {}", modelPath.string(),
-                         fastgltf::getErrorName(modelAssetResult.error()));
+            if (required) {
+                outFailReason = "Failed to parse model " + modelPath.string() + ": " +
+                                std::string(fastgltf::getErrorName(modelAssetResult.error()));
+                outFailed = true;
+            } else {
+                spdlog::warn("[WorldAssetLoader] Failed to parse {}: {}", modelPath.string(),
+                             fastgltf::getErrorName(modelAssetResult.error()));
+            }
             return;
         }
 
@@ -484,21 +517,36 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         if (isCancelled()) {
             return;
         }
-        traverseScene(modelAsset, modelAssetId, placement, false, outMeshes, "prop", label);
+        traverseScene(modelAsset, modelAssetId, placement, false, outMeshes, debugGroup, label);
     };
 
     auto loadAndStageModelTemplate = [&](const std::filesystem::path& modelPath,
                                          const std::string& label,
-                                         std::vector<WorldStagedMesh>& outMeshes) {
-        if (isCancelled() || !std::filesystem::exists(modelPath)) {
+                                         std::vector<WorldStagedMesh>& outMeshes,
+                                         bool required,
+                                         bool& outFailed) {
+        if (isCancelled()) {
+            return;
+        }
+        if (!std::filesystem::exists(modelPath)) {
+            if (required) {
+                outFailReason = "Required animated template model not found: " + modelPath.string();
+                outFailed = true;
+            }
             return;
         }
 
         setActivity(0.62f, "Loading " + label + " model...");
         auto modelDataResult = fastgltf::GltfDataBuffer::FromPath(modelPath);
         if (modelDataResult.error() != fastgltf::Error::None) {
-            spdlog::warn("[WorldAssetLoader] Failed to read {}: {}", modelPath.string(),
-                         fastgltf::getErrorName(modelDataResult.error()));
+            if (required) {
+                outFailReason = "Failed to read animated template model " + modelPath.string() + ": " +
+                                std::string(fastgltf::getErrorName(modelDataResult.error()));
+                outFailed = true;
+            } else {
+                spdlog::warn("[WorldAssetLoader] Failed to read {}: {}", modelPath.string(),
+                             fastgltf::getErrorName(modelDataResult.error()));
+            }
             return;
         }
 
@@ -506,8 +554,14 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         auto modelAssetResult = modelParser.loadGltf(modelDataResult.get(), modelPath.parent_path(),
                                                      fastgltf::Options::LoadExternalBuffers);
         if (modelAssetResult.error() != fastgltf::Error::None) {
-            spdlog::warn("[WorldAssetLoader] Failed to parse {}: {}", modelPath.string(),
-                         fastgltf::getErrorName(modelAssetResult.error()));
+            if (required) {
+                outFailReason = "Failed to parse animated template model " + modelPath.string() + ": " +
+                                std::string(fastgltf::getErrorName(modelAssetResult.error()));
+                outFailed = true;
+            } else {
+                spdlog::warn("[WorldAssetLoader] Failed to parse {}: {}", modelPath.string(),
+                             fastgltf::getErrorName(modelAssetResult.error()));
+            }
             return;
         }
 
@@ -517,7 +571,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         if (isCancelled()) {
             return;
         }
-        traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, false, outMeshes, "enemy", label);
+        traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, false, outMeshes, "template", label);
         animator.initializeFromAsset(modelAsset);
     };
 
@@ -533,45 +587,106 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         outResult.routePoints.push_back(*markers.end);
     }
 
-    if (!kModelsPath.empty()) {
-        if (markers.start.has_value()) {
-            glm::mat4 portalPlacement = glm::translate(glm::mat4{1.0f}, *markers.start);
-            if (!markers.waypoints.empty()) {
-                portalPlacement = makeYFacingTransform(*markers.start, markers.waypoints.begin()->second);
-            }
-
-            std::filesystem::path portalPath = kModelsPath / "portal.glb";
-            if (!std::filesystem::exists(portalPath)) {
-                const auto fallbackPortal = kModelsPath / "portal.lgb";
-                if (std::filesystem::exists(fallbackPortal)) {
-                    portalPath = fallbackPortal;
-                }
-            }
-            loadAndStagePlacedModel(portalPath, portalPlacement, "portal", outResult.worldMeshes);
-        }
-
-        if (markers.end.has_value()) {
-            glm::mat4 basePlacement = glm::translate(glm::mat4{1.0f}, *markers.end);
-            if (!markers.waypoints.empty()) {
-                basePlacement = makeYFacingTransform(*markers.end, markers.waypoints.rbegin()->second);
-            }
-            loadAndStagePlacedModel(kModelsPath / "base.glb", basePlacement, "base", outResult.worldMeshes);
-        }
-
-        loadAndStageModelTemplate(kModelsPath / "goblin1.glb", "goblin template", outResult.templateMeshes);
-    } else {
-        spdlog::warn("[WorldAssetLoader] Could not locate assets directory for portal/base placement. {}", kModelsPath.string());
+    if (!markers.start.has_value()) {
+        outFailReason = "Map marker validation failed: required marker 'Start' was not found.";
+        return false;
+    }
+    if (!markers.end.has_value()) {
+        outFailReason = "Map marker validation failed: required marker 'End' was not found.";
+        return false;
+    }
+    if (markers.waypoints.empty()) {
+        outFailReason = "Map marker validation failed: at least one waypoint marker 'Waypoint_N' is required.";
+        return false;
     }
 
-    if (markers.start.has_value() && !markers.waypoints.empty()) {
-        spdlog::info("[WorldAssetLoader] Portal placed at Start, facing Waypoint_1.");
-    } else if (markers.start.has_value()) {
-        spdlog::warn("[WorldAssetLoader] Start marker found, but Waypoint_1 missing. Portal placed without facing target.");
+    bool loadFailed = false;
+
+    glm::vec3 startPos = *markers.start;
+    glm::vec3 endPos = *markers.end;
+    const glm::vec3 firstWaypoint = markers.waypoints.begin()->second;
+    const glm::vec3 lastWaypoint = markers.waypoints.rbegin()->second;
+
+    glm::mat4 startPlacement = makeYFacingTransform(startPos, firstWaypoint);
+    glm::mat4 endPlacement = makeYFacingTransform(endPos, lastWaypoint);
+
+    loadAndStagePlacedModel(spec.startModelPath,
+                            startPlacement,
+                            "start",
+                            "start",
+                            outResult.worldMeshes,
+                            true,
+                            loadFailed);
+    if (loadFailed) {
+        return false;
     }
-    if (markers.end.has_value() && !markers.waypoints.empty()) {
-        spdlog::info("[WorldAssetLoader] Base placed at End, facing last waypoint.");
-    } else if (markers.end.has_value()) {
-        spdlog::warn("[WorldAssetLoader] End marker found, but no Waypoint_X markers found. Base placed without facing target.");
+
+    loadAndStagePlacedModel(spec.endModelPath,
+                            endPlacement,
+                            "end",
+                            "end",
+                            outResult.worldMeshes,
+                            true,
+                            loadFailed);
+    if (loadFailed) {
+        return false;
+    }
+
+    for (const auto& extra : spec.extraWorldModels) {
+        glm::vec3 anchorPos{0.0f, 0.0f, 0.0f};
+        glm::vec3 facingTarget{0.0f, 0.0f, 1.0f};
+        bool hasAnchor = false;
+
+        if (extra.anchor == WorldMarkerAnchor::Start) {
+            anchorPos = startPos;
+            facingTarget = firstWaypoint;
+            hasAnchor = true;
+        } else if (extra.anchor == WorldMarkerAnchor::End) {
+            anchorPos = endPos;
+            facingTarget = lastWaypoint;
+            hasAnchor = true;
+        }
+
+        const glm::vec3 translation = (hasAnchor ? anchorPos : glm::vec3{0.0f, 0.0f, 0.0f}) + extra.positionOffset;
+        glm::mat4 placement = composePlacementTransform(translation, extra.eulerDegrees, extra.scale);
+
+        if (extra.facePath && hasAnchor) {
+            glm::mat4 facing = makeYFacingTransform(translation, facingTarget);
+            facing = facing * glm::rotate(glm::mat4{1.0f}, glm::radians(extra.eulerDegrees.x), glm::vec3(1.0f, 0.0f, 0.0f));
+            facing = facing * glm::rotate(glm::mat4{1.0f}, glm::radians(extra.eulerDegrees.z), glm::vec3(0.0f, 0.0f, 1.0f));
+            facing = facing * glm::scale(glm::mat4{1.0f}, extra.scale);
+            placement = facing;
+        }
+
+        loadAndStagePlacedModel(extra.modelPath,
+                                placement,
+                                extra.debugLabel.empty() ? extra.modelPath.filename().string() : extra.debugLabel,
+                                extra.debugGroup,
+                                outResult.worldMeshes,
+                                false,
+                                loadFailed);
+        if (loadFailed) {
+            return false;
+        }
+    }
+
+    if (spec.animatedTemplateModelPaths.empty()) {
+        outFailReason = "World asset validation failed: at least one animated template model path is required.";
+        return false;
+    }
+
+    if (spec.animatedTemplateModelPaths.size() > 1) {
+        spdlog::info("[WorldAssetLoader] {} animated template models configured; currently loading first entry only.",
+                     spec.animatedTemplateModelPaths.size());
+    }
+
+    loadAndStageModelTemplate(spec.animatedTemplateModelPaths.front(),
+                              "animated template",
+                              outResult.templateMeshes,
+                              true,
+                              loadFailed);
+    if (loadFailed) {
+        return false;
     }
 
     return true;

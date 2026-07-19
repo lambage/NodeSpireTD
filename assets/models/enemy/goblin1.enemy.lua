@@ -1,21 +1,18 @@
 return {
     id = "goblin1",
     displayName = "Goblin Grunt",
-    model = "assets/models/goblin1.glb",
+    model = "assets/models/enemy/goblin1.glb",
 
     stats = {
         health = 35,
         moveSpeed = 2.8,
         rewardMoney = 8,
-        baseDamage = 5,
-        renderScale = 1.0,
-        facingYawOffsetDegrees = 180.0
+        baseDamage = 5
     },
 
-    wave = {
-        spawnIntervalSeconds = 0.9,
-        defeatIntervalSeconds = 1.2,
-        baseDamage = 5
+    render = {
+        renderScale = 1.0,
+        facingYawOffsetDegrees = 180.0,
     },
 
     behavior = {

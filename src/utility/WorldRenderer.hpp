@@ -67,7 +67,7 @@ class WorldRenderer {
     WorldRenderer& operator=(const WorldRenderer&) = delete;
 
     // Non-blocking. Starts background parse+decode; GPU uploads happen via tickLoad().
-    void beginLoad(const std::filesystem::path& assetPath);
+    void beginLoad(const std::filesystem::path& assetPath, const WorldAssetSpec& spec = {});
 
     // Call once per frame from the main thread until isLoaded() or loadFailed().
     // Performs one GPU upload step (one texture or all meshes).
@@ -153,6 +153,7 @@ class WorldRenderer {
     std::vector<WorldStagedMesh>    stagedMeshes_;
     std::vector<WorldStagedMesh>    stagedEnemyMeshes_;
     std::vector<WorldStagedTexture> stagedTextures_;
+    WorldAssetSpec            assetSpec_;
     std::string                failReason_;
 
     // GPU upload cursors (main thread only)

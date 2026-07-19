@@ -395,7 +395,7 @@ void WorldRenderer::uploadIdentitySkinPalette() {
 
 // ─── public loading interface ─────────────────────────────────────────────────
 
-void WorldRenderer::beginLoad(const std::filesystem::path& assetPath) {
+void WorldRenderer::beginLoad(const std::filesystem::path& assetPath, const WorldAssetSpec& spec) {
     release();
 
     // GPU infrastructure that doesn't depend on asset contents
@@ -407,6 +407,7 @@ void WorldRenderer::beginLoad(const std::filesystem::path& assetPath) {
     cpuFailed_.store(false,  std::memory_order_relaxed);
     progress_.store(0.0f,    std::memory_order_relaxed);
     firstRenderTick_ = true;
+    assetSpec_ = spec;
     templateAnimator_->reset();
     setActivity(0.0f, "Starting...");
 
@@ -418,6 +419,7 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     std::string failReason;
     const bool ok = assetLoader_.load(
         assetPath,
+        assetSpec_,
         *templateAnimator_,
         [this]() { return cancelLoad_.load(std::memory_order_relaxed); },
         [this](float progress, const std::string& activity) { setActivity(progress, activity); },

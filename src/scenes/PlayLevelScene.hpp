@@ -1,12 +1,14 @@
 #pragma once
 #include "scenes/GameScene.hpp"
 #include "scenes/PlayLevelState.hpp"
+#include "utility/WorldAssetLoader.hpp"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class WorldRenderer;
@@ -26,28 +28,35 @@ class PlayLevelScene final : public GameScene {
     struct EnemyArchetype {
       std::string id = "goblin1";
       std::string displayName = "Goblin";
-      std::string modelPath = "assets/models/goblin1.glb";
-      int health = 35;
+      std::string modelPath = "assets/models/enemy/goblin1.glb";
+      float health = 35.0f;
       float moveSpeed = 2.8f;
-      int rewardMoney = 8;
+      float rewardMoney = 8.0f;
       float spawnIntervalSeconds = 0.9f;
       float defeatIntervalSeconds = 1.2f;
-      int baseDamage = 5;
+      float baseDamage = 5.0f;
       float renderScale = 1.0f;
       float facingYawOffsetDegrees = 0.0f;
     };
 
-    struct WaveDefinition {
+    struct WaveSpawnDefinition {
       std::string enemyId = "goblin1";
       int count = 5;
       float spawnIntervalSeconds = 0.9f;
-      int baseDamage = 5;
+    };
+
+    struct WaveDefinition {
+      std::vector<WaveSpawnDefinition> spawns;
+      float roundDurationSeconds = 30.0f;
     };
 
     struct ActiveEnemy {
+      std::string enemyId = "goblin1";
       float distanceAlongPath = 0.0f;
       float moveSpeed = 1.0f;
-      int baseDamage = 1;
+      float baseDamage = 1.0f;
+      float renderScale = 1.0f;
+      float facingYawOffsetDegrees = 0.0f;
     };
 
     enum class GameplayCommandType {
@@ -58,7 +67,7 @@ class PlayLevelScene final : public GameScene {
 
     struct GameplayCommand {
       GameplayCommandType type;
-      int amount;
+      float amount;
     };
 
     struct DebugSelection {
@@ -76,12 +85,16 @@ class PlayLevelScene final : public GameScene {
 
     std::unique_ptr<WorldRenderer> worldRenderer_;
     PlayLevelState gameplayState_{};
-    EnemyArchetype enemyArchetype_{};
+    std::unordered_map<std::string, EnemyArchetype> enemyArchetypes_;
+    std::string defaultEnemyId_ = "goblin1";
     std::vector<WaveDefinition> waveDefinitions_;
     std::vector<ActiveEnemy> activeEnemies_;
     int activeWaveIndex_ = -1;
+    int activeWaveSpawnIndex_ = 0;
+    int activeWaveSpawnedFromCurrent_ = 0;
     std::filesystem::path selectedMapAssetPath_;
     std::string selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
+    WorldAssetSpec worldAssetSpec_{};
     std::vector<glm::vec3> routePoints_;
     std::vector<float> routeSegmentLengths_;
     float routeTotalLength_ = 0.0f;
@@ -96,17 +109,22 @@ class PlayLevelScene final : public GameScene {
     float camYaw_   = 3.14159f;
     float camPitch_ = -0.25f;
 
-    bool requestSpendMoney(int amount);
-    bool requestDamageBase(int amount);
+    bool requestSpendMoney(float amount);
+    bool requestDamageBase(float amount);
     bool requestStartWave();
     bool loadLevelDefinition(SceneSharedState& state);
     bool loadEnemyArchetype(const std::string& scriptPath);
+    bool parseEnemyArchetypeScript(const std::string& scriptPath, EnemyArchetype& outArchetype);
     bool loadWaveDefinitions(const std::string& scriptPath);
+    const EnemyArchetype* findEnemyArchetype(const std::string& enemyId) const;
     bool updateRouteFromWorld();
     glm::vec3 sampleRoutePosition(float distanceAlongPath) const;
     float sampleRouteYaw(float distanceAlongPath) const;
     void syncEnemyInstanceTransforms();
     std::string validateStartWaveRequest() const;
+    bool beginWaveCountdown();
+    bool beginWaveSpawning();
+    void completeWaveAndAdvance();
     void applyPendingGameplayCommands();
     void updateWaveSimulation(float dt);
     void registerLuaGameplayApi();
