@@ -109,7 +109,7 @@ class PlayLevelScene final : public GameScene {
       float amount;
     };
 
-    struct DebugSelection {
+    struct ModelSelection {
       bool valid = false;
       std::string group;
       std::string label;
@@ -172,11 +172,11 @@ class PlayLevelScene final : public GameScene {
     std::string loadStatus_;
     bool debugPickEnabled_ = true;
     bool debugDrawPickSpheres_ = false;
-    bool debugDrawHoverHighlight_ = false;
-    DebugSelection debugSelection_{};
-    DebugSelection hoverSelection_{};
+    ModelSelection debugSelection_{};
+    ModelSelection hoverSelection_{};
     int hoveredInstanceIndex_ = -1;
     int selectedInstanceIndex_ = -1;
+    std::uint64_t selectedEnemyRuntimeId_ = 0;
     std::string debugPickStatus_;
 
     // Flying camera state
@@ -216,13 +216,13 @@ class PlayLevelScene final : public GameScene {
     void completeWaveAndAdvance();
     void applyPendingGameplayCommands();
     void updateWaveSimulation(float dt);
+    void reconcileSelectedEnemyAfterSimulation();
     void registerLuaGameplayApi();
-    bool pickModelAtScreen(float screenX, float screenY, DebugSelection& outSelection) const;
-    bool pickModelAtCursor(DebugSelection& outSelection) const;
+    bool pickModelAtScreen(float screenX, float screenY, ModelSelection& outSelection) const;
+    bool pickModelAtCursor(ModelSelection& outSelection) const;
     bool updateDebugHoverFromMouse();
     void updateDebugPickFromMouse();
     void drawDebugPickSpheresOverlay() const;
-    void drawHoverHighlightOverlay() const;
 
     glm::mat4 buildViewMatrix() const;
     void updateCamera(float dt);
