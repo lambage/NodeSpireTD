@@ -1,4 +1,5 @@
 #pragma once
+#include "scenes/PlayLevelCameraController.hpp"
 #include "scenes/GameScene.hpp"
 #include "scenes/PlayLevelState.hpp"
 #include "utility/WorldAssetLoader.hpp"
@@ -180,9 +181,7 @@ class PlayLevelScene final : public GameScene {
     std::string debugPickStatus_;
 
     // Flying camera state
-    glm::vec3 camPos_{0.0f, 5.0f, 20.0f};
-    float camYaw_   = 3.14159f;
-    float camPitch_ = -0.25f;
+    PlayLevelCameraController cameraController_{};
     VkExtent2D lastRenderExtent_{};
     mutable DebugOverlayStats debugOverlayStats_{};
 

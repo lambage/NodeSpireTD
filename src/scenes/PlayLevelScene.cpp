@@ -197,61 +197,19 @@ std::string makeTowerIconTextureId(const std::string& towerId) {
 
 // ─── camera helpers ───────────────────────────────────────────────────────────
 
-// Forward direction from yaw + pitch (Y-up, right-handed)
-static glm::vec3 cameraForward(float yaw, float pitch) {
-    return glm::normalize(glm::vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch), std::cos(pitch) * std::cos(yaw)));
-}
-
 glm::mat4 PlayLevelScene::buildViewMatrix() const {
-    const glm::vec3 fwd = cameraForward(camYaw_, camPitch_);
-    return glm::lookAt(camPos_, camPos_ + fwd, glm::vec3(0.0f, 1.0f, 0.0f));
+    return cameraController_.buildViewMatrix();
 }
 
 void PlayLevelScene::updateCamera(float dt) {
-    const ImGuiIO& io = ImGui::GetIO();
-
-    // ── Mouse look (hold RMB) ─────────────────────────────────────────────
-    if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-        camYaw_ -= io.MouseDelta.x * 0.003f;
-        camPitch_ -= io.MouseDelta.y * 0.003f;
-        camPitch_ = glm::clamp(camPitch_, -1.48f, 1.48f); // ±~85°
-    }
-
-    // ── WASD + Space/Shift movement ───────────────────────────────────────
-    // Speed: hold Shift to sprint (×4)
-    const float baseSpeed = 8.0f;
-    const float speed = baseSpeed * (ImGui::IsKeyDown(ImGuiKey_LeftShift) ? 4.0f : 1.0f) * dt;
-
-    const glm::vec3 fwd = cameraForward(camYaw_, camPitch_);
-    const glm::vec3 right = glm::normalize(glm::cross(fwd, glm::vec3(0.0f, 1.0f, 0.0f)));
-
-    if (ImGui::IsKeyDown(ImGuiKey_W)) {
-        camPos_ += fwd * speed;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_S)) {
-        camPos_ -= fwd * speed;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_A)) {
-        camPos_ -= right * speed;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_D)) {
-        camPos_ += right * speed;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_Space)) {
-        camPos_.y += speed;
-    }
-    if (ImGui::IsKeyDown(ImGuiKey_Q)) {
-        camPos_.y -= speed;
-    }
+    cameraController_.update(dt);
 }
 
 // ─── scene lifecycle ──────────────────────────────────────────────────────────
 
 void PlayLevelScene::onEnter(SceneSharedState& state) {
     // Reset camera
-    camPos_ = {0.0f, 5.0f, 20.0f};
-    camYaw_ = 3.14159f;
-    camPitch_ = -0.25f;
+    cameraController_.reset();
 
     LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext);
     registerLuaGameplayApi();
@@ -1231,46 +1189,7 @@ const PlayLevelScene::TowerArchetype* PlayLevelScene::selectedTowerArchetype() c
 }
 
 bool PlayLevelScene::raycastGroundAtCursor(glm::vec3& outHit) const {
-    const ImGuiIO& io = ImGui::GetIO();
-    const ImVec2 displaySize = io.DisplaySize;
-    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
-        return false;
-    }
-
-    const ImVec2 mousePos = io.MousePos;
-    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
-        return false;
-    }
-
-    const float ndcX = (2.0f * mousePos.x) / displaySize.x - 1.0f;
-    const float ndcY = 1.0f - (2.0f * mousePos.y) / displaySize.y;
-    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
-
-    const glm::vec3 fwd = cameraForward(camYaw_, camPitch_);
-    const glm::vec3 right = glm::normalize(glm::cross(fwd, glm::vec3(0.0f, 1.0f, 0.0f)));
-    const glm::vec3 up = glm::normalize(glm::cross(right, fwd));
-
-    constexpr float kFovYRadians = glm::radians(60.0f);
-    const float tanHalfFovY = std::tan(kFovYRadians * 0.5f);
-
-    glm::vec3 rayDir = fwd + right * (ndcX * aspect * tanHalfFovY) + up * (ndcY * tanHalfFovY);
-    const float dirLen2 = glm::dot(rayDir, rayDir);
-    if (dirLen2 <= 1e-8f) {
-        return false;
-    }
-    rayDir = glm::normalize(rayDir);
-
-    if (std::abs(rayDir.y) <= 1e-5f) {
-        return false;
-    }
-
-    const float t = -camPos_.y / rayDir.y;
-    if (t <= 0.0f) {
-        return false;
-    }
-
-    outHit = camPos_ + rayDir * t;
-    return std::isfinite(outHit.x) && std::isfinite(outHit.y) && std::isfinite(outHit.z);
+    return cameraController_.raycastGroundAtCursor(outHit);
 }
 
 std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const {
@@ -1737,7 +1656,7 @@ bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, ModelSelect
     nearWorld /= nearWorld.w;
     farWorld /= farWorld.w;
 
-    const glm::vec3 rayOrigin = camPos_;
+    const glm::vec3 rayOrigin = cameraController_.position();
     glm::vec3 rayDir = glm::vec3(farWorld - nearWorld);
     const float dirLen2 = glm::dot(rayDir, rayDir);
     if (dirLen2 <= 1e-8f) {
@@ -2495,11 +2414,11 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "enemyAnimationName");
 
             lua_newtable(L);
-            lua_pushnumber(L, self->camPos_.x);
+            lua_pushnumber(L, self->cameraController_.position().x);
             lua_setfield(L, -2, "x");
-            lua_pushnumber(L, self->camPos_.y);
+            lua_pushnumber(L, self->cameraController_.position().y);
             lua_setfield(L, -2, "y");
-            lua_pushnumber(L, self->camPos_.z);
+            lua_pushnumber(L, self->cameraController_.position().z);
             lua_setfield(L, -2, "z");
             lua_setfield(L, -2, "cameraPosition");
 
@@ -2883,9 +2802,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "renderWidth");
             lua_pushnumber(L, self->debugOverlayStats_.renderHeight);
             lua_setfield(L, -2, "renderHeight");
-            lua_pushnumber(L, self->camYaw_);
+            lua_pushnumber(L, self->cameraController_.yaw());
             lua_setfield(L, -2, "cameraYaw");
-            lua_pushnumber(L, self->camPitch_);
+            lua_pushnumber(L, self->cameraController_.pitch());
             lua_setfield(L, -2, "cameraPitch");
             lua_setfield(L, -2, "overlayDebug");
 

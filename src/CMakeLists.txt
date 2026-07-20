@@ -20,6 +20,7 @@ add_executable(NodeSpireTD
     scenes/LobbyScene.cpp
     scenes/MainMenuScene.cpp
     scenes/OptionsScene.cpp
+    scenes/PlayLevelCameraController.cpp
     scenes/PlayLevelScene.cpp
     scenes/SceneSharedState.cpp
     scenes/SplashScreen.cpp
