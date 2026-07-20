@@ -22,6 +22,7 @@ add_executable(NodeSpireTD
     scenes/OptionsScene.cpp
     scenes/PlayLevelCameraController.cpp
     scenes/PlayLevelPickingController.cpp
+    scenes/PlayLevelRouteController.cpp
     scenes/PlayLevelTowerPlacementController.cpp
     scenes/PlayLevelWaveController.cpp
     scenes/PlayLevelScene.cpp

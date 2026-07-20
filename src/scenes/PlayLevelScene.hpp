@@ -3,6 +3,7 @@
 #include "scenes/GameScene.hpp"
 #include "scenes/PlayLevelPickingController.hpp"
 #include "scenes/PlayLevelState.hpp"
+#include "scenes/PlayLevelRouteController.hpp"
 #include "scenes/PlayLevelTowerPlacementController.hpp"
 #include "scenes/PlayLevelWaveController.hpp"
 #include "utility/WorldAssetLoader.hpp"
@@ -122,9 +123,7 @@ class PlayLevelScene final : public GameScene {
     std::filesystem::path selectedLevelScriptPath_;
     std::string selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
     WorldAssetSpec worldAssetSpec_{};
-    std::vector<glm::vec3> routePoints_;
-    std::vector<float> routeSegmentLengths_;
-    float routeTotalLength_ = 0.0f;
+    PlayLevelRouteController routeController_{};
     std::vector<GameplayCommand> pendingCommands_;
     std::string loadStatus_;
     PlayLevelPickingController pickingController_{};

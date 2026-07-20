@@ -219,9 +219,7 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     activeEnemies_.clear();
     enemyArchetypes_.clear();
     waveController_.clearAll();
-    routePoints_.clear();
-    routeSegmentLengths_.clear();
-    routeTotalLength_ = 0.0f;
+    routeController_.clear();
     selectedEnemyRuntimeId_ = 0;
     pickingController_.reset();
     selectedMapAssetPath_ = state.activeLevelAssetPath;
@@ -432,7 +430,7 @@ bool PlayLevelScene::requestStartWave() {
     return waveController_.beginWaveCountdown(gameplayState_,
                                               worldRenderer_ && worldRenderer_->isLoaded(),
                                               worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
-                                              routePoints_.size() >= 2 && routeTotalLength_ > 0.0f);
+                                              routeController_.hasValidRoute());
 }
 
 bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
@@ -1313,61 +1311,15 @@ bool PlayLevelScene::updateRouteFromWorld() {
         return false;
     }
 
-    const std::vector<glm::vec3>& rendererRoute = worldRenderer_->routePoints();
-    if (rendererRoute.size() < 2) {
-        return false;
-    }
-
-    if (rendererRoute == routePoints_ && routeTotalLength_ > 0.0f) {
-        return true;
-    }
-
-    routePoints_ = rendererRoute;
-    routeSegmentLengths_.clear();
-    routeTotalLength_ = 0.0f;
-    routeSegmentLengths_.reserve(routePoints_.size() - 1);
-
-    for (std::size_t i = 0; i + 1 < routePoints_.size(); ++i) {
-        const float segmentLen = glm::distance(routePoints_[i], routePoints_[i + 1]);
-        routeSegmentLengths_.push_back(segmentLen);
-        routeTotalLength_ += segmentLen;
-    }
-
-    return routeTotalLength_ > 0.0f;
+    return routeController_.updateFromRoutePoints(worldRenderer_->routePoints());
 }
 
 glm::vec3 PlayLevelScene::sampleRoutePosition(float distanceAlongPath) const {
-    if (routePoints_.empty()) {
-        return glm::vec3(0.0f);
-    }
-    if (routePoints_.size() == 1 || routeTotalLength_ <= 0.0f) {
-        return routePoints_.front();
-    }
-
-    float remaining = std::clamp(distanceAlongPath, 0.0f, routeTotalLength_);
-    for (std::size_t i = 0; i + 1 < routePoints_.size(); ++i) {
-        const float segmentLen = routeSegmentLengths_[i];
-        if (remaining <= segmentLen || i + 2 == routePoints_.size()) {
-            const float t = segmentLen > 1e-5f ? (remaining / segmentLen) : 0.0f;
-            return glm::mix(routePoints_[i], routePoints_[i + 1], t);
-        }
-        remaining -= segmentLen;
-    }
-
-    return routePoints_.back();
+    return routeController_.samplePosition(distanceAlongPath);
 }
 
 float PlayLevelScene::sampleRouteYaw(float distanceAlongPath) const {
-    const float probeAhead = 0.2f;
-    const glm::vec3 a = sampleRoutePosition(distanceAlongPath);
-    const glm::vec3 b = sampleRoutePosition(std::min(routeTotalLength_, distanceAlongPath + probeAhead));
-    glm::vec3 dir = b - a;
-    dir.y = 0.0f;
-    if (glm::dot(dir, dir) < 1e-6f) {
-        return 0.0f;
-    }
-    dir = glm::normalize(dir);
-    return std::atan2(dir.x, dir.z);
+    return routeController_.sampleYaw(distanceAlongPath);
 }
 
 void PlayLevelScene::syncEnemyInstanceTransforms() {
@@ -1398,7 +1350,7 @@ std::string PlayLevelScene::validateStartWaveRequest() const {
     return waveController_.validateStartWaveRequest(gameplayState_,
                                                     worldRenderer_ && worldRenderer_->isLoaded(),
                                                     worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
-                                                    routePoints_.size() >= 2 && routeTotalLength_ > 0.0f);
+                                                    routeController_.hasValidRoute());
 }
 
 void PlayLevelScene::updateWaveSimulation(float dt) {
@@ -1432,7 +1384,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         ActiveEnemy enemy = activeEnemies_[i];
         enemy.distanceAlongPath += std::max(0.05f, enemy.moveSpeed) * dt;
 
-        if (enemy.distanceAlongPath >= routeTotalLength_) {
+        if (enemy.distanceAlongPath >= routeController_.totalLength()) {
             requestDamageBase(std::max(1.0f, enemy.baseDamage));
             continue;
         }
@@ -1708,7 +1660,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "waveRoundRemainingSeconds");
             lua_pushinteger(L, static_cast<lua_Integer>(self->waveController_.waveCount()));
             lua_setfield(L, -2, "waveCount");
-            lua_pushinteger(L, static_cast<lua_Integer>(self->routePoints_.size()));
+            lua_pushinteger(L, static_cast<lua_Integer>(self->routeController_.pointCount()));
             lua_setfield(L, -2, "routePointCount");
 
             const bool hasRenderer = self->worldRenderer_ != nullptr;
