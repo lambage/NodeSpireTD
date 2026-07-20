@@ -3,6 +3,7 @@
 #include "scenes/GameScene.hpp"
 #include "scenes/PlayLevelPickingController.hpp"
 #include "scenes/PlayLevelState.hpp"
+#include "scenes/PlayLevelWaveController.hpp"
 #include "utility/WorldAssetLoader.hpp"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -40,17 +41,6 @@ class PlayLevelScene final : public GameScene {
       float baseDamage = 5.0f;
       float renderScale = 1.0f;
       float facingYawOffsetDegrees = 0.0f;
-    };
-
-    struct WaveSpawnDefinition {
-      std::string enemyId = "goblin1";
-      int count = 5;
-      float spawnIntervalSeconds = 0.9f;
-    };
-
-    struct WaveDefinition {
-      std::vector<WaveSpawnDefinition> spawns;
-      float roundDurationSeconds = 30.0f;
     };
 
     struct ActiveEnemy {
@@ -128,11 +118,8 @@ class PlayLevelScene final : public GameScene {
     bool towerPlacementHasHit_ = false;
     bool towerPlacementCanPlace_ = false;
     glm::vec3 towerPlacementWorldPos_{0.0f};
-    std::vector<WaveDefinition> waveDefinitions_;
+    PlayLevelWaveController waveController_{};
     std::vector<ActiveEnemy> activeEnemies_;
-    int activeWaveIndex_ = -1;
-    int activeWaveSpawnIndex_ = 0;
-    int activeWaveSpawnedFromCurrent_ = 0;
     std::filesystem::path selectedMapAssetPath_;
     std::filesystem::path selectedLevelScriptPath_;
     std::string selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
@@ -174,9 +161,6 @@ class PlayLevelScene final : public GameScene {
     float sampleRouteYaw(float distanceAlongPath) const;
     void syncEnemyInstanceTransforms();
     std::string validateStartWaveRequest() const;
-    bool beginWaveCountdown();
-    bool beginWaveSpawning();
-    void completeWaveAndAdvance();
     void applyPendingGameplayCommands();
     void updateWaveSimulation(float dt);
     void reconcileSelectedEnemyAfterSimulation();

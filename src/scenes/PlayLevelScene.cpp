@@ -2,7 +2,6 @@
 
 #include "LuaStateBootstrap.hpp"
 #include "VulkanContext.hpp"
-#include "scenes/IScene.hpp"
 #include "scenes/SceneSharedState.hpp"
 #include "utility/WorldRenderer.hpp"
 
@@ -20,9 +19,6 @@ PlayLevelScene::PlayLevelScene() = default;
 PlayLevelScene::~PlayLevelScene() = default;
 
 namespace {
-
-constexpr float kPreWaveCountdownSeconds = 5.0f;
-constexpr float kDefaultWaveRoundDurationSeconds = 30.0f;
 
 constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
 constexpr int kTowerPoolPlacementsPerType = 32;
@@ -225,13 +221,10 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     pendingCommands_.clear();
     activeEnemies_.clear();
     enemyArchetypes_.clear();
-    waveDefinitions_.clear();
+    waveController_.clearAll();
     routePoints_.clear();
     routeSegmentLengths_.clear();
     routeTotalLength_ = 0.0f;
-    activeWaveIndex_ = -1;
-    activeWaveSpawnIndex_ = 0;
-    activeWaveSpawnedFromCurrent_ = 0;
     selectedEnemyRuntimeId_ = 0;
     pickingController_.reset();
     selectedMapAssetPath_ = state.activeLevelAssetPath;
@@ -254,14 +247,15 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         defaultEnemyId_ = fallback.id;
     }
 
-    if (waveDefinitions_.empty() && !selectedWavesScriptPath_.empty() && !loadWaveDefinitions(selectedWavesScriptPath_)) {
+    if (!waveController_.hasDefinitions() && !selectedWavesScriptPath_.empty() &&
+        !loadWaveDefinitions(selectedWavesScriptPath_)) {
         spdlog::warn("PlayLevelScene: using fallback wave definition because {} failed to load.", selectedWavesScriptPath_);
     }
 
-    if (waveDefinitions_.empty()) {
-        WaveDefinition fallback;
-        fallback.spawns.push_back(WaveSpawnDefinition{});
-        waveDefinitions_.push_back(std::move(fallback));
+    if (!waveController_.hasDefinitions()) {
+        PlayLevelWaveController::WaveDefinition fallback;
+        fallback.spawns.push_back(PlayLevelWaveController::WaveSpawnDefinition{});
+        waveController_.definitionsMutable().push_back(std::move(fallback));
     }
 
     discoverTowerArchetypes();
@@ -438,63 +432,10 @@ bool PlayLevelScene::requestDamageBase(float amount) {
 }
 
 bool PlayLevelScene::requestStartWave() {
-    return beginWaveCountdown();
-}
-
-bool PlayLevelScene::beginWaveCountdown() {
-    if (!validateStartWaveRequest().empty()) {
-        return false;
-    }
-
-    gameplayState_.waveCountdownActive = true;
-    gameplayState_.waveCountdownRemainingSeconds = kPreWaveCountdownSeconds;
-    return true;
-}
-
-bool PlayLevelScene::beginWaveSpawning() {
-    if (gameplayState_.currentWave < 1 || gameplayState_.currentWave > static_cast<int>(waveDefinitions_.size())) {
-        return false;
-    }
-
-    activeWaveIndex_ = std::clamp(gameplayState_.currentWave - 1, 0, static_cast<int>(waveDefinitions_.size()) - 1);
-    const WaveDefinition& waveDef = waveDefinitions_[activeWaveIndex_];
-
-    int totalToSpawn = 0;
-    for (const WaveSpawnDefinition& spawn : waveDef.spawns) {
-        totalToSpawn += std::max(1, spawn.count);
-    }
-
-    gameplayState_.enemiesToSpawn = totalToSpawn;
-    gameplayState_.enemiesAlive = static_cast<int>(activeEnemies_.size());
-    gameplayState_.enemiesDefeated = 0;
-    gameplayState_.spawnAccumulatorSeconds = 0.0f;
-    gameplayState_.defeatAccumulatorSeconds = 0.0f;
-    gameplayState_.waveRoundDurationSeconds =
-        (waveDef.roundDurationSeconds > 0.0f) ? waveDef.roundDurationSeconds : kDefaultWaveRoundDurationSeconds;
-    gameplayState_.waveRoundRemainingSeconds = gameplayState_.waveRoundDurationSeconds;
-    gameplayState_.waveCountdownActive = false;
-    gameplayState_.waveCountdownRemainingSeconds = 0.0f;
-    activeWaveSpawnIndex_ = 0;
-    activeWaveSpawnedFromCurrent_ = 0;
-    gameplayState_.waveInProgress = true;
-    return true;
-}
-
-void PlayLevelScene::completeWaveAndAdvance() {
-    gameplayState_.waveInProgress = false;
-    gameplayState_.waveCountdownActive = false;
-    gameplayState_.waveCountdownRemainingSeconds = 0.0f;
-    gameplayState_.waveRoundDurationSeconds = 0.0f;
-    gameplayState_.waveRoundRemainingSeconds = 0.0f;
-    gameplayState_.enemiesToSpawn = 0;
-    gameplayState_.spawnAccumulatorSeconds = 0.0f;
-    activeWaveIndex_ = -1;
-    activeWaveSpawnIndex_ = 0;
-    activeWaveSpawnedFromCurrent_ = 0;
-
-    if (gameplayState_.currentWave <= static_cast<int>(waveDefinitions_.size())) {
-        gameplayState_.currentWave += 1;
-    }
+    return waveController_.beginWaveCountdown(gameplayState_,
+                                              worldRenderer_ && worldRenderer_->isLoaded(),
+                                              worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
+                                              routePoints_.size() >= 2 && routeTotalLength_ > 0.0f);
 }
 
 bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
@@ -727,7 +668,7 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
         selectedMapAssetPath_ = state.activeLevelAssetPath;
     }
 
-    if (waveDefinitions_.empty() && !selectedWavesScriptPath_.empty()) {
+    if (!waveController_.hasDefinitions() && !selectedWavesScriptPath_.empty()) {
         loadWaveDefinitions(selectedWavesScriptPath_);
     }
 
@@ -738,148 +679,16 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
 }
 
 bool PlayLevelScene::loadWaveDefinitions(const std::string& scriptPath) {
-    waveDefinitions_.clear();
-    if (!L_) {
-        return false;
-    }
-
-    if (luaL_loadfile(L_, scriptPath.c_str()) != LUA_OK) {
-        spdlog::error("PlayLevelScene: failed to load wave script {}: {}", scriptPath, lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-    if (lua_pcall(L_, 0, 1, 0) != LUA_OK) {
-        spdlog::error("PlayLevelScene: wave script execution error {}: {}", scriptPath, lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-    if (!lua_istable(L_, -1)) {
-        spdlog::error("PlayLevelScene: wave script must return a table: {}", scriptPath);
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    lua_getfield(L_, -1, "onLoad");
-    if (lua_isfunction(L_, -1)) {
-        lua_pushvalue(L_, -2);
-        if (lua_pcall(L_, 1, 0, 0) != LUA_OK) {
-            spdlog::error("PlayLevelScene: wave onLoad() execution error {}: {}", scriptPath, lua_tostring(L_, -1));
-            lua_pop(L_, 2);
-            return false;
-        }
-    } else {
-        lua_pop(L_, 1);
-    }
-
-    auto parseWaveSpawnEntry = [&](int spawnTableIdx, WaveSpawnDefinition& outSpawn) {
-        outSpawn.enemyId = defaultEnemyId_;
-        if (const EnemyArchetype* archetype = findEnemyArchetype(outSpawn.enemyId)) {
-            outSpawn.spawnIntervalSeconds = archetype->spawnIntervalSeconds;
-        }
-
-        lua_getfield(L_, spawnTableIdx, "entity");
-        if (lua_isstring(L_, -1)) {
-            outSpawn.enemyId = lua_tostring(L_, -1);
-        } else if (lua_istable(L_, -1)) {
-            lua_getfield(L_, -1, "id");
-            if (lua_isstring(L_, -1)) {
-                outSpawn.enemyId = lua_tostring(L_, -1);
+    return waveController_.loadWaveDefinitions(
+        L_, scriptPath, defaultEnemyId_, [this](const std::string& enemyId) -> std::optional<PlayLevelWaveController::EnemyWaveDefaults> {
+            const EnemyArchetype* archetype = findEnemyArchetype(enemyId);
+            if (!archetype) {
+                return std::nullopt;
             }
-            lua_pop(L_, 1);
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, spawnTableIdx, "enemyId");
-        if (lua_isstring(L_, -1)) {
-            outSpawn.enemyId = lua_tostring(L_, -1);
-        }
-        lua_pop(L_, 1);
-
-        const EnemyArchetype* archetype = findEnemyArchetype(outSpawn.enemyId);
-        if (!archetype) {
-            spdlog::warn("PlayLevelScene: wave spawn references unknown enemy '{}', using '{}' fallback.",
-                         outSpawn.enemyId, defaultEnemyId_);
-            outSpawn.enemyId = defaultEnemyId_;
-            archetype = findEnemyArchetype(outSpawn.enemyId);
-        }
-
-        lua_getfield(L_, spawnTableIdx, "count");
-        if (lua_isinteger(L_, -1)) {
-            outSpawn.count = static_cast<int>(lua_tointeger(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, spawnTableIdx, "spawnIntervalSeconds");
-        if (lua_isnumber(L_, -1)) {
-            outSpawn.spawnIntervalSeconds = static_cast<float>(lua_tonumber(L_, -1));
-        } else if (archetype) {
-            outSpawn.spawnIntervalSeconds = archetype->spawnIntervalSeconds;
-        }
-        lua_pop(L_, 1);
-
-        outSpawn.count = std::max(1, outSpawn.count);
-        outSpawn.spawnIntervalSeconds = std::max(0.05f, outSpawn.spawnIntervalSeconds);
-    };
-
-    lua_getfield(L_, -1, "waves");
-    if (waveDefinitions_.empty() && lua_istable(L_, -1)) {
-        const int waveTable = lua_gettop(L_);
-        const int waveCount = static_cast<int>(lua_rawlen(L_, waveTable));
-        for (int i = 1; i <= waveCount; ++i) {
-            lua_geti(L_, waveTable, i);
-            if (!lua_istable(L_, -1)) {
-                lua_pop(L_, 1);
-                continue;
-            }
-
-            WaveDefinition waveDef;
-
-            lua_getfield(L_, -1, "roundDurationSeconds");
-            if (lua_isnumber(L_, -1)) {
-                waveDef.roundDurationSeconds = static_cast<float>(lua_tonumber(L_, -1));
-            }
-            lua_pop(L_, 1);
-
-            lua_getfield(L_, -1, "spawns");
-            if (lua_istable(L_, -1)) {
-                const int spawnsTable = lua_gettop(L_);
-                const int spawnCount = static_cast<int>(lua_rawlen(L_, spawnsTable));
-                for (int spawnIdx = 1; spawnIdx <= spawnCount; ++spawnIdx) {
-                    lua_geti(L_, spawnsTable, spawnIdx);
-                    if (!lua_istable(L_, -1)) {
-                        lua_pop(L_, 1);
-                        continue;
-                    }
-                    WaveSpawnDefinition spawnDef;
-                    parseWaveSpawnEntry(lua_gettop(L_), spawnDef);
-                    waveDef.spawns.push_back(std::move(spawnDef));
-                    lua_pop(L_, 1);
-                }
-            }
-            lua_pop(L_, 1);
-
-            if (waveDef.spawns.empty()) {
-                WaveSpawnDefinition legacySpawn;
-                parseWaveSpawnEntry(lua_gettop(L_), legacySpawn);
-                waveDef.spawns.push_back(std::move(legacySpawn));
-            }
-
-            waveDef.roundDurationSeconds = std::max(1.0f, waveDef.roundDurationSeconds);
-
-            waveDefinitions_.push_back(std::move(waveDef));
-            lua_pop(L_, 1);
-        }
-    }
-    lua_pop(L_, 1);
-    lua_pop(L_, 1);
-
-    if (waveDefinitions_.empty()) {
-        WaveDefinition fallback;
-        fallback.spawns.push_back(WaveSpawnDefinition{});
-        waveDefinitions_.push_back(std::move(fallback));
-    }
-
-    return true;
+            PlayLevelWaveController::EnemyWaveDefaults defaults;
+            defaults.spawnIntervalSeconds = archetype->spawnIntervalSeconds;
+            return defaults;
+        });
 }
 
 bool PlayLevelScene::parseEnemyArchetypeScript(const std::string& scriptPath, EnemyArchetype& outArchetype) {
@@ -1618,34 +1427,10 @@ void PlayLevelScene::reconcileSelectedEnemyAfterSimulation() {
 }
 
 std::string PlayLevelScene::validateStartWaveRequest() const {
-    if (gameplayState_.matchStatus != MatchStatus::Running) {
-        return "match is not running";
-    }
-    if (gameplayState_.waveCountdownActive) {
-        return "countdown already active";
-    }
-    if (gameplayState_.waveInProgress) {
-        return "wave is still spawning";
-    }
-    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
-        return "world is still loading";
-    }
-    if (!worldRenderer_->hasAnimatedEntityTemplate()) {
-        return "enemy model template not loaded";
-    }
-    if (routePoints_.size() < 2 || routeTotalLength_ <= 0.0f) {
-        return "path markers not found (need Start/Waypoint_X/End)";
-    }
-    if (waveDefinitions_.empty()) {
-        return "no wave definitions loaded";
-    }
-    if (gameplayState_.currentWave < 1 || gameplayState_.currentWave > static_cast<int>(waveDefinitions_.size())) {
-        return "no definition for current wave";
-    }
-    if (waveDefinitions_[gameplayState_.currentWave - 1].spawns.empty()) {
-        return "current wave has no spawn entries";
-    }
-    return {};
+    return waveController_.validateStartWaveRequest(gameplayState_,
+                                                    worldRenderer_ && worldRenderer_->isLoaded(),
+                                                    worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
+                                                    routePoints_.size() >= 2 && routeTotalLength_ > 0.0f);
 }
 
 void PlayLevelScene::updateWaveSimulation(float dt) {
@@ -1653,67 +1438,26 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         return;
     }
 
-    if (gameplayState_.waveCountdownActive) {
-        gameplayState_.waveCountdownRemainingSeconds = std::max(0.0f, gameplayState_.waveCountdownRemainingSeconds - dt);
-        if (gameplayState_.waveCountdownRemainingSeconds <= 0.0f) {
-            beginWaveSpawning();
-        }
-    }
+    waveController_.updateWaveSpawning(
+        gameplayState_, dt, static_cast<int>(activeEnemies_.size()), [this](const std::string& enemyId) {
+            const EnemyArchetype* archetype = findEnemyArchetype(enemyId);
+            const float health = archetype ? archetype->health : 1.0f;
+            const float moveSpeed = archetype ? archetype->moveSpeed : 1.0f;
+            const float rewardMoney = archetype ? archetype->rewardMoney : 0.0f;
+            const float renderScale = archetype ? archetype->renderScale : 1.0f;
+            const float baseDamage = archetype ? archetype->baseDamage : 5.0f;
+            const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
 
-    if (gameplayState_.waveInProgress) {
-        if (activeWaveIndex_ < 0 || activeWaveIndex_ >= static_cast<int>(waveDefinitions_.size())) {
-            completeWaveAndAdvance();
-        } else {
-            const WaveDefinition& waveDef = waveDefinitions_[activeWaveIndex_];
-            if (waveDef.spawns.empty()) {
-                completeWaveAndAdvance();
-            } else {
-                gameplayState_.waveRoundRemainingSeconds =
-                    std::max(0.0f, gameplayState_.waveRoundRemainingSeconds - dt);
-                gameplayState_.spawnAccumulatorSeconds += dt;
-
-                while (gameplayState_.enemiesToSpawn > 0 && activeWaveSpawnIndex_ < static_cast<int>(waveDef.spawns.size())) {
-                    const WaveSpawnDefinition& spawnDef = waveDef.spawns[activeWaveSpawnIndex_];
-                    if (gameplayState_.spawnAccumulatorSeconds < spawnDef.spawnIntervalSeconds) {
-                        break;
-                    }
-
-                    gameplayState_.spawnAccumulatorSeconds -= spawnDef.spawnIntervalSeconds;
-                    gameplayState_.enemiesToSpawn -= 1;
-
-                    const EnemyArchetype* archetype = findEnemyArchetype(spawnDef.enemyId);
-                    const float health = archetype ? archetype->health : 1.0f;
-                    const float moveSpeed = archetype ? archetype->moveSpeed : 1.0f;
-                    const float rewardMoney = archetype ? archetype->rewardMoney : 0.0f;
-                    const float renderScale = archetype ? archetype->renderScale : 1.0f;
-                    const float baseDamage = archetype ? archetype->baseDamage : 5.0f;
-                    const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
-
-                    activeEnemies_.push_back(ActiveEnemy{
-                        spawnDef.enemyId,
-                        nextEnemyRuntimeId_++,
-                        0.0f,
-                        std::max(1.0f, health),
-                        std::max(0.05f, moveSpeed),
-                        std::max(0.0f, rewardMoney),
-                        std::max(1.0f, baseDamage),
-                        std::max(0.01f, renderScale),
-                        facingYawOffsetDegrees,
-                    });
-
-                    ++activeWaveSpawnedFromCurrent_;
-                    if (activeWaveSpawnedFromCurrent_ >= std::max(1, spawnDef.count)) {
-                        activeWaveSpawnedFromCurrent_ = 0;
-                        ++activeWaveSpawnIndex_;
-                    }
-                }
-
-                if (gameplayState_.enemiesToSpawn == 0 || gameplayState_.waveRoundRemainingSeconds <= 0.0f) {
-                    completeWaveAndAdvance();
-                }
-            }
-        }
-    }
+            activeEnemies_.push_back(ActiveEnemy{enemyId,
+                                                 nextEnemyRuntimeId_++,
+                                                 0.0f,
+                                                 std::max(1.0f, health),
+                                                 std::max(0.05f, moveSpeed),
+                                                 std::max(0.0f, rewardMoney),
+                                                 std::max(1.0f, baseDamage),
+                                                 std::max(0.01f, renderScale),
+                                                 facingYawOffsetDegrees});
+        });
 
     std::size_t writeIndex = 0;
     for (std::size_t i = 0; i < activeEnemies_.size(); ++i) {
@@ -1845,7 +1589,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
     if (gameplayState_.matchStatus != MatchStatus::Running) {
         gameplayState_.waveInProgress = false;
         gameplayState_.waveCountdownActive = false;
-        activeWaveIndex_ = -1;
+        waveController_.resetRuntimeState();
         activeEnemies_.clear();
         activeProjectiles_.clear();
         selectedEnemyRuntimeId_ = 0;
@@ -1856,7 +1600,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
     }
 
     if (!gameplayState_.waveInProgress && !gameplayState_.waveCountdownActive) {
-        const int waveCount = static_cast<int>(waveDefinitions_.size());
+        const int waveCount = static_cast<int>(waveController_.waveCount());
         if (gameplayState_.currentWave > waveCount) {
             if (activeEnemies_.empty()) {
                 gameplayState_.matchStatus = MatchStatus::Victory;
@@ -1865,7 +1609,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         }
 
         if (activeEnemies_.empty()) {
-            beginWaveCountdown();
+            requestStartWave();
         }
     }
 }
@@ -1918,7 +1662,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            self->waveDefinitions_.clear();
+            self->waveController_.clearDefinitions();
             lua_pushboolean(L, 1);
             return 1;
         },
@@ -1931,100 +1675,32 @@ void PlayLevelScene::registerLuaGameplayApi() {
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
             luaL_checktype(L, 1, LUA_TTABLE);
+            const float overrideRoundDurationSeconds =
+                (lua_gettop(L) >= 2 && lua_isnumber(L, 2)) ? static_cast<float>(lua_tonumber(L, 2)) : -1.0f;
 
-            PlayLevelScene::WaveDefinition waveDef;
-            int spawnEntriesTable = 1;
-
-            lua_getfield(L, 1, "spawns");
-            if (lua_istable(L, -1)) {
-                spawnEntriesTable = lua_gettop(L);
-            } else {
-                lua_pop(L, 1);
-            }
-
-            lua_getfield(L, 1, "roundDurationSeconds");
-            if (lua_isnumber(L, -1)) {
-                waveDef.roundDurationSeconds = static_cast<float>(lua_tonumber(L, -1));
-            }
-            lua_pop(L, 1);
-
-            if (lua_gettop(L) >= 2 && lua_isnumber(L, 2)) {
-                waveDef.roundDurationSeconds = static_cast<float>(lua_tonumber(L, 2));
-            }
-
-            const int entryCount = static_cast<int>(lua_rawlen(L, spawnEntriesTable));
-            for (int i = 1; i <= entryCount; ++i) {
-                lua_geti(L, spawnEntriesTable, i);
-                if (!lua_istable(L, -1)) {
-                    lua_pop(L, 1);
-                    continue;
-                }
-
-                PlayLevelScene::WaveSpawnDefinition spawn;
-                spawn.enemyId = self->defaultEnemyId_;
-                if (const PlayLevelScene::EnemyArchetype* defaultArchetype = self->findEnemyArchetype(spawn.enemyId)) {
-                    spawn.spawnIntervalSeconds = defaultArchetype->spawnIntervalSeconds;
-                }
-
-                lua_getfield(L, -1, "entity");
-                if (lua_isstring(L, -1)) {
-                    spawn.enemyId = lua_tostring(L, -1);
-                } else if (lua_istable(L, -1)) {
-                    lua_getfield(L, -1, "id");
-                    if (lua_isstring(L, -1)) {
-                        spawn.enemyId = lua_tostring(L, -1);
+            std::string error;
+            const bool ok = self->waveController_.registerWaveFromLua(
+                L,
+                1,
+                self->defaultEnemyId_,
+                [self](const std::string& enemyId) -> std::optional<PlayLevelWaveController::EnemyWaveDefaults> {
+                    const PlayLevelScene::EnemyArchetype* archetype = self->findEnemyArchetype(enemyId);
+                    if (!archetype) {
+                        return std::nullopt;
                     }
-                    lua_pop(L, 1);
-                }
-                lua_pop(L, 1);
+                    PlayLevelWaveController::EnemyWaveDefaults defaults;
+                    defaults.spawnIntervalSeconds = archetype->spawnIntervalSeconds;
+                    return defaults;
+                },
+                overrideRoundDurationSeconds,
+                error);
 
-                lua_getfield(L, -1, "enemyId");
-                if (lua_isstring(L, -1)) {
-                    spawn.enemyId = lua_tostring(L, -1);
-                }
-                lua_pop(L, 1);
-
-                const PlayLevelScene::EnemyArchetype* archetype = self->findEnemyArchetype(spawn.enemyId);
-                if (!archetype) {
-                    spawn.enemyId = self->defaultEnemyId_;
-                    archetype = self->findEnemyArchetype(spawn.enemyId);
-                }
-
-                lua_getfield(L, -1, "count");
-                if (lua_isinteger(L, -1)) {
-                    spawn.count = static_cast<int>(lua_tointeger(L, -1));
-                }
-                lua_pop(L, 1);
-
-                lua_getfield(L, -1, "spawnIntervalSeconds");
-                if (lua_isnumber(L, -1)) {
-                    spawn.spawnIntervalSeconds = static_cast<float>(lua_tonumber(L, -1));
-                } else if (archetype) {
-                    spawn.spawnIntervalSeconds = archetype->spawnIntervalSeconds;
-                }
-                lua_pop(L, 1);
-
-                spawn.count = std::max(1, spawn.count);
-                spawn.spawnIntervalSeconds = std::max(0.05f, spawn.spawnIntervalSeconds);
-
-                waveDef.spawns.push_back(std::move(spawn));
-                lua_pop(L, 1);
+            lua_pushboolean(L, ok ? 1 : 0);
+            if (!ok) {
+                lua_pushstring(L, error.c_str());
+                return 2;
             }
-
-            if (spawnEntriesTable != 1) {
-                lua_pop(L, 1);
-            }
-
-            if (!waveDef.spawns.empty()) {
-                waveDef.roundDurationSeconds = std::max(1.0f, waveDef.roundDurationSeconds);
-                self->waveDefinitions_.push_back(std::move(waveDef));
-                lua_pushboolean(L, 1);
-                return 1;
-            }
-
-            lua_pushboolean(L, 0);
-            lua_pushstring(L, "Wave.Register requires at least one spawn entry");
-            return 2;
+            return 1;
         },
         1);
     lua_setfield(L_, waveApiTable, "Register");
@@ -2062,7 +1738,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "waveRoundDurationSeconds");
             lua_pushnumber(L, self->gameplayState_.waveRoundRemainingSeconds);
             lua_setfield(L, -2, "waveRoundRemainingSeconds");
-            lua_pushinteger(L, static_cast<lua_Integer>(self->waveDefinitions_.size()));
+            lua_pushinteger(L, static_cast<lua_Integer>(self->waveController_.waveCount()));
             lua_setfield(L, -2, "waveCount");
             lua_pushinteger(L, static_cast<lua_Integer>(self->routePoints_.size()));
             lua_setfield(L, -2, "routePointCount");
