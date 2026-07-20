@@ -3,6 +3,7 @@
 #include "scenes/GameScene.hpp"
 #include "scenes/PlayLevelPickingController.hpp"
 #include "scenes/PlayLevelState.hpp"
+#include "scenes/PlayLevelTowerPlacementController.hpp"
 #include "scenes/PlayLevelWaveController.hpp"
 #include "utility/WorldAssetLoader.hpp"
 
@@ -111,13 +112,10 @@ class PlayLevelScene final : public GameScene {
     std::vector<std::string> towerLoadoutIds_;
     std::unordered_map<std::string, std::vector<std::string>> towerPoolGroupsById_;
     std::unordered_map<std::string, std::string> towerGhostGroupById_;
-    int selectedTowerLoadoutIndex_ = -1;
+    PlayLevelTowerPlacementController towerPlacementController_{};
     std::vector<PlacedTower> placedTowers_;
     std::vector<ActiveProjectile> activeProjectiles_;
     std::uint64_t nextEnemyRuntimeId_ = 1;
-    bool towerPlacementHasHit_ = false;
-    bool towerPlacementCanPlace_ = false;
-    glm::vec3 towerPlacementWorldPos_{0.0f};
     PlayLevelWaveController waveController_{};
     std::vector<ActiveEnemy> activeEnemies_;
     std::filesystem::path selectedMapAssetPath_;

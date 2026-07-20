@@ -2,7 +2,6 @@ local M = {}
 
 local lastResult = ""
 local lastLoadoutResult = ""
-local debugAutoPick = true
 local debugPickSpheresVisible = false
 local debugUiVisible = true
 local towerSlotTextures = {}
@@ -47,7 +46,6 @@ end
 
 function M.onEnter()
     lastResult = "PlayLevel script loaded"
-    Gameplay.setDebugPickEnabled(debugAutoPick)
     if Gameplay.getDebugPickSpheresVisible then
         debugPickSpheresVisible = Gameplay.getDebugPickSpheresVisible()
     end
@@ -271,14 +269,6 @@ function M.render(state, dt, elapsed)
     ImGui.Separator()
     ImGui.Text(string.format("[H] Pick Spheres: %s", debugPickSpheresVisible and "ON" or "OFF"))
 
-    if ImGui.Button(debugAutoPick and "Auto Pick: ON" or "Auto Pick: OFF", 160, 0) then
-        debugAutoPick = not debugAutoPick
-        Gameplay.setDebugPickEnabled(debugAutoPick)
-    end
-    if ImGui.Button("Pick At Cursor", 160, 0) then
-        local pick = Gameplay.pickAtCursor()
-        lastResult = string.format("Pick at cursor -> hit=%s", tostring(pick.hit))
-    end
     if ImGui.Button("Clear Selection", 160, 0) then
         Gameplay.clearDebugSelection()
     end

@@ -240,13 +240,6 @@ bool PlayLevelPickingController::pickModelAtCursor(const WorldRenderer* worldRen
     return pickModelAtScreen(worldRenderer, view, rayOrigin, mousePos.x, mousePos.y, outSelection);
 }
 
-bool PlayLevelPickingController::pickAtCursor(const WorldRenderer* worldRenderer,
-                                              const glm::mat4& view,
-                                              const glm::vec3& rayOrigin,
-                                              ModelSelection& outSelection) const {
-    return pickModelAtCursor(worldRenderer, view, rayOrigin, outSelection);
-}
-
 void PlayLevelPickingController::updateSelectionFromMouse(const WorldRenderer* worldRenderer,
                                                           const glm::mat4& view,
                                                           const glm::vec3& rayOrigin,

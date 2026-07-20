@@ -69,11 +69,6 @@ class PlayLevelPickingController {
                                   const glm::vec3& rayOrigin,
                                   bool selectionBlockedByPlacement);
 
-    bool pickAtCursor(const WorldRenderer* worldRenderer,
-                      const glm::mat4& view,
-                      const glm::vec3& rayOrigin,
-                      ModelSelection& outSelection) const;
-
     void drawPickSpheresOverlay(const WorldRenderer* worldRenderer, const glm::mat4& view, VkExtent2D lastRenderExtent) const;
 
   private:

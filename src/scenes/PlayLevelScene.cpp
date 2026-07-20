@@ -211,13 +211,10 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     towerLoadoutIds_.clear();
     towerPoolGroupsById_.clear();
     towerGhostGroupById_.clear();
-    selectedTowerLoadoutIndex_ = -1;
+    towerPlacementController_.reset();
     placedTowers_.clear();
     activeProjectiles_.clear();
     nextEnemyRuntimeId_ = 1;
-    towerPlacementHasHit_ = false;
-    towerPlacementCanPlace_ = false;
-    towerPlacementWorldPos_ = glm::vec3(0.0f);
     pendingCommands_.clear();
     activeEnemies_.clear();
     enemyArchetypes_.clear();
@@ -389,7 +386,7 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
             syncPlacedTowerModels();
         }
         pickingController_.updateSelectionFromMouse(
-            worldRenderer_.get(), buildViewMatrix(), cameraController_.position(), selectedTowerLoadoutIndex_ >= 0);
+            worldRenderer_.get(), buildViewMatrix(), cameraController_.position(), towerPlacementController_.hasActiveSelection());
         const int selectedInstanceIndex = pickingController_.selectedInstanceIndex();
         selectedEnemyRuntimeId_ =
             (selectedInstanceIndex >= 0 && selectedInstanceIndex < static_cast<int>(activeEnemies_.size()))
@@ -974,7 +971,7 @@ void PlayLevelScene::discoverTowerArchetypes() {
     }
 
     if (!towerLoadoutIds_.empty()) {
-        selectedTowerLoadoutIndex_ = 0;
+        towerPlacementController_.setSelectedLoadoutIndex(0);
     }
 }
 
@@ -987,10 +984,11 @@ const PlayLevelScene::TowerArchetype* PlayLevelScene::findTowerArchetype(const s
 }
 
 const PlayLevelScene::TowerArchetype* PlayLevelScene::selectedTowerArchetype() const {
-    if (selectedTowerLoadoutIndex_ < 0 || selectedTowerLoadoutIndex_ >= static_cast<int>(towerLoadoutIds_.size())) {
+    const int selectedSlot = towerPlacementController_.selectedLoadoutIndex();
+    if (selectedSlot < 0 || selectedSlot >= static_cast<int>(towerLoadoutIds_.size())) {
         return nullptr;
     }
-    return findTowerArchetype(towerLoadoutIds_[selectedTowerLoadoutIndex_]);
+    return findTowerArchetype(towerLoadoutIds_[selectedSlot]);
 }
 
 bool PlayLevelScene::raycastGroundAtCursor(glm::vec3& outHit) const {
@@ -1021,62 +1019,30 @@ std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archety
 }
 
 void PlayLevelScene::updateTowerPlacementFromInput() {
-    const ImGuiIO& io = ImGui::GetIO();
-
-    if (ImGui::IsKeyPressed(ImGuiKey_1, false)) {
-        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 1) ? 0 : -1;
-    } else if (ImGui::IsKeyPressed(ImGuiKey_2, false)) {
-        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 2) ? 1 : -1;
-    } else if (ImGui::IsKeyPressed(ImGuiKey_3, false)) {
-        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 3) ? 2 : -1;
-    } else if (ImGui::IsKeyPressed(ImGuiKey_4, false)) {
-        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 4) ? 3 : -1;
-    } else if (ImGui::IsKeyPressed(ImGuiKey_5, false)) {
-        selectedTowerLoadoutIndex_ = (towerLoadoutIds_.size() >= 5) ? 4 : -1;
-    }
-
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        selectedTowerLoadoutIndex_ = -1;
-        towerPlacementHasHit_ = false;
-        towerPlacementCanPlace_ = false;
-        return;
-    }
-
+    towerPlacementController_.updateSelectionHotkeys(towerLoadoutIds_.size());
     const TowerArchetype* selected = selectedTowerArchetype();
-    if (!selected) {
-        towerPlacementHasHit_ = false;
-        towerPlacementCanPlace_ = false;
-        return;
-    }
-
-    glm::vec3 hitPos{0.0f};
-    towerPlacementHasHit_ = raycastGroundAtCursor(hitPos);
-    if (!towerPlacementHasHit_) {
-        towerPlacementCanPlace_ = false;
-        return;
-    }
-
-    towerPlacementWorldPos_ = hitPos;
-    towerPlacementWorldPos_.y = 0.0f;
-    towerPlacementCanPlace_ = validateTowerPlacement(*selected, towerPlacementWorldPos_).empty();
-
-    if (io.WantCaptureMouse) {
-        return;
-    }
-
-    if (towerPlacementCanPlace_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        if (requestSpendMoney(static_cast<float>(selected->cost))) {
-            const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
-            placedTowers_.push_back(PlacedTower{selected->id,
-                                                towerPlacementWorldPos_,
-                                                selected->attackDamage,
-                                                selected->attackRange,
-                                                attackIntervalSeconds,
-                                                0.0f,
-                                                selected->projectileSpeed,
-                                                selected->cost});
-        }
-    }
+    towerPlacementController_.updatePlacementFromInput(
+        selected != nullptr,
+        [this](glm::vec3& outHit) { return raycastGroundAtCursor(outHit); },
+        [this, selected](const glm::vec3& worldPos) {
+            return selected ? validateTowerPlacement(*selected, worldPos).empty() : false;
+        },
+        [this, selected](const glm::vec3& worldPos) {
+            if (!selected) {
+                return;
+            }
+            if (requestSpendMoney(static_cast<float>(selected->cost))) {
+                const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
+                placedTowers_.push_back(PlacedTower{selected->id,
+                                                    worldPos,
+                                                    selected->attackDamage,
+                                                    selected->attackRange,
+                                                    attackIntervalSeconds,
+                                                    0.0f,
+                                                    selected->projectileSpeed,
+                                                    selected->cost});
+            }
+        });
 }
 
 glm::mat4 PlayLevelScene::buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const {
@@ -1163,8 +1129,9 @@ void PlayLevelScene::syncPlacedTowerModels() {
 
         glm::mat4 ghost = hidden;
         const TowerArchetype* selected = selectedTowerArchetype();
-        if (selected && selected->id == towerId && towerPlacementHasHit_) {
-            ghost = buildTowerModelTransform(*tower, towerPlacementWorldPos_ + glm::vec3(0.0f, 0.02f, 0.0f));
+        const auto& placementState = towerPlacementController_.state();
+        if (selected && selected->id == towerId && placementState.hasHit) {
+            ghost = buildTowerModelTransform(*tower, placementState.worldPos + glm::vec3(0.0f, 0.02f, 0.0f));
         }
         pushTowerInstance(*tower, protoIt->second, ghost, ghostGroup, ghostGroup);
     }
@@ -1285,16 +1252,17 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
     }
 
     const TowerArchetype* selected = selectedTowerArchetype();
-    if (!selected || !towerPlacementHasHit_) {
+    const auto& placementState = towerPlacementController_.state();
+    if (!selected || !placementState.hasHit) {
         return;
     }
 
-    const ImU32 col = towerPlacementCanPlace_ ? IM_COL32(90, 255, 120, 210) : IM_COL32(255, 90, 90, 210);
-    drawWorldRing(towerPlacementWorldPos_, std::max(0.5f, selected->attackRange), col, 64, 2.0f);
+    const ImU32 col = placementState.canPlace ? IM_COL32(90, 255, 120, 210) : IM_COL32(255, 90, 90, 210);
+    drawWorldRing(placementState.worldPos, std::max(0.5f, selected->attackRange), col, 64, 2.0f);
 
     ImVec2 centerScreen{};
     float depthAbs = 0.0f;
-    if (projectWorldToScreen(towerPlacementWorldPos_ + glm::vec3(0.0f, 0.05f, 0.0f),
+    if (projectWorldToScreen(placementState.worldPos + glm::vec3(0.0f, 0.05f, 0.0f),
                              view,
                              proj,
                              displaySize,
@@ -1303,7 +1271,7 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
                              depthAbs,
                              nullptr)) {
         ImDrawList* drawList = ImGui::GetForegroundDrawList();
-        const ImU32 fill = towerPlacementCanPlace_ ? IM_COL32(90, 255, 120, 85) : IM_COL32(255, 90, 90, 85);
+        const ImU32 fill = placementState.canPlace ? IM_COL32(90, 255, 120, 85) : IM_COL32(255, 90, 90, 85);
         drawList->AddCircleFilled(centerScreen, 8.0f, fill, 24);
         drawList->AddCircle(centerScreen, 8.0f, col, 24, 2.0f);
     }
@@ -1805,7 +1773,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             }
             lua_pushstring(L, status);
             lua_setfield(L, -2, "matchStatus");
-            lua_pushinteger(L, self->selectedTowerLoadoutIndex_ + 1);
+            lua_pushinteger(L, self->towerPlacementController_.selectedLoadoutIndex() + 1);
             lua_setfield(L, -2, "selectedTowerSlot");
             lua_pushinteger(L, static_cast<lua_Integer>(self->placedTowers_.size()));
             lua_setfield(L, -2, "placedTowerCount");
@@ -1831,7 +1799,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 lua_setfield(L, -2, "slot");
                 lua_pushboolean(L, archetype != nullptr);
                 lua_setfield(L, -2, "available");
-                lua_pushboolean(L, self->selectedTowerLoadoutIndex_ == slotIdx);
+                lua_pushboolean(L, self->towerPlacementController_.selectedLoadoutIndex() == slotIdx);
                 lua_setfield(L, -2, "selected");
 
                 if (archetype) {
@@ -1885,7 +1853,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 return pushCommandResult(L, false, "tower definition not found");
             }
 
-            self->selectedTowerLoadoutIndex_ = slotIdx;
+            self->towerPlacementController_.setSelectedLoadoutIndex(slotIdx);
             return pushCommandResult(L, true, "selected");
         },
         1);
@@ -1896,9 +1864,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            self->selectedTowerLoadoutIndex_ = -1;
-            self->towerPlacementHasHit_ = false;
-            self->towerPlacementCanPlace_ = false;
+            self->towerPlacementController_.cancelPlacement();
             return pushCommandResult(L, true, "cancelled");
         },
         1);
@@ -1913,21 +1879,22 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             const PlayLevelScene::TowerArchetype* tower = self->selectedTowerArchetype();
             const bool active = tower != nullptr;
+            const auto& placementState = self->towerPlacementController_.state();
             lua_pushboolean(L, active);
             lua_setfield(L, -2, "active");
-            lua_pushinteger(L, self->selectedTowerLoadoutIndex_ + 1);
+            lua_pushinteger(L, self->towerPlacementController_.selectedLoadoutIndex() + 1);
             lua_setfield(L, -2, "selectedSlot");
-            lua_pushboolean(L, self->towerPlacementHasHit_);
+            lua_pushboolean(L, placementState.hasHit);
             lua_setfield(L, -2, "hasHit");
-            lua_pushboolean(L, self->towerPlacementCanPlace_);
+            lua_pushboolean(L, placementState.canPlace);
             lua_setfield(L, -2, "canPlace");
 
             lua_newtable(L);
-            lua_pushnumber(L, self->towerPlacementWorldPos_.x);
+            lua_pushnumber(L, placementState.worldPos.x);
             lua_setfield(L, -2, "x");
-            lua_pushnumber(L, self->towerPlacementWorldPos_.y);
+            lua_pushnumber(L, placementState.worldPos.y);
             lua_setfield(L, -2, "y");
-            lua_pushnumber(L, self->towerPlacementWorldPos_.z);
+            lua_pushnumber(L, placementState.worldPos.z);
             lua_setfield(L, -2, "z");
             lua_setfield(L, -2, "worldPos");
 
@@ -1942,10 +1909,10 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 lua_setfield(L, -2, "attackRange");
 
                 std::string reason;
-                if (!self->towerPlacementHasHit_) {
+                if (!placementState.hasHit) {
                     reason = "cursor is not over ground";
                 } else {
-                    reason = self->validateTowerPlacement(*tower, self->towerPlacementWorldPos_);
+                    reason = self->validateTowerPlacement(*tower, placementState.worldPos);
                 }
                 lua_pushstring(L, reason.c_str());
                 lua_setfield(L, -2, "reason");
@@ -2023,7 +1990,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             return 1;
         },
         1);
-    lua_setfield(L_, gameplayTable, "setDebugPickEnabled");
+    lua_setfield(L_, gameplayTable, "setPickEnabled");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(
@@ -2034,7 +2001,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             return 1;
         },
         1);
-    lua_setfield(L_, gameplayTable, "getDebugPickEnabled");
+    lua_setfield(L_, gameplayTable, "getPickEnabled");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(
@@ -2058,71 +2025,6 @@ void PlayLevelScene::registerLuaGameplayApi() {
         },
         1);
     lua_setfield(L_, gameplayTable, "getDebugPickSpheresVisible");
-
-    lua_pushlightuserdata(L_, this);
-    lua_pushcclosure(
-        L_,
-        [](lua_State* L) -> int {
-            auto* self = luaSceneSelf(L);
-            PlayLevelPickingController::ModelSelection selection{};
-            const bool hit = self->pickingController_.pickAtCursor(
-                self->worldRenderer_.get(), self->buildViewMatrix(), self->cameraController_.position(), selection);
-            const bool selectableHit = hit && (selection.instanceIndex >= 0 || selection.group.rfind("tower", 0) == 0);
-            lua_newtable(L);
-            lua_pushboolean(L, selectableHit);
-            lua_setfield(L, -2, "hit");
-            if (selectableHit) {
-                self->pickingController_.setSelectedSelection(selection,
-                                                             "picked " + selection.group + " / " + selection.label);
-                self->selectedEnemyRuntimeId_ =
-                    (selection.instanceIndex >= 0 && selection.instanceIndex < static_cast<int>(self->activeEnemies_.size()))
-                        ? self->activeEnemies_[static_cast<std::size_t>(selection.instanceIndex)].runtimeId
-                        : 0;
-
-                lua_pushstring(L, selection.group.c_str());
-                lua_setfield(L, -2, "group");
-                lua_pushstring(L, selection.label.c_str());
-                lua_setfield(L, -2, "label");
-                lua_pushinteger(L, selection.meshIndex);
-                lua_setfield(L, -2, "meshIndex");
-                lua_pushinteger(L, selection.nodeIndex);
-                lua_setfield(L, -2, "nodeIndex");
-                lua_pushinteger(L, selection.skinIndex);
-                lua_setfield(L, -2, "skinIndex");
-                lua_pushinteger(L, selection.instanceIndex);
-                lua_setfield(L, -2, "instanceIndex");
-                lua_pushnumber(L, selection.distance);
-                lua_setfield(L, -2, "distance");
-
-                lua_newtable(L);
-                lua_pushnumber(L, selection.hitPosition.x);
-                lua_setfield(L, -2, "x");
-                lua_pushnumber(L, selection.hitPosition.y);
-                lua_setfield(L, -2, "y");
-                lua_pushnumber(L, selection.hitPosition.z);
-                lua_setfield(L, -2, "z");
-                lua_setfield(L, -2, "hitPosition");
-
-                lua_newtable(L);
-                lua_pushnumber(L, selection.hitNormal.x);
-                lua_setfield(L, -2, "x");
-                lua_pushnumber(L, selection.hitNormal.y);
-                lua_setfield(L, -2, "y");
-                lua_pushnumber(L, selection.hitNormal.z);
-                lua_setfield(L, -2, "z");
-                lua_setfield(L, -2, "hitNormal");
-            } else if (hit) {
-                self->pickingController_.clearSelection("hit non-selectable model");
-                self->selectedEnemyRuntimeId_ = 0;
-            } else {
-                self->pickingController_.setSelectedInstanceIndex(-1);
-                self->pickingController_.setStatus("no model hit at cursor");
-                self->selectedEnemyRuntimeId_ = 0;
-            }
-            return 1;
-        },
-        1);
-    lua_setfield(L_, gameplayTable, "pickAtCursor");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(
