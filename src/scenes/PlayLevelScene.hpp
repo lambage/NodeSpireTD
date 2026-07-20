@@ -1,6 +1,7 @@
 #pragma once
 #include "scenes/PlayLevelCameraController.hpp"
 #include "scenes/GameScene.hpp"
+#include "scenes/PlayLevelPickingController.hpp"
 #include "scenes/PlayLevelState.hpp"
 #include "utility/WorldAssetLoader.hpp"
 
@@ -110,36 +111,6 @@ class PlayLevelScene final : public GameScene {
       float amount;
     };
 
-    struct ModelSelection {
-      bool valid = false;
-      std::string group;
-      std::string label;
-      int meshIndex = -1;
-      int nodeIndex = -1;
-      int skinIndex = -1;
-      int instanceIndex = -1;
-      float distance = 0.0f;
-      glm::vec3 hitPosition{0.0f};
-      glm::vec3 hitNormal{0.0f, 1.0f, 0.0f};
-    };
-
-    struct DebugOverlayStats {
-      int sphereTotal = 0;
-      int sphereDrawn = 0;
-      int rejectBehindCamera = 0;
-      int rejectClipW = 0;
-      int rejectNdcZ = 0;
-      int rejectRadius = 0;
-      int hoveredSphereFound = 0;
-      int hoveredRejectReason = 0;
-      float hoveredDepth = 0.0f;
-      float hoveredRadiusPixels = 0.0f;
-      float displayWidth = 0.0f;
-      float displayHeight = 0.0f;
-      float renderWidth = 0.0f;
-      float renderHeight = 0.0f;
-    };
-
     std::unique_ptr<WorldRenderer> worldRenderer_;
     PlayLevelState gameplayState_{};
     std::unordered_map<std::string, EnemyArchetype> enemyArchetypes_;
@@ -171,19 +142,12 @@ class PlayLevelScene final : public GameScene {
     float routeTotalLength_ = 0.0f;
     std::vector<GameplayCommand> pendingCommands_;
     std::string loadStatus_;
-    bool debugPickEnabled_ = true;
-    bool debugDrawPickSpheres_ = false;
-    ModelSelection debugSelection_{};
-    ModelSelection hoverSelection_{};
-    int hoveredInstanceIndex_ = -1;
-    int selectedInstanceIndex_ = -1;
+    PlayLevelPickingController pickingController_{};
     std::uint64_t selectedEnemyRuntimeId_ = 0;
-    std::string debugPickStatus_;
 
     // Flying camera state
     PlayLevelCameraController cameraController_{};
     VkExtent2D lastRenderExtent_{};
-    mutable DebugOverlayStats debugOverlayStats_{};
 
     bool requestSpendMoney(float amount);
     bool requestDamageBase(float amount);
@@ -217,11 +181,6 @@ class PlayLevelScene final : public GameScene {
     void updateWaveSimulation(float dt);
     void reconcileSelectedEnemyAfterSimulation();
     void registerLuaGameplayApi();
-    bool pickModelAtScreen(float screenX, float screenY, ModelSelection& outSelection) const;
-    bool pickModelAtCursor(ModelSelection& outSelection) const;
-    bool updateDebugHoverFromMouse();
-    void updateDebugPickFromMouse();
-    void drawDebugPickSpheresOverlay() const;
 
     glm::mat4 buildViewMatrix() const;
     void updateCamera(float dt);

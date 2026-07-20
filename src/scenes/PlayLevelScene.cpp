@@ -24,12 +24,6 @@ namespace {
 constexpr float kPreWaveCountdownSeconds = 5.0f;
 constexpr float kDefaultWaveRoundDurationSeconds = 30.0f;
 
-constexpr float kPickStaticRadiusScale = 1.0f;
-constexpr float kPickStaticRadiusPadding = 0.05f;
-constexpr float kPickStaticMinRadius = 0.10f;
-constexpr float kPickDynamicRadiusScale = 1.45f;
-constexpr float kPickDynamicRadiusPadding = 0.35f;
-constexpr float kPickDynamicMinRadius = 0.65f;
 constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
 constexpr int kTowerPoolPlacementsPerType = 32;
 constexpr float kTowerHiddenY = -10000.0f;
@@ -238,14 +232,8 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     activeWaveIndex_ = -1;
     activeWaveSpawnIndex_ = 0;
     activeWaveSpawnedFromCurrent_ = 0;
-    debugSelection_ = {};
-    hoverSelection_ = {};
-    hoveredInstanceIndex_ = -1;
-    selectedInstanceIndex_ = -1;
     selectedEnemyRuntimeId_ = 0;
-    debugDrawPickSpheres_ = false;
-    debugPickEnabled_ = true;
-    debugPickStatus_ = "click in world to inspect";
+    pickingController_.reset();
     selectedMapAssetPath_ = state.activeLevelAssetPath;
     selectedLevelScriptPath_ = state.activeLevelScriptPath;
     selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
@@ -399,21 +387,29 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
         updateTowerPlacementFromInput();
         syncTowerInstanceTransforms();
         syncPlacedTowerModels();
-        const bool hoverChanged = updateDebugHoverFromMouse();
+        const bool hoverChanged = pickingController_.updateHoverFromMouse(
+            worldRenderer_.get(), buildViewMatrix(), cameraController_.position(), lastRenderExtent_);
         if (hoverChanged) {
             // Re-apply instance transforms so hover visual feedback is in the same frame as hover detection.
             syncTowerInstanceTransforms();
             syncPlacedTowerModels();
         }
-        updateDebugPickFromMouse();
-        worldRenderer_->setHighlightedInstances(hoveredInstanceIndex_, selectedInstanceIndex_);
+        pickingController_.updateSelectionFromMouse(
+            worldRenderer_.get(), buildViewMatrix(), cameraController_.position(), selectedTowerLoadoutIndex_ >= 0);
+        const int selectedInstanceIndex = pickingController_.selectedInstanceIndex();
+        selectedEnemyRuntimeId_ =
+            (selectedInstanceIndex >= 0 && selectedInstanceIndex < static_cast<int>(activeEnemies_.size()))
+                ? activeEnemies_[static_cast<std::size_t>(selectedInstanceIndex)].runtimeId
+                : 0;
+        worldRenderer_->setHighlightedInstances(
+            pickingController_.hoveredInstanceIndex(), pickingController_.selectedInstanceIndex());
     }
 
     luaOnRender(state, scriptRef_, dt);
 
     if (isLoaded) {
         drawTowerPlacementOverlay();
-        drawDebugPickSpheresOverlay();
+        pickingController_.drawPickSpheresOverlay(worldRenderer_.get(), buildViewMatrix(), lastRenderExtent_);
     }
 }
 
@@ -1461,8 +1457,8 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
 
     std::string selectedTowerId;
     int selectedTowerPoolIndex = -1;
-    if (debugSelection_.valid) {
-        parseTowerPoolGroup(debugSelection_.group, selectedTowerId, selectedTowerPoolIndex);
+    if (pickingController_.selectedSelection().valid) {
+        parseTowerPoolGroup(pickingController_.selectedSelection().group, selectedTowerId, selectedTowerPoolIndex);
     }
 
     if (!selectedTowerId.empty() && selectedTowerPoolIndex >= 0) {
@@ -1611,316 +1607,13 @@ void PlayLevelScene::reconcileSelectedEnemyAfterSimulation() {
                                  [this](const ActiveEnemy& enemy) { return enemy.runtimeId == selectedEnemyRuntimeId_; });
     if (it != activeEnemies_.end()) {
         const int nextIndex = static_cast<int>(std::distance(activeEnemies_.begin(), it));
-        selectedInstanceIndex_ = nextIndex;
-        if (debugSelection_.valid && debugSelection_.instanceIndex >= 0) {
-            debugSelection_.instanceIndex = nextIndex;
-        }
+        pickingController_.setSelectedInstanceIndex(nextIndex);
         return;
     }
 
     selectedEnemyRuntimeId_ = 0;
-    selectedInstanceIndex_ = -1;
-    if (debugSelection_.valid && debugSelection_.instanceIndex >= 0) {
-        debugSelection_ = {};
-        debugPickStatus_ = "selected enemy died";
-    }
-}
-
-bool PlayLevelScene::pickModelAtScreen(float screenX, float screenY, ModelSelection& outSelection) const {
-    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
-        return false;
-    }
-
-    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
-        return false;
-    }
-
-    const float ndcX = (2.0f * screenX) / displaySize.x - 1.0f;
-    const float ndcY = (2.0f * screenY) / displaySize.y - 1.0f;
-
-    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
-    glm::mat4 proj = glm::perspective(glm::radians(60.0f), aspect, 0.05f, 2000.0f);
-    proj[1][1] *= -1.0f;
-
-    const glm::mat4 view = buildViewMatrix();
-    const glm::mat4 invVP = glm::inverse(proj * view);
-
-    const glm::vec4 nearClip(ndcX, ndcY, 0.0f, 1.0f);
-    const glm::vec4 farClip(ndcX, ndcY, 1.0f, 1.0f);
-    glm::vec4 nearWorld = invVP * nearClip;
-    glm::vec4 farWorld = invVP * farClip;
-    if (std::abs(nearWorld.w) < 1e-6f || std::abs(farWorld.w) < 1e-6f) {
-        return false;
-    }
-    nearWorld /= nearWorld.w;
-    farWorld /= farWorld.w;
-
-    const glm::vec3 rayOrigin = cameraController_.position();
-    glm::vec3 rayDir = glm::vec3(farWorld - nearWorld);
-    const float dirLen2 = glm::dot(rayDir, rayDir);
-    if (dirLen2 <= 1e-8f) {
-        return false;
-    }
-    rayDir = glm::normalize(rayDir);
-
-    WorldPickOptions pickOptions{};
-    pickOptions.staticRadiusScale = kPickStaticRadiusScale;
-    pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
-    pickOptions.staticMinRadius = kPickStaticMinRadius;
-    pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
-    pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
-    pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
-
-    WorldPickHit hit{};
-    if (!worldRenderer_->pickModel(rayOrigin, rayDir, hit, pickOptions)) {
-        return false;
-    }
-
-    outSelection.valid = true;
-    outSelection.group = hit.group;
-    outSelection.label = hit.label;
-    outSelection.meshIndex = hit.meshIndex;
-    outSelection.nodeIndex = hit.nodeIndex;
-    outSelection.skinIndex = hit.skinIndex;
-    outSelection.instanceIndex = hit.instanceIndex;
-    outSelection.distance = hit.distance;
-    outSelection.hitPosition = hit.worldPosition;
-    outSelection.hitNormal = hit.worldNormal;
-    return true;
-}
-
-bool PlayLevelScene::pickModelAtCursor(ModelSelection& outSelection) const {
-    const ImVec2 mousePos = ImGui::GetIO().MousePos;
-    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
-        return false;
-    }
-    return pickModelAtScreen(mousePos.x, mousePos.y, outSelection);
-}
-
-void PlayLevelScene::updateDebugPickFromMouse() {
-    if (selectedTowerLoadoutIndex_ >= 0) {
-        return;
-    }
-
-    if (!debugPickEnabled_) {
-        return;
-    }
-
-    const ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureMouse) {
-        return;
-    }
-    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        return;
-    }
-
-    ModelSelection selection{};
-    const auto isSelectableSelection = [](const ModelSelection& s) {
-        if (s.instanceIndex >= 0) {
-            return true;
-        }
-        return s.group.rfind("tower", 0) == 0;
-    };
-
-    // Hover path already applies dynamic proxy fallback; prefer it for click selection.
-    if (hoverSelection_.valid && isSelectableSelection(hoverSelection_)) {
-        debugSelection_ = hoverSelection_;
-        selectedInstanceIndex_ = hoverSelection_.instanceIndex;
-        selectedEnemyRuntimeId_ =
-            (hoverSelection_.instanceIndex >= 0 && hoverSelection_.instanceIndex < static_cast<int>(activeEnemies_.size()))
-                ? activeEnemies_[static_cast<std::size_t>(hoverSelection_.instanceIndex)].runtimeId
-                : 0;
-        debugPickStatus_ = "picked " + hoverSelection_.group + " / " + hoverSelection_.label;
-        return;
-    }
-
-    if (pickModelAtCursor(selection) && isSelectableSelection(selection)) {
-        debugSelection_ = selection;
-        selectedInstanceIndex_ = selection.instanceIndex;
-        selectedEnemyRuntimeId_ =
-            (selection.instanceIndex >= 0 && selection.instanceIndex < static_cast<int>(activeEnemies_.size()))
-                ? activeEnemies_[static_cast<std::size_t>(selection.instanceIndex)].runtimeId
-                : 0;
-        debugPickStatus_ = "picked " + selection.group + " / " + selection.label;
-    } else if (selection.valid) {
-        debugSelection_ = {};
-        selectedInstanceIndex_ = -1;
-        selectedEnemyRuntimeId_ = 0;
-        debugPickStatus_ = "hit non-selectable model";
-    } else {
-        selectedInstanceIndex_ = -1;
-        selectedEnemyRuntimeId_ = 0;
-        debugPickStatus_ = "no model hit at cursor";
-    }
-}
-
-bool PlayLevelScene::updateDebugHoverFromMouse() {
-    const int previousHoveredInstanceIndex = hoveredInstanceIndex_;
-    const bool previousHoverValid = hoverSelection_.valid;
-
-    hoveredInstanceIndex_ = -1;
-    hoverSelection_ = {};
-
-    if (!debugPickEnabled_) {
-        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
-    }
-
-    const ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureMouse) {
-        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
-    }
-
-    const ImVec2 mousePos = io.MousePos;
-    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
-        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
-    }
-
-    ModelSelection hover{};
-    if (pickModelAtCursor(hover) && hover.instanceIndex >= 0) {
-        hoverSelection_ = hover;
-        hoveredInstanceIndex_ = hover.instanceIndex;
-        return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
-    }
-
-    if (worldRenderer_ && worldRenderer_->isLoaded()) {
-        const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-        const ImVec2 renderSize(
-            (lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
-            (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height) : displaySize.y);
-        const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
-        glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
-        proj[1][1] *= -1.0f;
-        const glm::mat4 view = buildViewMatrix();
-
-        WorldPickOptions pickOptions{};
-        pickOptions.staticRadiusScale = kPickStaticRadiusScale;
-        pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
-        pickOptions.staticMinRadius = kPickStaticMinRadius;
-        pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
-        pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
-        pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
-
-        const std::vector<WorldPickDebugSphere> spheres = worldRenderer_->buildDynamicPickDebugSpheres(pickOptions);
-        const float focalPixels = displaySize.y / (2.0f * std::tan(kDebugOverlayFovRadians * 0.5f));
-
-        int bestInstance = -1;
-        float bestNormalizedDist2 = std::numeric_limits<float>::max();
-        glm::vec3 bestCenter{0.0f};
-        std::string bestGroup;
-        std::string bestLabel;
-
-        for (const WorldPickDebugSphere& sphere : spheres) {
-            ImVec2 screenPos{};
-            float depthAbs = 0.0f;
-            if (!projectWorldToScreen(sphere.center, view, proj, displaySize, renderSize, screenPos, depthAbs, nullptr)) {
-                continue;
-            }
-
-            const float radiusPixels = sphere.radius * focalPixels / std::max(0.1f, depthAbs);
-            if (!std::isfinite(radiusPixels) || radiusPixels < 1.0f) {
-                continue;
-            }
-
-            const float dx = mousePos.x - screenPos.x;
-            const float dy = mousePos.y - screenPos.y;
-            const float dist2 = dx * dx + dy * dy;
-            if (dist2 > radiusPixels * radiusPixels) {
-                continue;
-            }
-
-            const float normalizedDist2 = dist2 / std::max(1.0f, radiusPixels * radiusPixels);
-            if (normalizedDist2 < bestNormalizedDist2) {
-                bestNormalizedDist2 = normalizedDist2;
-                bestInstance = sphere.instanceIndex;
-                bestCenter = sphere.center;
-                bestGroup = sphere.group;
-                bestLabel = sphere.label;
-            }
-        }
-
-        if (bestInstance >= 0) {
-            hoverSelection_.valid = true;
-            hoverSelection_.instanceIndex = bestInstance;
-            hoverSelection_.group = bestGroup;
-            hoverSelection_.label = bestLabel;
-            hoverSelection_.hitPosition = bestCenter;
-            hoveredInstanceIndex_ = bestInstance;
-        }
-    }
-
-    return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
-}
-
-void PlayLevelScene::drawDebugPickSpheresOverlay() const {
-    debugOverlayStats_ = {};
-
-    if (!debugDrawPickSpheres_ || !worldRenderer_ || !worldRenderer_->isLoaded()) {
-        return;
-    }
-
-    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
-    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
-        return;
-    }
-    const ImVec2 renderSize(
-        (lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
-        (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height) : displaySize.y);
-    debugOverlayStats_.displayWidth = displaySize.x;
-    debugOverlayStats_.displayHeight = displaySize.y;
-    debugOverlayStats_.renderWidth = renderSize.x;
-    debugOverlayStats_.renderHeight = renderSize.y;
-
-    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
-    glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
-    proj[1][1] *= -1.0f;
-    const glm::mat4 view = buildViewMatrix();
-
-    WorldPickOptions pickOptions{};
-    pickOptions.staticRadiusScale = kPickStaticRadiusScale;
-    pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
-    pickOptions.staticMinRadius = kPickStaticMinRadius;
-    pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
-    pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
-    pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
-
-    const std::vector<WorldPickDebugSphere> spheres = worldRenderer_->buildDynamicPickDebugSpheres(pickOptions);
-    debugOverlayStats_.sphereTotal = static_cast<int>(spheres.size());
-    if (spheres.empty()) {
-        return;
-    }
-
-    ImDrawList* drawList = ImGui::GetForegroundDrawList();
-    const float focalPixels = displaySize.y / (2.0f * std::tan(kDebugOverlayFovRadians * 0.5f));
-
-    for (const WorldPickDebugSphere& sphere : spheres) {
-        const glm::vec3 center = sphere.center;
-        const float sphereRadius = sphere.radius;
-
-        ImVec2 screenPos{};
-        float depthAbs = 0.0f;
-        ProjectionRejectReason rejectReason = ProjectionRejectReason::None;
-        if (!projectWorldToScreen(center, view, proj, displaySize, renderSize, screenPos, depthAbs, &rejectReason)) {
-            if (rejectReason == ProjectionRejectReason::BehindCamera) {
-                ++debugOverlayStats_.rejectBehindCamera;
-            } else if (rejectReason == ProjectionRejectReason::ClipW) {
-                ++debugOverlayStats_.rejectClipW;
-            } else if (rejectReason == ProjectionRejectReason::NdcZ) {
-                ++debugOverlayStats_.rejectNdcZ;
-            }
-            continue;
-        }
-
-        const float radiusPixels = sphereRadius * focalPixels / std::max(0.1f, depthAbs);
-        if (!std::isfinite(radiusPixels) || radiusPixels < 1.0f) {
-            ++debugOverlayStats_.rejectRadius;
-            continue;
-        }
-
-        const bool hovered = (sphere.instanceIndex == hoveredInstanceIndex_);
-        const ImU32 col = hovered ? IM_COL32(255, 220, 64, 235) : IM_COL32(64, 200, 255, 180);
-        drawList->AddCircle(screenPos, radiusPixels, col, 42, hovered ? 2.5f : 1.5f);
-        ++debugOverlayStats_.sphereDrawn;
+    if (pickingController_.selectedInstanceIndex() >= 0) {
+        pickingController_.clearSelection("selected enemy died");
     }
 }
 
@@ -2156,11 +1849,8 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         activeEnemies_.clear();
         activeProjectiles_.clear();
         selectedEnemyRuntimeId_ = 0;
-        if (selectedInstanceIndex_ >= 0) {
-            selectedInstanceIndex_ = -1;
-            if (debugSelection_.valid && debugSelection_.instanceIndex >= 0) {
-                debugSelection_ = {};
-            }
+        if (pickingController_.selectedInstanceIndex() >= 0) {
+            pickingController_.clearSelection("selection cleared");
         }
         return;
     }
@@ -2652,8 +2342,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            self->debugPickEnabled_ = lua_toboolean(L, 1) != 0;
-            lua_pushboolean(L, self->debugPickEnabled_);
+            self->pickingController_.setPickingEnabled(lua_toboolean(L, 1) != 0);
+            lua_pushboolean(L, self->pickingController_.pickingEnabled());
             return 1;
         },
         1);
@@ -2664,7 +2354,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            lua_pushboolean(L, self->debugPickEnabled_);
+            lua_pushboolean(L, self->pickingController_.pickingEnabled());
             return 1;
         },
         1);
@@ -2675,8 +2365,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            self->debugDrawPickSpheres_ = lua_toboolean(L, 1) != 0;
-            lua_pushboolean(L, self->debugDrawPickSpheres_);
+            self->pickingController_.setPickSpheresVisible(lua_toboolean(L, 1) != 0);
+            lua_pushboolean(L, self->pickingController_.pickSpheresVisible());
             return 1;
         },
         1);
@@ -2687,7 +2377,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            lua_pushboolean(L, self->debugDrawPickSpheres_);
+            lua_pushboolean(L, self->pickingController_.pickSpheresVisible());
             return 1;
         },
         1);
@@ -2698,20 +2388,20 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            PlayLevelScene::ModelSelection selection{};
-            const bool hit = self->pickModelAtCursor(selection);
+            PlayLevelPickingController::ModelSelection selection{};
+            const bool hit = self->pickingController_.pickAtCursor(
+                self->worldRenderer_.get(), self->buildViewMatrix(), self->cameraController_.position(), selection);
             const bool selectableHit = hit && (selection.instanceIndex >= 0 || selection.group.rfind("tower", 0) == 0);
             lua_newtable(L);
             lua_pushboolean(L, selectableHit);
             lua_setfield(L, -2, "hit");
             if (selectableHit) {
-                self->debugSelection_ = selection;
-                self->selectedInstanceIndex_ = selection.instanceIndex;
+                self->pickingController_.setSelectedSelection(selection,
+                                                             "picked " + selection.group + " / " + selection.label);
                 self->selectedEnemyRuntimeId_ =
                     (selection.instanceIndex >= 0 && selection.instanceIndex < static_cast<int>(self->activeEnemies_.size()))
                         ? self->activeEnemies_[static_cast<std::size_t>(selection.instanceIndex)].runtimeId
                         : 0;
-                self->debugPickStatus_ = "picked " + selection.group + " / " + selection.label;
 
                 lua_pushstring(L, selection.group.c_str());
                 lua_setfield(L, -2, "group");
@@ -2746,14 +2436,12 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 lua_setfield(L, -2, "z");
                 lua_setfield(L, -2, "hitNormal");
             } else if (hit) {
-                self->debugSelection_ = {};
-                self->selectedInstanceIndex_ = -1;
+                self->pickingController_.clearSelection("hit non-selectable model");
                 self->selectedEnemyRuntimeId_ = 0;
-                self->debugPickStatus_ = "hit non-selectable model";
             } else {
-                self->selectedInstanceIndex_ = -1;
+                self->pickingController_.setSelectedInstanceIndex(-1);
+                self->pickingController_.setStatus("no model hit at cursor");
                 self->selectedEnemyRuntimeId_ = 0;
-                self->debugPickStatus_ = "no model hit at cursor";
             }
             return 1;
         },
@@ -2765,42 +2453,45 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
+            const auto& selected = self->pickingController_.selectedSelection();
+            const auto& overlayStats = self->pickingController_.overlayStats();
+            const auto& hover = self->pickingController_.hoverSelection();
             lua_newtable(L);
-            lua_pushboolean(L, self->debugSelection_.valid);
+            lua_pushboolean(L, selected.valid);
             lua_setfield(L, -2, "valid");
-            lua_pushstring(L, self->debugPickStatus_.c_str());
+            lua_pushstring(L, self->pickingController_.status().c_str());
             lua_setfield(L, -2, "status");
-            lua_pushboolean(L, self->debugDrawPickSpheres_);
+            lua_pushboolean(L, self->pickingController_.pickSpheresVisible());
             lua_setfield(L, -2, "debugPickSpheresVisible");
 
             lua_newtable(L);
-            lua_pushinteger(L, self->debugOverlayStats_.sphereTotal);
+            lua_pushinteger(L, overlayStats.sphereTotal);
             lua_setfield(L, -2, "sphereTotal");
-            lua_pushinteger(L, self->debugOverlayStats_.sphereDrawn);
+            lua_pushinteger(L, overlayStats.sphereDrawn);
             lua_setfield(L, -2, "sphereDrawn");
-            lua_pushinteger(L, self->debugOverlayStats_.rejectBehindCamera);
+            lua_pushinteger(L, overlayStats.rejectBehindCamera);
             lua_setfield(L, -2, "rejectBehindCamera");
-            lua_pushinteger(L, self->debugOverlayStats_.rejectClipW);
+            lua_pushinteger(L, overlayStats.rejectClipW);
             lua_setfield(L, -2, "rejectClipW");
-            lua_pushinteger(L, self->debugOverlayStats_.rejectNdcZ);
+            lua_pushinteger(L, overlayStats.rejectNdcZ);
             lua_setfield(L, -2, "rejectNdcZ");
-            lua_pushinteger(L, self->debugOverlayStats_.rejectRadius);
+            lua_pushinteger(L, overlayStats.rejectRadius);
             lua_setfield(L, -2, "rejectRadius");
-            lua_pushinteger(L, self->debugOverlayStats_.hoveredSphereFound);
+            lua_pushinteger(L, overlayStats.hoveredSphereFound);
             lua_setfield(L, -2, "hoveredSphereFound");
-            lua_pushinteger(L, self->debugOverlayStats_.hoveredRejectReason);
+            lua_pushinteger(L, overlayStats.hoveredRejectReason);
             lua_setfield(L, -2, "hoveredRejectReason");
-            lua_pushnumber(L, self->debugOverlayStats_.hoveredDepth);
+            lua_pushnumber(L, overlayStats.hoveredDepth);
             lua_setfield(L, -2, "hoveredDepth");
-            lua_pushnumber(L, self->debugOverlayStats_.hoveredRadiusPixels);
+            lua_pushnumber(L, overlayStats.hoveredRadiusPixels);
             lua_setfield(L, -2, "hoveredRadiusPixels");
-            lua_pushnumber(L, self->debugOverlayStats_.displayWidth);
+            lua_pushnumber(L, overlayStats.displayWidth);
             lua_setfield(L, -2, "displayWidth");
-            lua_pushnumber(L, self->debugOverlayStats_.displayHeight);
+            lua_pushnumber(L, overlayStats.displayHeight);
             lua_setfield(L, -2, "displayHeight");
-            lua_pushnumber(L, self->debugOverlayStats_.renderWidth);
+            lua_pushnumber(L, overlayStats.renderWidth);
             lua_setfield(L, -2, "renderWidth");
-            lua_pushnumber(L, self->debugOverlayStats_.renderHeight);
+            lua_pushnumber(L, overlayStats.renderHeight);
             lua_setfield(L, -2, "renderHeight");
             lua_pushnumber(L, self->cameraController_.yaw());
             lua_setfield(L, -2, "cameraYaw");
@@ -2809,20 +2500,20 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "overlayDebug");
 
             lua_newtable(L);
-            lua_pushboolean(L, self->hoverSelection_.valid);
+            lua_pushboolean(L, hover.valid);
             lua_setfield(L, -2, "valid");
-            lua_pushinteger(L, self->hoveredInstanceIndex_);
+            lua_pushinteger(L, self->pickingController_.hoveredInstanceIndex());
             lua_setfield(L, -2, "instanceIndex");
-            if (self->hoverSelection_.valid) {
-                lua_pushstring(L, self->hoverSelection_.group.c_str());
+            if (hover.valid) {
+                lua_pushstring(L, hover.group.c_str());
                 lua_setfield(L, -2, "group");
-                lua_pushstring(L, self->hoverSelection_.label.c_str());
+                lua_pushstring(L, hover.label.c_str());
                 lua_setfield(L, -2, "label");
             }
             lua_setfield(L, -2, "hover");
 
-            if (self->debugSelection_.valid) {
-                const auto& s = self->debugSelection_;
+            if (selected.valid) {
+                const auto& s = selected;
                 lua_pushstring(L, s.group.c_str());
                 lua_setfield(L, -2, "group");
                 lua_pushstring(L, s.label.c_str());
@@ -2909,10 +2600,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
-            self->debugSelection_ = {};
-            self->selectedInstanceIndex_ = -1;
+            self->pickingController_.clearSelection("selection cleared");
             self->selectedEnemyRuntimeId_ = 0;
-            self->debugPickStatus_ = "selection cleared";
             return 0;
         },
         1);
