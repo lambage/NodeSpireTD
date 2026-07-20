@@ -1,5 +1,6 @@
 #pragma once
 #include "scenes/PlayLevelCameraController.hpp"
+#include "scenes/PlayLevelCombatController.hpp"
 #include "scenes/GameScene.hpp"
 #include "scenes/PlayLevelPickingController.hpp"
 #include "scenes/PlayLevelState.hpp"
@@ -45,18 +46,6 @@ class PlayLevelScene final : public GameScene {
       float facingYawOffsetDegrees = 0.0f;
     };
 
-    struct ActiveEnemy {
-      std::string enemyId = "goblin1";
-      std::uint64_t runtimeId = 0;
-      float distanceAlongPath = 0.0f;
-      float health = 1.0f;
-      float moveSpeed = 1.0f;
-      float rewardMoney = 0.0f;
-      float baseDamage = 1.0f;
-      float renderScale = 1.0f;
-      float facingYawOffsetDegrees = 0.0f;
-    };
-
     struct TowerArchetype {
       std::string id = "tower";
       std::string displayName = "Tower";
@@ -72,26 +61,6 @@ class PlayLevelScene final : public GameScene {
       float facingYawOffsetDegrees = 0.0f;
     };
 
-    struct PlacedTower {
-      std::string towerId;
-      glm::vec3 position{0.0f};
-      float attackDamage = 1.0f;
-      float attackRange = 0.0f;
-      float attackIntervalSeconds = 1.0f;
-      float attackCooldownRemainingSeconds = 0.0f;
-      float projectileSpeed = 16.0f;
-      int cost = 0;
-    };
-
-    struct ActiveProjectile {
-      std::string towerId;
-      glm::vec3 position{0.0f};
-      glm::vec3 velocity{0.0f};
-      float damage = 1.0f;
-      float remainingLifeSeconds = 0.0f;
-      std::uint64_t targetEnemyRuntimeId = 0;
-    };
-
     enum class GameplayCommandType {
       SpendMoney,
       DamageBase,
@@ -102,6 +71,10 @@ class PlayLevelScene final : public GameScene {
       GameplayCommandType type;
       float amount;
     };
+
+    using ActiveEnemy = playlevel::ActiveEnemy;
+    using PlacedTower = playlevel::PlacedTower;
+    using ActiveProjectile = playlevel::ActiveProjectile;
 
     std::unique_ptr<WorldRenderer> worldRenderer_;
     PlayLevelState gameplayState_{};
@@ -114,6 +87,7 @@ class PlayLevelScene final : public GameScene {
     std::unordered_map<std::string, std::vector<std::string>> towerPoolGroupsById_;
     std::unordered_map<std::string, std::string> towerGhostGroupById_;
     PlayLevelTowerPlacementController towerPlacementController_{};
+    PlayLevelCombatController combatController_{};
     std::vector<PlacedTower> placedTowers_;
     std::vector<ActiveProjectile> activeProjectiles_;
     std::uint64_t nextEnemyRuntimeId_ = 1;

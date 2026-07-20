@@ -23,8 +23,6 @@ namespace {
 constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
 constexpr int kTowerPoolPlacementsPerType = 32;
 constexpr float kTowerHiddenY = -10000.0f;
-constexpr float kProjectileHitRadius = 0.45f;
-constexpr float kProjectileLifetimeSeconds = 2.0f;
 
 enum class ProjectionRejectReason {
     None = 0,
@@ -1379,129 +1377,28 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
                                                  facingYawOffsetDegrees});
         });
 
-    std::size_t writeIndex = 0;
-    for (std::size_t i = 0; i < activeEnemies_.size(); ++i) {
-        ActiveEnemy enemy = activeEnemies_[i];
-        enemy.distanceAlongPath += std::max(0.05f, enemy.moveSpeed) * dt;
-
-        if (enemy.distanceAlongPath >= routeController_.totalLength()) {
-            requestDamageBase(std::max(1.0f, enemy.baseDamage));
-            continue;
-        }
-
-        activeEnemies_[writeIndex++] = enemy;
-    }
-    activeEnemies_.resize(writeIndex);
+    combatController_.advanceEnemies(dt, routeController_.totalLength(), activeEnemies_, [this](float baseDamage) {
+        requestDamageBase(baseDamage);
+    });
     reconcileSelectedEnemyAfterSimulation();
 
-    for (PlacedTower& tower : placedTowers_) {
-        tower.attackCooldownRemainingSeconds = std::max(0.0f, tower.attackCooldownRemainingSeconds - dt);
-        if (tower.attackCooldownRemainingSeconds > 0.0f) {
-            continue;
-        }
+    combatController_.updateTowerAttacks(
+        dt,
+        [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); },
+        placedTowers_,
+        activeEnemies_,
+        activeProjectiles_);
 
-        const float attackRangeSq = tower.attackRange * tower.attackRange;
-        int targetEnemyIndex = -1;
-        float bestDistSq = std::numeric_limits<float>::max();
+    combatController_.updateProjectiles(
+        dt,
+        [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); },
+        activeEnemies_,
+        activeProjectiles_);
 
-        for (int i = 0; i < static_cast<int>(activeEnemies_.size()); ++i) {
-            const ActiveEnemy& enemy = activeEnemies_[i];
-            const glm::vec3 enemyPos = sampleRoutePosition(enemy.distanceAlongPath);
-            const glm::vec3 delta = enemyPos - tower.position;
-            const float distSq = glm::dot(delta, delta);
-            if (distSq <= attackRangeSq && distSq < bestDistSq) {
-                bestDistSq = distSq;
-                targetEnemyIndex = i;
-            }
-        }
-
-        if (targetEnemyIndex < 0) {
-            continue;
-        }
-
-        const ActiveEnemy& targetEnemy = activeEnemies_[targetEnemyIndex];
-        const glm::vec3 launchPosition = tower.position + glm::vec3(0.0f, 0.7f, 0.0f);
-        const glm::vec3 targetPosition = sampleRoutePosition(targetEnemy.distanceAlongPath) + glm::vec3(0.0f, 0.4f, 0.0f);
-
-        glm::vec3 direction = targetPosition - launchPosition;
-        const float dirLenSq = glm::dot(direction, direction);
-        if (dirLenSq <= 1e-8f) {
-            direction = glm::vec3(0.0f, 0.0f, 1.0f);
-        } else {
-            direction = glm::normalize(direction);
-        }
-
-        ActiveProjectile projectile;
-        projectile.towerId = tower.towerId;
-        projectile.position = launchPosition;
-        projectile.velocity = direction * std::max(0.1f, tower.projectileSpeed);
-        projectile.damage = std::max(0.01f, tower.attackDamage);
-        projectile.remainingLifeSeconds = kProjectileLifetimeSeconds;
-        projectile.targetEnemyRuntimeId = targetEnemy.runtimeId;
-        activeProjectiles_.push_back(std::move(projectile));
-
-        tower.attackCooldownRemainingSeconds = std::max(0.01f, tower.attackIntervalSeconds);
-    }
-
-    std::size_t projectileWriteIndex = 0;
-    for (std::size_t i = 0; i < activeProjectiles_.size(); ++i) {
-        ActiveProjectile projectile = activeProjectiles_[i];
-
-        ActiveEnemy* targetEnemy = nullptr;
-        for (ActiveEnemy& enemy : activeEnemies_) {
-            if (enemy.runtimeId == projectile.targetEnemyRuntimeId) {
-                targetEnemy = &enemy;
-                break;
-            }
-        }
-
-        // Target already died or left simulation; retire this projectile.
-        if (!targetEnemy) {
-            continue;
-        }
-
-        const glm::vec3 enemyPos = sampleRoutePosition(targetEnemy->distanceAlongPath) + glm::vec3(0.0f, 0.4f, 0.0f);
-        glm::vec3 toEnemy = enemyPos - projectile.position;
-        const float distanceToEnemy = glm::length(toEnemy);
-
-        if (distanceToEnemy > 1e-6f) {
-            toEnemy /= distanceToEnemy;
-        } else {
-            toEnemy = glm::vec3(0.0f, 0.0f, 1.0f);
-        }
-
-        const float projectileSpeed = glm::length(projectile.velocity);
-        projectile.velocity = toEnemy * std::max(0.1f, projectileSpeed);
-        projectile.position += projectile.velocity * dt;
-        projectile.remainingLifeSeconds -= dt;
-
-        // TD lock-on behavior: once a target is chosen, the shot should land as long as target remains valid.
-        const float travelThisFrame = std::max(0.0f, glm::length(projectile.velocity) * dt);
-        const glm::vec3 postMoveToEnemy = enemyPos - projectile.position;
-        const float postMoveDistanceSq = glm::dot(postMoveToEnemy, postMoveToEnemy);
-        const bool reachedTarget = postMoveDistanceSq <= (kProjectileHitRadius * kProjectileHitRadius) ||
-                                   distanceToEnemy <= (travelThisFrame + kProjectileHitRadius);
-
-        if (reachedTarget || projectile.remainingLifeSeconds <= 0.0f) {
-            targetEnemy->health -= projectile.damage;
-            continue;
-        }
-
-        activeProjectiles_[projectileWriteIndex++] = std::move(projectile);
-    }
-    activeProjectiles_.resize(projectileWriteIndex);
-
-    std::size_t enemyWriteIndex = 0;
-    for (std::size_t i = 0; i < activeEnemies_.size(); ++i) {
-        ActiveEnemy enemy = activeEnemies_[i];
-        if (enemy.health <= 0.0f) {
-            gameplayState_.playerMoney += std::max(0.0f, enemy.rewardMoney);
-            gameplayState_.enemiesDefeated += 1;
-            continue;
-        }
-        activeEnemies_[enemyWriteIndex++] = std::move(enemy);
-    }
-    activeEnemies_.resize(enemyWriteIndex);
+    combatController_.collectDefeatedEnemies(
+        activeEnemies_,
+        [this](float rewardMoney) { gameplayState_.playerMoney += rewardMoney; },
+        [this]() { gameplayState_.enemiesDefeated += 1; });
     reconcileSelectedEnemyAfterSimulation();
 
     gameplayState_.enemiesAlive = static_cast<int>(activeEnemies_.size());
