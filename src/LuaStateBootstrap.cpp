@@ -5,8 +5,8 @@
 #include "utility/VulkanTexture.hpp"
 
 #include <imgui.h>
-
 #include <spdlog/spdlog.h>
+
 
 namespace LuaStateBootstrap {
 void initializeEngineState(lua_State* L, const VulkanContext* context) {
@@ -167,6 +167,29 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         0);
     lua_setfield(L, t, "SetNextWindowBgAlpha");
 
+
+    // SetCursorPosX(x)
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            float x = static_cast<float>(luaL_checknumber(L, 1));
+            ImGui::SetCursorPosX(x);
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "SetCursorPosX");
+
+    // SetCursorPosY(y)
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            float y = static_cast<float>(luaL_checknumber(L, 1));
+            ImGui::SetCursorPosY(y);
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "SetCursorPosY");
+
     // Text
     // Text(str) / TextUnformatted(str)
     lua_pushcclosure(
@@ -186,7 +209,18 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
             return 0;
         },
         0);
-    lua_setfield(L, t, "TextWrapped");    
+    lua_setfield(L, t, "TextWrapped");
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto size =ImGui::CalcTextSize("%s", luaL_checkstring(L, 1));
+            lua_pushnumber(L, size.x);
+            lua_pushnumber(L, size.y);
+            return 2;
+        },
+        0);
+    lua_setfield(L, t, "CalcTextSize");
 
     lua_pushcclosure(
         L,
@@ -266,14 +300,17 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         0);
     lua_setfield(L, t, "SmallButton");
 
-    lua_pushcclosure(L, [](lua_State* L) -> int {
-        const char* label = luaL_checkstring(L, 1);
-        bool v = lua_toboolean(L, 2) != 0;
-        bool changed = ImGui::Selectable(label, &v);
-        lua_pushboolean(L, changed);
-        lua_pushboolean(L, v);
-        return 2;
-    }, 0);
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const char* label = luaL_checkstring(L, 1);
+            bool v = lua_toboolean(L, 2) != 0;
+            bool changed = ImGui::Selectable(label, &v);
+            lua_pushboolean(L, changed);
+            lua_pushboolean(L, v);
+            return 2;
+        },
+        0);
     lua_setfield(L, t, "Selectable");
 
     // Checkbox(label, v) -> changed, v

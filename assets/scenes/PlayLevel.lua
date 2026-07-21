@@ -3,15 +3,18 @@ local M = {}
 local lastResult = ""
 local lastLoadoutResult = ""
 local debugPickSpheresVisible = false
-local debugUiVisible = true
+local debugUiVisible = false
 local towerSlotTextures = {}
 
 local function UiTextWrapped(text)
-    if ImGui.TextWrapped then
-        ImGui.TextWrapped(tostring(text or ""))
-    else
-        ImGui.Text(tostring(text or ""))
-    end
+    ImGui.TextWrapped(tostring(text or ""))
+end
+
+local function TextCentered(text)
+    local displayW = ImGui.GetWindowWidth()
+    local textW, _ = ImGui.CalcTextSize(tostring(text or ""))
+    ImGui.SetCursorPosX((displayW - textW) * 0.5)
+    ImGui.Text(tostring(text or ""))
 end
 
 local function getTowerPreviewTexture(slot)
@@ -54,6 +57,112 @@ function M.onEnter()
     end
 end
 
+local function drawMatchStateOverlay(gs)
+    local status = tostring(gs.matchStatus or "")
+    if status ~= "WaitingToStart" and status ~= "Victory" and status ~= "Defeat" then
+        return
+    end
+
+    local title = ""
+    local subtitle = ""
+    if status == "WaitingToStart" then
+        title = "Prepare Your Defenses"
+        subtitle = "Start when ready."
+    elseif status == "Victory" then
+        title = "You won"
+        subtitle = "All waves are cleared."
+    else
+        title = "Defeated"
+        subtitle = "Your base has fallen."
+    end
+
+    local displayW, displayH = ImGui.GetDisplaySize()
+    local panelW, panelH = 520, 240
+    ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.5, ImGuiCond.Always)
+    ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
+    ImGui.SetNextWindowBgAlpha(0.92)
+    ImGui.Begin("MatchStateOverlay", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+
+    ImGui.Text(title)
+    ImGui.Spacing()
+    UiTextWrapped(subtitle)
+    ImGui.Spacing()
+    ImGui.Separator()
+    ImGui.Spacing()
+
+    if status == "WaitingToStart" then
+        if ImGui.Button("Start Match", -1.0, 42.0) then
+            local r = Gameplay.requestStartWave and Gameplay.requestStartWave() or { ok = false, reason = "requestStartWave unavailable" }
+            lastResult = string.format("Start match -> ok=%s reason=%s", tostring(r.ok), tostring(r.reason))
+        end
+    else
+        if ImGui.Button("Play Again", -1.0, 42.0) then
+            Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Restarting level...")
+        end
+        ImGui.Spacing()
+        if ImGui.Button("Back to Lobby", -1.0, 38.0) then
+            Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
+        end
+    end
+
+    ImGui.End()
+end
+
+local function drawWaveCountdownOverlay(gs)
+    local status = tostring(gs.matchStatus or "")
+    if status ~= "Running" then
+        return
+    end
+
+    if gs.waveCountdownActive then
+
+        local remaining = gs.waveCountdownRemainingSeconds
+        local title = string.format("Next wave in")
+
+        local displayW, displayH = ImGui.GetDisplaySize()
+        local panelW, panelH = 520, 160
+        ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.05, ImGuiCond.Always)
+        ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
+        ImGui.SetNextWindowBgAlpha(0.92)
+        ImGui.Begin("MatchStateOverlay", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+
+        UiTextWrapped(title)
+        ImGui.ProgressBar(remaining / (gs.waveCountdownDurationSeconds or 1.0), -1.0, 18.0, "")
+        ImGui.Spacing()
+        if TitleFont then
+            ImGui.PushFont(TitleFont)
+        end       
+        TextCentered(string.format("%d", math.ceil(remaining or 0.0)))
+        if TitleFont then
+            ImGui.PopFont()
+        end
+        ImGui.End()
+    elseif gs.waveRoundRemainingSeconds > 0.0 then
+        local remaining = gs.waveRoundRemainingSeconds
+        local title = string.format("Wave %d in", gs.currentWave + 1)
+
+        local displayW, displayH = ImGui.GetDisplaySize()
+        local panelW, panelH = 520, 160
+        ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.05, ImGuiCond.Always)
+        ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
+        ImGui.SetNextWindowBgAlpha(0.92)
+        ImGui.Begin("MatchStateOverlay", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+
+        UiTextWrapped(title)
+        ImGui.ProgressBar(remaining / (gs.waveRoundDurationSeconds or 1.0), -1.0, 18.0, "")
+        ImGui.Spacing()
+        if TitleFont then
+            ImGui.PushFont(TitleFont)
+        end       
+        TextCentered(string.format("%d", math.ceil(remaining or 0.0)))
+        if TitleFont then
+            ImGui.PopFont()
+        end
+        ImGui.End()
+    end
+
+end
+
 function M.render(state, dt, elapsed)
     local gs = Gameplay.getState()
 
@@ -91,6 +200,9 @@ function M.render(state, dt, elapsed)
         ImGui.End()
         return
     end
+
+    drawMatchStateOverlay(gs)
+    drawWaveCountdownOverlay(gs)
     
     local loadout = nil
     if Gameplay.getTowerLoadout then
@@ -260,7 +372,7 @@ function M.render(state, dt, elapsed)
     ImGui.Text(lastResult)
     ImGui.End()
 
-    ImGui.SetNextWindowPos(1400, 20, ImGuiCond.Once)
+    ImGui.SetNextWindowPos(2000, 20, ImGuiCond.Once)
     ImGui.SetNextWindowSize(520, 680, ImGuiCond.Once)
     ImGui.SetNextWindowBgAlpha(0.76)
     ImGui.Begin("ModelDebugger", ImGuiWindowFlags.NoCollapse)

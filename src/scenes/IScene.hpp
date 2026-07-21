@@ -5,8 +5,10 @@
 #include "scenes/SceneSharedState.hpp"
 
 #include <SFML/Window/Event.hpp>
+#include <algorithm>
 #include <string>
 #include <utility>
+#include <vector>
 #include <volk.h>
 
 
@@ -24,6 +26,18 @@ struct SceneTransitionRequest {
     float minDurationSeconds = 0.0f;
 };
 
+enum class AudioChannel {
+    Music,
+    Sfx
+};
+
+struct AudioPlayRequest {
+    std::string path{};
+    AudioChannel channel = AudioChannel::Music;
+    bool loop = false;
+    float gain = 1.0f;
+};
+
 struct SceneRequestState {
     bool quitRequested = false;
     bool applySettingsRequested = false;
@@ -32,6 +46,8 @@ struct SceneRequestState {
 
     bool sceneTransitionRequested = false;
     SceneTransitionRequest sceneTransition{};
+
+    std::vector<AudioPlayRequest> audioPlayRequests{};
 };
 
 class IScene {
@@ -88,6 +104,22 @@ class IScene {
         sceneRequests_.sceneTransition.target = target;
         sceneRequests_.sceneTransition.message = std::move(message);
         sceneRequests_.sceneTransition.minDurationSeconds = minDurationSeconds;
+    }
+
+    void requestPlayAudio(std::string path,
+                        AudioChannel channel = AudioChannel::Music,
+                        bool loop = false,
+                        float gain = 1.0f) {
+        if (path.empty()) {
+            return;
+        }
+
+        AudioPlayRequest request;
+        request.path = std::move(path);
+        request.channel = channel;
+        request.loop = loop;
+        request.gain = std::clamp(gain, 0.0f, 1.0f);
+        sceneRequests_.audioPlayRequests.push_back(std::move(request));
     }
 
   private:

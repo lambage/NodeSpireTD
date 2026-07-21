@@ -8,12 +8,14 @@
 #include "scenes/IScene.hpp"
 #include "scenes/SceneSharedState.hpp"
 
+#include <SFML/Audio.hpp>
 #include <SFML/Window.hpp>
 #include <algorithm>
 #include <imgui.h>
 #include <memory>
 #include <optional>
 #include <spdlog/spdlog.h>
+#include <unordered_map>
 #include <unordered_set>
 
 #ifdef _WIN32
@@ -49,6 +51,57 @@ bool hasDisplayChanges(const AppSettings& left, const AppSettings& right) {
            left.displayWidth != right.displayWidth ||
            left.displayHeight != right.displayHeight || left.refreshRate != right.refreshRate;
 }
+
+float computeMusicVolumePercent(const AppSettings& settings, float gain) {
+    const float mixed = settings.masterVolume * settings.musicVolume * std::clamp(gain, 0.0f, 1.0f);
+    return std::clamp(mixed, 0.0f, 1.0f) * 100.0f;
+}
+
+float computeSfxVolumePercent(const AppSettings& settings, float gain) {
+    const float mixed = settings.masterVolume * settings.sfxVolume * std::clamp(gain, 0.0f, 1.0f);
+    return std::clamp(mixed, 0.0f, 1.0f) * 100.0f;
+}
+
+#if SFML_VERSION_MAJOR >= 3
+void setMusicLoopEnabled(sf::Music& music, bool enabled) {
+    music.setLooping(enabled);
+}
+#else
+void setMusicLoopEnabled(sf::Music& music, bool enabled) {
+    music.setLoop(enabled);
+}
+#endif
+
+bool isMusicStopped(const sf::Music& music) {
+    return music.getStatus() == sf::SoundSource::Status::Stopped;
+}
+
+#if SFML_VERSION_MAJOR >= 3
+void setSoundLoopEnabled(sf::Sound& sound, bool enabled) {
+    sound.setLooping(enabled);
+}
+#else
+void setSoundLoopEnabled(sf::Sound& sound, bool enabled) {
+    sound.setLoop(enabled);
+}
+#endif
+
+bool isSoundStopped(const sf::Sound& sound) {
+    return sound.getStatus() == sf::SoundSource::Status::Stopped;
+}
+
+struct LuaMusicPlayback {
+    std::string path;
+    float gain = 1.0f;
+    std::unique_ptr<sf::Music> music;
+};
+
+struct LuaSfxPlayback {
+    std::string path;
+    float gain = 1.0f;
+    std::shared_ptr<sf::SoundBuffer> buffer;
+    std::unique_ptr<sf::Sound> sound;
+};
 
 AppSettings sanitizeSettings(AppSettings settings) {
     settings.displayWidth = std::max(640, settings.displayWidth);
@@ -214,6 +267,9 @@ int AppController::run() {
 
         SceneGraph sceneGraph = createDefaultScenes();
         SceneId currentSceneId = SceneId::Splash;
+        std::vector<LuaMusicPlayback> activeLuaMusicPlaybacks;
+        std::vector<LuaSfxPlayback> activeLuaSfxPlaybacks;
+        std::unordered_map<std::string, std::shared_ptr<sf::SoundBuffer>> luaSfxBufferCache;
 
         struct PendingSceneTransition {
             bool active = false;
@@ -351,6 +407,55 @@ int AppController::run() {
                     sceneRequests = sceneIt->second->consumeSceneRequests();
                 }
 
+                for (const AudioPlayRequest& request : sceneRequests.audioPlayRequests) {
+                    if (request.path.empty()) {
+                        spdlog::warn("Rejected empty audio playback request path.");
+                        continue;
+                    }
+
+                    if (request.channel == AudioChannel::Music) {
+                        auto music = std::make_unique<sf::Music>();
+                        if (!music->openFromFile(request.path)) {
+                            spdlog::warn("Failed to open music file from Lua playback request: {}", request.path);
+                            continue;
+                        }
+
+                        setMusicLoopEnabled(*music, request.loop);
+                        music->setVolume(computeMusicVolumePercent(activeSettings, request.gain));
+                        music->play();
+
+                        LuaMusicPlayback playback;
+                        playback.path = request.path;
+                        playback.gain = request.gain;
+                        playback.music = std::move(music);
+                        activeLuaMusicPlaybacks.push_back(std::move(playback));
+                        continue;
+                    }
+
+                    std::shared_ptr<sf::SoundBuffer> buffer;
+                    if (auto it = luaSfxBufferCache.find(request.path); it != luaSfxBufferCache.end()) {
+                        buffer = it->second;
+                    } else {
+                        auto loadedBuffer = std::make_shared<sf::SoundBuffer>();
+                        if (!loadedBuffer->loadFromFile(request.path)) {
+                            spdlog::warn("Failed to open sfx file from Lua playback request: {}", request.path);
+                            continue;
+                        }
+                        luaSfxBufferCache.emplace(request.path, loadedBuffer);
+                        buffer = std::move(loadedBuffer);
+                    }
+
+                    LuaSfxPlayback playback;
+                    playback.path = request.path;
+                    playback.gain = request.gain;
+                    playback.buffer = buffer;
+                    playback.sound = std::make_unique<sf::Sound>(*playback.buffer);
+                    setSoundLoopEnabled(*playback.sound, request.loop);
+                    playback.sound->setVolume(computeSfxVolumePercent(activeSettings, request.gain));
+                    playback.sound->play();
+                    activeLuaSfxPlaybacks.push_back(std::move(playback));
+                }
+
                 if (sceneRequests.sceneTransitionRequested) {
                     // Defer scene teardown/enter to a later frame so any textures used by
                     // this frame's ImGui draw data remain valid through submission.
@@ -367,6 +472,32 @@ int AppController::run() {
                     }
                 }
             }
+
+            for (auto& playback : activeLuaMusicPlaybacks) {
+                if (playback.music) {
+                    playback.music->setVolume(computeMusicVolumePercent(activeSettings, playback.gain));
+                }
+            }
+
+            activeLuaMusicPlaybacks.erase(
+                std::remove_if(activeLuaMusicPlaybacks.begin(), activeLuaMusicPlaybacks.end(),
+                               [](const LuaMusicPlayback& playback) {
+                                   return !playback.music || isMusicStopped(*playback.music);
+                               }),
+                activeLuaMusicPlaybacks.end());
+
+            for (auto& playback : activeLuaSfxPlaybacks) {
+                if (playback.sound) {
+                    playback.sound->setVolume(computeSfxVolumePercent(activeSettings, playback.gain));
+                }
+            }
+
+            activeLuaSfxPlaybacks.erase(
+                std::remove_if(activeLuaSfxPlaybacks.begin(), activeLuaSfxPlaybacks.end(),
+                               [](const LuaSfxPlayback& playback) {
+                                   return !playback.sound || isSoundStopped(*playback.sound);
+                               }),
+                activeLuaSfxPlaybacks.end());
 
             imguiLayer->endFrame();
 

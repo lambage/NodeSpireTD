@@ -1,6 +1,7 @@
 #pragma once
 
 enum class MatchStatus {
+    WaitingToStart,
     Running,
     Paused,
     Victory,
@@ -17,11 +18,12 @@ struct PlayLevelState {
     int enemiesAlive = 0;
     int enemiesDefeated = 0;
     float spawnAccumulatorSeconds = 0.0f;
+    float waveCountdownDurationSeconds = 5.0f;
     float waveCountdownRemainingSeconds = 0.0f;
     float waveRoundDurationSeconds = 0.0f;
     float waveRoundRemainingSeconds = 0.0f;
     float defeatAccumulatorSeconds = 0.0f;
-    MatchStatus matchStatus = MatchStatus::Running;
+    MatchStatus matchStatus = MatchStatus::WaitingToStart;
 
     void resetForNewRun() {
         baseHealth = 100.0f;
@@ -37,6 +39,6 @@ struct PlayLevelState {
         waveRoundDurationSeconds = 0.0f;
         waveRoundRemainingSeconds = 0.0f;
         defeatAccumulatorSeconds = 0.0f;
-        matchStatus = MatchStatus::Running;
+        matchStatus = MatchStatus::WaitingToStart;
     }
 };

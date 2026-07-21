@@ -425,10 +425,19 @@ bool PlayLevelScene::requestDamageBase(float amount) {
 }
 
 bool PlayLevelScene::requestStartWave() {
-    return waveController_.beginWaveCountdown(gameplayState_,
-                                              worldRenderer_ && worldRenderer_->isLoaded(),
-                                              worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
-                                              routeController_.hasValidRoute());
+    const MatchStatus originalStatus = gameplayState_.matchStatus;
+    if (gameplayState_.matchStatus == MatchStatus::WaitingToStart) {
+        gameplayState_.matchStatus = MatchStatus::Running;
+    }
+
+    const bool started = waveController_.beginWaveCountdown(gameplayState_,
+                                                            worldRenderer_ && worldRenderer_->isLoaded(),
+                                                            worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
+                                                            routeController_.hasValidRoute());
+    if (!started && originalStatus == MatchStatus::WaitingToStart) {
+        gameplayState_.matchStatus = originalStatus;
+    }
+    return started;
 }
 
 bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
@@ -965,10 +974,6 @@ void PlayLevelScene::discoverTowerArchetypes() {
     for (const auto& path : scripts) {
         loadTowerArchetype(path.string());
     }
-
-    if (!towerLoadoutIds_.empty()) {
-        towerPlacementController_.setSelectedLoadoutIndex(0);
-    }
 }
 
 const PlayLevelScene::TowerArchetype* PlayLevelScene::findTowerArchetype(const std::string& towerId) const {
@@ -1037,6 +1042,7 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
                                                     0.0f,
                                                     selected->projectileSpeed,
                                                     selected->cost});
+                towerPlacementController_.cancelPlacement();
             }
         });
 }
@@ -1345,7 +1351,12 @@ void PlayLevelScene::reconcileSelectedEnemyAfterSimulation() {
 }
 
 std::string PlayLevelScene::validateStartWaveRequest() const {
-    return waveController_.validateStartWaveRequest(gameplayState_,
+    PlayLevelState validationState = gameplayState_;
+    if (validationState.matchStatus == MatchStatus::WaitingToStart) {
+        validationState.matchStatus = MatchStatus::Running;
+    }
+
+    return waveController_.validateStartWaveRequest(validationState,
                                                     worldRenderer_ && worldRenderer_->isLoaded(),
                                                     worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
                                                     routeController_.hasValidRoute());
@@ -1551,6 +1562,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "enemiesDefeated");
             lua_pushnumber(L, self->gameplayState_.waveCountdownRemainingSeconds);
             lua_setfield(L, -2, "waveCountdownRemainingSeconds");
+            lua_pushnumber(L, self->gameplayState_.waveCountdownDurationSeconds);
+            lua_setfield(L, -2, "waveCountdownDurationSeconds");
             lua_pushnumber(L, self->gameplayState_.waveRoundDurationSeconds);
             lua_setfield(L, -2, "waveRoundDurationSeconds");
             lua_pushnumber(L, self->gameplayState_.waveRoundRemainingSeconds);
@@ -1607,6 +1620,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             const char* status = "Running";
             switch (self->gameplayState_.matchStatus) {
+            case MatchStatus::WaitingToStart:
+                status = "WaitingToStart";
+                break;
             case MatchStatus::Running:
                 status = "Running";
                 break;
@@ -1828,6 +1844,57 @@ void PlayLevelScene::registerLuaGameplayApi() {
         },
         1);
     lua_setfield(L_, gameplayTable, "requestStartWave");
+
+    auto registerPlayOggFn = [&](const char* fieldName, AudioChannel channel) {
+        lua_pushlightuserdata(L_, this);
+        lua_pushinteger(L_, static_cast<lua_Integer>(channel));
+        lua_pushcclosure(
+            L_,
+            [](lua_State* L) -> int {
+                auto* self = luaSceneSelf(L);
+                const AudioChannel channel = static_cast<AudioChannel>(lua_tointeger(L, lua_upvalueindex(2)));
+                const std::string path = luaL_checkstring(L, 1);
+                if (path.empty()) {
+                    return pushCommandResult(L, false, "expected a non-empty audio file path");
+                }
+
+                bool loop = false;
+                float gain = 1.0f;
+
+                if (lua_gettop(L) >= 2) {
+                    if (lua_istable(L, 2)) {
+                        lua_getfield(L, 2, "loop");
+                        if (!lua_isnil(L, -1)) {
+                            loop = lua_toboolean(L, -1) != 0;
+                        }
+                        lua_pop(L, 1);
+
+                        lua_getfield(L, 2, "gain");
+                        if (lua_isnumber(L, -1)) {
+                            gain = static_cast<float>(lua_tonumber(L, -1));
+                        }
+                        lua_pop(L, 1);
+                    } else if (lua_isboolean(L, 2)) {
+                        loop = lua_toboolean(L, 2) != 0;
+                        if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) {
+                            gain = static_cast<float>(lua_tonumber(L, 3));
+                        }
+                    } else if (lua_isnumber(L, 2)) {
+                        gain = static_cast<float>(lua_tonumber(L, 2));
+                    } else {
+                        return pushCommandResult(L, false, "expected options table, loop flag, or gain");
+                    }
+                }
+
+                self->requestPlayAudio(path, channel, loop, gain);
+                return pushCommandResult(L, true, "queued");
+            },
+            2);
+        lua_setfield(L_, gameplayTable, fieldName);
+    };
+
+    registerPlayOggFn("playMusic", AudioChannel::Music);
+    registerPlayOggFn("playSfx", AudioChannel::Sfx);
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(

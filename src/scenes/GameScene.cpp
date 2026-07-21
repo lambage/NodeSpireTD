@@ -300,6 +300,57 @@ void GameScene::registerCoreGameplayApi() {
         1);
     lua_setfield(L_, gameplayTable, "requestScene");
 
+    auto registerPlayAudioFn = [&](const char* fieldName, AudioChannel channel) {
+        lua_pushlightuserdata(L_, this);
+        lua_pushinteger(L_, static_cast<lua_Integer>(channel));
+        lua_pushcclosure(
+            L_,
+            [](lua_State* L) -> int {
+                auto* self = luaSceneSelf(L);
+                const AudioChannel channel = static_cast<AudioChannel>(lua_tointeger(L, lua_upvalueindex(2)));
+                const std::string path = luaL_checkstring(L, 1);
+                if (path.empty()) {
+                    return pushCommandResult(L, false, "expected a non-empty audio file path");
+                }
+
+                bool loop = false;
+                float gain = 1.0f;
+
+                if (lua_gettop(L) >= 2) {
+                    if (lua_istable(L, 2)) {
+                        lua_getfield(L, 2, "loop");
+                        if (!lua_isnil(L, -1)) {
+                            loop = lua_toboolean(L, -1) != 0;
+                        }
+                        lua_pop(L, 1);
+
+                        lua_getfield(L, 2, "gain");
+                        if (lua_isnumber(L, -1)) {
+                            gain = static_cast<float>(lua_tonumber(L, -1));
+                        }
+                        lua_pop(L, 1);
+                    } else if (lua_isboolean(L, 2)) {
+                        loop = lua_toboolean(L, 2) != 0;
+                        if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) {
+                            gain = static_cast<float>(lua_tonumber(L, 3));
+                        }
+                    } else if (lua_isnumber(L, 2)) {
+                        gain = static_cast<float>(lua_tonumber(L, 2));
+                    } else {
+                        return pushCommandResult(L, false, "expected options table, loop flag, or gain");
+                    }
+                }
+
+                self->requestPlayAudio(path, channel, loop, gain);
+                return pushCommandResult(L, true, "queued");
+            },
+            2);
+        lua_setfield(L_, gameplayTable, fieldName);
+    };
+
+    registerPlayAudioFn("playMusic", AudioChannel::Music);
+    registerPlayAudioFn("playSfx", AudioChannel::Sfx);
+
     lua_newtable(L_);
     lua_pushinteger(L_, static_cast<lua_Integer>(SceneId::Splash));
     lua_setfield(L_, -2, "Splash");

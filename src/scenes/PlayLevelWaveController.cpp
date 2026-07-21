@@ -8,7 +8,6 @@
 
 namespace {
 
-constexpr float kPreWaveCountdownSeconds = 5.0f;
 constexpr float kDefaultWaveRoundDurationSeconds = 30.0f;
 
 } // namespace
@@ -289,7 +288,7 @@ bool PlayLevelWaveController::beginWaveCountdown(PlayLevelState& gameplayState, 
     }
 
     gameplayState.waveCountdownActive = true;
-    gameplayState.waveCountdownRemainingSeconds = kPreWaveCountdownSeconds;
+    gameplayState.waveCountdownRemainingSeconds = gameplayState.waveCountdownDurationSeconds;
     return true;
 }
 
@@ -323,9 +322,11 @@ bool PlayLevelWaveController::beginWaveSpawning(PlayLevelState& gameplayState, i
 }
 
 void PlayLevelWaveController::completeWaveAndAdvance(PlayLevelState& gameplayState) {
+    const bool hasNextWave = gameplayState.currentWave < static_cast<int>(waveDefinitions_.size());
+
     gameplayState.waveInProgress = false;
-    gameplayState.waveCountdownActive = false;
-    gameplayState.waveCountdownRemainingSeconds = 0.0f;
+    gameplayState.waveCountdownActive = hasNextWave;
+    gameplayState.waveCountdownRemainingSeconds = hasNextWave ? gameplayState.waveCountdownDurationSeconds : 0.0f;
     gameplayState.waveRoundDurationSeconds = 0.0f;
     gameplayState.waveRoundRemainingSeconds = 0.0f;
     gameplayState.enemiesToSpawn = 0;
@@ -379,7 +380,9 @@ void PlayLevelWaveController::updateWaveSpawning(PlayLevelState& gameplayState, 
                     }
                 }
 
-                if (gameplayState.enemiesToSpawn == 0 || gameplayState.waveRoundRemainingSeconds <= 0.0f) {
+                const bool waveFullySpawned = gameplayState.enemiesToSpawn == 0;
+                const bool noEnemiesAlive = enemiesAliveCount <= 0;
+                if ((waveFullySpawned && noEnemiesAlive) || gameplayState.waveRoundRemainingSeconds <= 0.0f) {
                     completeWaveAndAdvance(gameplayState);
                 }
             }
