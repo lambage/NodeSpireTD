@@ -7,8 +7,8 @@ class OptionsScene final : public GameScene {
     OptionsScene() = default;
     ~OptionsScene() override;
 
-    void onEnter(SceneSharedState&) override {}
-    void onExit(SceneSharedState&) override {}
+    void onEnter(SceneSharedState& state) override;
+    void onExit(SceneSharedState& state) override;
 
     void render(SceneSharedState& state, float dt) override;
 };

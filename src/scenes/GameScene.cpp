@@ -107,6 +107,98 @@ void GameScene::handleEvent(const sf::Event& event, ImGuiLayer& imguiLayer) {
     imguiLayer.processEvent(event);
 }
 
+bool readLuaBooleanField(lua_State* L, int tableIndex, const char* fieldName, bool& outValue) {
+    lua_getfield(L, tableIndex, fieldName);
+    const bool hasValue = !lua_isnil(L, -1);
+    if (hasValue) {
+        outValue = lua_toboolean(L, -1) != 0;
+    }
+    lua_pop(L, 1);
+    return hasValue;
+}
+
+bool readLuaIntegerField(lua_State* L, int tableIndex, const char* fieldName, int& outValue) {
+    lua_getfield(L, tableIndex, fieldName);
+    const bool hasValue = lua_isinteger(L, -1);
+    if (hasValue) {
+        outValue = static_cast<int>(lua_tointeger(L, -1));
+    }
+    lua_pop(L, 1);
+    return hasValue;
+}
+
+bool readLuaNumberField(lua_State* L, int tableIndex, const char* fieldName, float& outValue) {
+    lua_getfield(L, tableIndex, fieldName);
+    const bool hasValue = lua_isnumber(L, -1);
+    if (hasValue) {
+        outValue = static_cast<float>(lua_tonumber(L, -1));
+    }
+    lua_pop(L, 1);
+    return hasValue;
+}
+
+void applySceneState(lua_State* L, int stateTableIndex, SceneSharedState& state) {
+    const int stateIndex = lua_absindex(L, stateTableIndex);
+    if (!lua_istable(L, stateIndex)) {
+        return;
+    }
+
+    int selectedDisplayModeIndex = state.selectedDisplayModeIndex;
+    if (readLuaIntegerField(L, stateIndex, "selectedDisplayModeIndex", selectedDisplayModeIndex)) {
+        if (!state.displayModes.empty()) {
+            selectedDisplayModeIndex =
+                std::clamp(selectedDisplayModeIndex, 0, static_cast<int>(state.displayModes.size() - 1));
+        } else {
+            selectedDisplayModeIndex = 0;
+        }
+        state.selectedDisplayModeIndex = selectedDisplayModeIndex;
+    }
+
+    lua_getfield(L, stateIndex, "settings");
+    if (lua_istable(L, -1)) {
+        const int settingsIndex = lua_gettop(L);
+
+        bool boolValue = false;
+        int intValue = 0;
+        float floatValue = 0.0f;
+
+        if (readLuaBooleanField(L, settingsIndex, "fullscreen", boolValue)) {
+            state.settings.fullscreen = boolValue;
+        }
+        if (readLuaBooleanField(L, settingsIndex, "exclusiveFullscreen", boolValue)) {
+            state.settings.exclusiveFullscreen = boolValue;
+        }
+        if (readLuaBooleanField(L, settingsIndex, "vSyncEnabled", boolValue)) {
+            state.settings.vSyncEnabled = boolValue;
+        }
+        if (readLuaIntegerField(L, settingsIndex, "displayWidth", intValue)) {
+            state.settings.displayWidth = intValue;
+        }
+        if (readLuaIntegerField(L, settingsIndex, "displayHeight", intValue)) {
+            state.settings.displayHeight = intValue;
+        }
+        if (readLuaIntegerField(L, settingsIndex, "refreshRate", intValue)) {
+            state.settings.refreshRate = intValue;
+        }
+        if (readLuaIntegerField(L, settingsIndex, "graphicsQuality", intValue)) {
+            state.settings.graphicsQuality = intValue;
+        }
+        if (readLuaNumberField(L, settingsIndex, "masterVolume", floatValue)) {
+            state.settings.masterVolume = floatValue;
+        }
+        if (readLuaNumberField(L, settingsIndex, "musicVolume", floatValue)) {
+            state.settings.musicVolume = floatValue;
+        }
+        if (readLuaNumberField(L, settingsIndex, "sfxVolume", floatValue)) {
+            state.settings.sfxVolume = floatValue;
+        }
+        if (readLuaBooleanField(L, settingsIndex, "muteWhenUnfocused", boolValue)) {
+            state.settings.muteWhenUnfocused = boolValue;
+        }
+    }
+    lua_pop(L, 1);
+}
+
 // Builds a Lua table representing the current SceneSharedState.
 // Leaves the table on the top of the stack.
 static void pushSceneState(lua_State* L, const SceneSharedState& state) {
@@ -132,6 +224,20 @@ static void pushSceneState(lua_State* L, const SceneSharedState& state) {
 
     lua_pushinteger(L, state.selectedDisplayModeIndex);
     lua_setfield(L, -2, "selectedDisplayModeIndex");
+
+    lua_newtable(L);
+    for (std::size_t i = 0; i < state.displayModes.size(); ++i) {
+        const auto& mode = state.displayModes[i];
+        lua_newtable(L);
+        lua_pushinteger(L, mode.width);
+        lua_setfield(L, -2, "width");
+        lua_pushinteger(L, mode.height);
+        lua_setfield(L, -2, "height");
+        lua_pushinteger(L, mode.refreshRate);
+        lua_setfield(L, -2, "refreshRate");
+        lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+    }
+    lua_setfield(L, -2, "displayModes");
 
     if (state.headingFont) {
         lua_pushlightuserdata(L, state.headingFont);
@@ -267,16 +373,25 @@ void GameScene::luaOnRender(SceneSharedState& state, int scriptRef, float dt) {
         return;
     }
 
-    pushSceneState(L_, state); // push state table as first argument
+    pushSceneState(L_, state);
+    const int stateRef = luaL_ref(L_, LUA_REGISTRYINDEX);
+
+    lua_rawgeti(L_, LUA_REGISTRYINDEX, stateRef);
     lua_pushnumber(L_, dt);
     lua_pushnumber(L_, elapsedSeconds_);
 
     if (lua_pcall(L_, 3, 0, 0) != LUA_OK) {
         spdlog::error("GameScene render error: {}", lua_tostring(L_, -1));
         lua_pop(L_, 1);
+        luaL_unref(L_, LUA_REGISTRYINDEX, stateRef);
         setActiveAudioAssetKeys(nullptr);
         return;
     }
+
+    lua_rawgeti(L_, LUA_REGISTRYINDEX, stateRef);
+    applySceneState(L_, -1, state);
+    lua_pop(L_, 1);
+    luaL_unref(L_, LUA_REGISTRYINDEX, stateRef);
 
     setActiveAudioAssetKeys(nullptr);
 }
