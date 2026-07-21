@@ -130,6 +130,14 @@ AppSettings sanitizeSettings(AppSettings settings) {
     return settings;
 }
 
+AppSettings effectiveAudioSettings(const AppSettings& settings, bool windowFocused) {
+    AppSettings effective = sanitizeSettings(settings);
+    if (effective.muteWhenUnfocused && !windowFocused) {
+        effective.masterVolume = 0.0f;
+    }
+    return effective;
+}
+
 void applySystemDisplayMode(const AppSettings& settings) {
 #ifdef _WIN32
     if (useExclusiveFullscreen(settings)) {
@@ -417,6 +425,9 @@ int AppController::run() {
                     sceneRequests = sceneIt->second->consumeSceneRequests();
                 }
 
+                const bool windowFocused = window.hasFocus();
+                const AppSettings runtimeAudioSettings = effectiveAudioSettings(workingSettings, windowFocused);
+
                 for (const AudioReleaseRequest& request : sceneRequests.audioReleaseRequests) {
                     if (request.path.empty()) {
                         continue;
@@ -459,7 +470,7 @@ int AppController::run() {
                         }
 
                         setMusicLoopEnabled(*music, request.loop);
-                        music->setVolume(computeMusicVolumePercent(activeSettings, request.gain));
+                        music->setVolume(computeMusicVolumePercent(runtimeAudioSettings, request.gain));
 
                         // Music is single-instance: replace currently playing track.
                         for (auto& existing : activeLuaMusicPlaybacks) {
@@ -498,7 +509,7 @@ int AppController::run() {
                     playback.buffer = buffer;
                     playback.sound = std::make_unique<sf::Sound>(*playback.buffer);
                     setSoundLoopEnabled(*playback.sound, request.loop);
-                    playback.sound->setVolume(computeSfxVolumePercent(activeSettings, request.gain));
+                    playback.sound->setVolume(computeSfxVolumePercent(runtimeAudioSettings, request.gain));
                     playback.sound->play();
                     activeLuaSfxPlaybacks.push_back(std::move(playback));
                 }
@@ -520,10 +531,13 @@ int AppController::run() {
                 }
             }
 
+            const bool windowFocused = window.hasFocus();
+            const AppSettings runtimeAudioSettings = effectiveAudioSettings(workingSettings, windowFocused);
+
             for (auto& playback : activeLuaMusicPlaybacks) {
                 if (playback.music) {
                     playback.ageSeconds += dt;
-                    playback.music->setVolume(computeMusicVolumePercent(activeSettings, playback.gain));
+                    playback.music->setVolume(computeMusicVolumePercent(runtimeAudioSettings, playback.gain));
                 }
             }
 
@@ -539,7 +553,7 @@ int AppController::run() {
             for (auto& playback : activeLuaSfxPlaybacks) {
                 if (playback.sound) {
                     playback.ageSeconds += dt;
-                    playback.sound->setVolume(computeSfxVolumePercent(activeSettings, playback.gain));
+                    playback.sound->setVolume(computeSfxVolumePercent(runtimeAudioSettings, playback.gain));
                 }
             }
 
