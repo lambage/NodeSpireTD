@@ -460,6 +460,15 @@ int AppController::run() {
 
                         setMusicLoopEnabled(*music, request.loop);
                         music->setVolume(computeMusicVolumePercent(activeSettings, request.gain));
+
+                        // Music is single-instance: replace currently playing track.
+                        for (auto& existing : activeLuaMusicPlaybacks) {
+                            if (existing.music) {
+                                existing.music->stop();
+                            }
+                        }
+                        activeLuaMusicPlaybacks.clear();
+
                         music->play();
 
                         LuaMusicPlayback playback;

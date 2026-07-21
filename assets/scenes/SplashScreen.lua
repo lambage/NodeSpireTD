@@ -1,6 +1,7 @@
 local M = {}
 
 local splashTexture = nil
+local mainMusic = nil
 local kMinimumSplashSeconds = 3.0
 
 function M.onEnter()
@@ -10,6 +11,8 @@ function M.onEnter()
     else
         -- Texture failed to load; the splash screen will show text only
     end
+    mainMusic = Audio.loadMusic("assets/music/Heroic_Demise.mp3")
+    Audio.playMusic(mainMusic, true, 0.5) -- Play the main music in a loop at half volume
 end
 
 function M.onExit()

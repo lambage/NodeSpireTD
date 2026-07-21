@@ -440,153 +440,113 @@ void GameScene::registerCoreGameplayApi() {
     lua_newtable(L_);
     const int audioTable = lua_gettop(L_);
 
-    lua_pushlightuserdata(L_, this);
-    lua_pushcclosure(
-        L_,
-        [](lua_State* L) -> int {
-            auto* self = luaSceneSelf(L);
-            const std::string path = luaL_checkstring(L, 1);
-            if (path.empty()) {
-                lua_pushnil(L);
-                lua_pushstring(L, "expected a non-empty audio file path");
-                return 2;
-            }
-
-            AudioChannel channel = AudioChannel::Sfx;
-            if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
-                if (!lua_isstring(L, 2)) {
+    auto registerAudioLoadFn = [&](const char* fieldName, AudioChannel channel) {
+        lua_pushlightuserdata(L_, this);
+        lua_pushinteger(L_, static_cast<lua_Integer>(channel));
+        lua_pushcclosure(
+            L_,
+            [](lua_State* L) -> int {
+                auto* self = luaSceneSelf(L);
+                const AudioChannel channel = static_cast<AudioChannel>(lua_tointeger(L, lua_upvalueindex(2)));
+                const std::string path = luaL_checkstring(L, 1);
+                if (path.empty()) {
                     lua_pushnil(L);
-                    lua_pushstring(L, "channel must be 'sfx' or 'music'");
+                    lua_pushstring(L, "expected a non-empty audio file path");
                     return 2;
                 }
 
-                const std::string channelName = lua_tostring(L, 2);
-                if (channelName == "music") {
-                    channel = AudioChannel::Music;
-                } else if (channelName == "sfx") {
-                    channel = AudioChannel::Sfx;
-                } else {
+                const int handle = self->loadAudioHandle(path, channel);
+                if (handle <= 0) {
                     lua_pushnil(L);
-                    lua_pushstring(L, "channel must be 'sfx' or 'music'");
+                    lua_pushstring(L, "failed to create audio handle");
                     return 2;
                 }
-            }
 
-            const int handle = self->loadAudioHandle(path, channel);
-            if (handle <= 0) {
-                lua_pushnil(L);
-                lua_pushstring(L, "failed to create audio handle");
-                return 2;
-            }
+                lua_pushinteger(L, static_cast<lua_Integer>(handle));
+                return 1;
+            },
+            2);
+        lua_setfield(L_, audioTable, fieldName);
+    };
 
-            lua_pushinteger(L, static_cast<lua_Integer>(handle));
-            return 1;
-        },
-        1);
-    lua_setfield(L_, audioTable, "load");
+    auto registerAudioPlayFn = [&](const char* fieldName, bool isAsync) {
+        lua_pushlightuserdata(L_, this);
+        lua_pushboolean(L_, isAsync ? 1 : 0);
+        lua_pushcclosure(
+            L_,
+            [](lua_State* L) -> int {
+                auto* self = luaSceneSelf(L);
+                const bool isAsync = lua_toboolean(L, lua_upvalueindex(2)) != 0;
+                const int argCount = lua_gettop(L);
 
-    lua_pushlightuserdata(L_, this);
-    lua_pushcclosure(
-        L_,
-        [](lua_State* L) -> int {
-            auto* self = luaSceneSelf(L);
-            const int handle = static_cast<int>(luaL_checkinteger(L, 1));
-
-            bool loop = false;
-            float gain = 1.0f;
-            if (lua_gettop(L) >= 2) {
-                if (lua_istable(L, 2)) {
-                    lua_getfield(L, 2, "loop");
-                    if (!lua_isnil(L, -1)) {
-                        loop = lua_toboolean(L, -1) != 0;
+                if (isAsync) {
+                    if (argCount < 2) {
+                        return pushCommandResult(L, false, "expected handle and callback");
                     }
-                    lua_pop(L, 1);
-
-                    lua_getfield(L, 2, "gain");
-                    if (lua_isnumber(L, -1)) {
-                        gain = static_cast<float>(lua_tonumber(L, -1));
+                    if (!lua_isfunction(L, argCount)) {
+                        return pushCommandResult(L, false, "last argument must be callback function");
                     }
-                    lua_pop(L, 1);
-                } else if (lua_isboolean(L, 2)) {
-                    loop = lua_toboolean(L, 2) != 0;
-                    if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) {
-                        gain = static_cast<float>(lua_tonumber(L, 3));
-                    }
-                } else if (lua_isnumber(L, 2)) {
-                    gain = static_cast<float>(lua_tonumber(L, 2));
-                } else {
-                    return pushCommandResult(L, false, "expected options table, loop flag, or gain");
                 }
-            }
 
-            std::string reason;
-            const bool ok = self->playAudioHandle(handle, loop, gain, reason);
-            return pushCommandResult(L, ok, reason.c_str());
-        },
-        1);
-    lua_setfield(L_, audioTable, "play");
+                const int handle = static_cast<int>(luaL_checkinteger(L, 1));
 
-    lua_pushlightuserdata(L_, this);
-    lua_pushcclosure(
-        L_,
-        [](lua_State* L) -> int {
-            auto* self = luaSceneSelf(L);
-            const int argCount = lua_gettop(L);
-            if (argCount < 2) {
-                return pushCommandResult(L, false, "expected handle and callback");
-            }
+                bool loop = false;
+                float gain = 1.0f;
+                const int optionsArgCount = isAsync ? (argCount - 2) : (argCount - 1);
+                if (optionsArgCount >= 1) {
+                    if (lua_istable(L, 2)) {
+                        lua_getfield(L, 2, "loop");
+                        if (!lua_isnil(L, -1)) {
+                            loop = lua_toboolean(L, -1) != 0;
+                        }
+                        lua_pop(L, 1);
 
-            if (!lua_isfunction(L, argCount)) {
-                return pushCommandResult(L, false, "last argument must be callback function");
-            }
-
-            const int handle = static_cast<int>(luaL_checkinteger(L, 1));
-
-            bool loop = false;
-            float gain = 1.0f;
-            const int optionsArgCount = argCount - 2;
-            if (optionsArgCount >= 1) {
-                if (lua_istable(L, 2)) {
-                    lua_getfield(L, 2, "loop");
-                    if (!lua_isnil(L, -1)) {
-                        loop = lua_toboolean(L, -1) != 0;
+                        lua_getfield(L, 2, "gain");
+                        if (lua_isnumber(L, -1)) {
+                            gain = static_cast<float>(lua_tonumber(L, -1));
+                        }
+                        lua_pop(L, 1);
+                    } else if (lua_isboolean(L, 2)) {
+                        loop = lua_toboolean(L, 2) != 0;
+                        if (optionsArgCount >= 2 && lua_isnumber(L, 3)) {
+                            gain = static_cast<float>(lua_tonumber(L, 3));
+                        }
+                    } else if (lua_isnumber(L, 2)) {
+                        gain = static_cast<float>(lua_tonumber(L, 2));
+                    } else {
+                        return pushCommandResult(L, false, "expected options table, loop flag, or gain");
                     }
-                    lua_pop(L, 1);
-
-                    lua_getfield(L, 2, "gain");
-                    if (lua_isnumber(L, -1)) {
-                        gain = static_cast<float>(lua_tonumber(L, -1));
-                    }
-                    lua_pop(L, 1);
-                } else if (lua_isboolean(L, 2)) {
-                    loop = lua_toboolean(L, 2) != 0;
-                    if (optionsArgCount >= 2 && lua_isnumber(L, 3)) {
-                        gain = static_cast<float>(lua_tonumber(L, 3));
-                    }
-                } else if (lua_isnumber(L, 2)) {
-                    gain = static_cast<float>(lua_tonumber(L, 2));
-                } else {
-                    return pushCommandResult(L, false, "expected options table, loop flag, or gain");
                 }
-            }
 
-            std::string reason;
-            const bool ok = self->playAudioHandle(handle, loop, gain, reason);
-            if (!ok) {
-                return pushCommandResult(L, false, reason.c_str());
-            }
+                std::string reason;
+                const bool ok = self->playAudioHandle(handle, loop, gain, reason);
+                if (!ok) {
+                    return pushCommandResult(L, false, reason.c_str());
+                }
 
-            lua_pushvalue(L, argCount);
-            const int callbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
+                if (!isAsync) {
+                    return pushCommandResult(L, true, "queued");
+                }
 
-            GameScene::PendingAudioCallback pending;
-            pending.handle = handle;
-            pending.callbackRef = callbackRef;
-            self->pendingAudioCallbacks_.push_back(std::move(pending));
-            return pushCommandResult(L, true, "queued");
-        },
-        1);
-    lua_setfield(L_, audioTable, "playAsync");
+                lua_pushvalue(L, argCount);
+                const int callbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+                GameScene::PendingAudioCallback pending;
+                pending.handle = handle;
+                pending.callbackRef = callbackRef;
+                self->pendingAudioCallbacks_.push_back(std::move(pending));
+                return pushCommandResult(L, true, "queued");
+            },
+            2);
+        lua_setfield(L_, audioTable, fieldName);
+    };
+
+    registerAudioLoadFn("loadMusic", AudioChannel::Music);
+    registerAudioLoadFn("loadSfx", AudioChannel::Sfx);
+    registerAudioPlayFn("playMusic", false);
+    registerAudioPlayFn("playSfx", false);
+    registerAudioPlayFn("playMusicAsync", true);
+    registerAudioPlayFn("playSfxAsync", true);
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(

@@ -15,19 +15,11 @@ function M.onEnter()
         -- Texture failed to load; the splash screen will show text only
     end
 
-    clickSound = Audio.load("assets/audio/click.ogg")
-    closeSound = Audio.load("assets/audio/close.ogg")
+    clickSound = Audio.loadSfx("assets/audio/click.ogg")
+    closeSound = Audio.loadSfx("assets/audio/close.ogg")
 end
 
 function M.onExit()
-    if clickSound then
-        Audio.release(clickSound)
-        clickSound = nil
-    end
-    if closeSound then
-        Audio.release(closeSound)
-        closeSound = nil
-    end
     backTexture = nil
 end
 
@@ -79,17 +71,17 @@ function M.render(state, dt, elapsedSeconds)
 
     if playClicked then
         if clickSound then
-            Audio.play(clickSound, false, 1.0)
+            Audio.playSfx(clickSound, false, 1.0)
         end
         Gameplay.requestScene(Gameplay.Scene.Lobby, "Loading level selection...")
     elseif optionsClicked then
         if clickSound then
-            Audio.play(clickSound, false, 1.0)
+            Audio.playSfx(clickSound, false, 1.0)
         end
         Gameplay.requestScene(Gameplay.Scene.Options, "Loading options...")
     elseif quitClicked then
         if closeSound then
-            Audio.playAsync(closeSound, false, 0.75, function()
+            Audio.playSfxAsync(closeSound, false, 0.75, function()
                 Gameplay.requestQuit()
             end)
         else
