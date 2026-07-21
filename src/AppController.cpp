@@ -130,6 +130,16 @@ AppSettings sanitizeSettings(AppSettings settings) {
     return settings;
 }
 
+AppSettings mergeAudioSettingsForPersistence(const AppSettings& persistedBase, const AppSettings& working) {
+    AppSettings merged = persistedBase;
+    const AppSettings sanitizedWorking = sanitizeSettings(working);
+    merged.masterVolume = sanitizedWorking.masterVolume;
+    merged.musicVolume = sanitizedWorking.musicVolume;
+    merged.sfxVolume = sanitizedWorking.sfxVolume;
+    merged.muteWhenUnfocused = sanitizedWorking.muteWhenUnfocused;
+    return merged;
+}
+
 AppSettings effectiveAudioSettings(const AppSettings& settings, bool windowFocused) {
     AppSettings effective = sanitizeSettings(settings);
     if (effective.muteWhenUnfocused && !windowFocused) {
@@ -367,6 +377,8 @@ int AppController::run() {
 
             while (const std::optional<sf::Event> event = window.pollEvent()) {
                 if (event->is<sf::Event::Closed>()) {
+                    const AppSettings persisted = mergeAudioSettingsForPersistence(activeSettings, workingSettings);
+                    settingsManager.save(persisted);
                     window.close();
                     continue;
                 }
@@ -605,6 +617,9 @@ int AppController::run() {
                     SceneSharedState state = makeSceneState();
                     sceneIt->second->onExit(state);
                 }
+
+                const AppSettings persisted = mergeAudioSettingsForPersistence(activeSettings, workingSettings);
+                settingsManager.save(persisted);
                 window.close();
             }
 
@@ -667,6 +682,11 @@ int AppController::run() {
         if (vulkanContext) {
             vulkanContext->waitIdle();
         }
+
+        // Final persistence pass to keep latest audio options changed in UI,
+        // even when the session exits without an Apply action.
+        const AppSettings persistedOnShutdown = mergeAudioSettingsForPersistence(activeSettings, workingSettings);
+        settingsManager.save(persistedOnShutdown);
 
 #ifdef _WIN32
         ChangeDisplaySettingsW(nullptr, 0);

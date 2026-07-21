@@ -6,6 +6,8 @@
 
 #include <imgui.h>
 #include <spdlog/spdlog.h>
+#include <string>
+#include <vector>
 
 
 namespace LuaStateBootstrap {
@@ -190,6 +192,21 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         0);
     lua_setfield(L, t, "SetCursorPosY");
 
+    // GetCursorPos() -> { x=..., y=... }
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImVec2 pos = ImGui::GetCursorPos();
+            lua_createtable(L, 0, 2);
+            lua_pushnumber(L, pos.x);
+            lua_setfield(L, -2, "x");
+            lua_pushnumber(L, pos.y);
+            lua_setfield(L, -2, "y");
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "GetCursorPos");
+
     // Text
     // Text(str) / TextUnformatted(str)
     lua_pushcclosure(
@@ -312,6 +329,38 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         },
         0);
     lua_setfield(L, t, "Selectable");
+
+    // Combo(label, currentIndex, itemsTable) -> changed, currentIndex
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const char* label = luaL_checkstring(L, 1);
+            int currentIndex = static_cast<int>(luaL_checkinteger(L, 2));
+            luaL_checktype(L, 3, LUA_TTABLE);
+
+            const int itemCount = static_cast<int>(lua_rawlen(L, 3));
+            std::vector<std::string> items;
+            items.reserve(itemCount);
+            for (int i = 1; i <= itemCount; ++i) {
+                lua_rawgeti(L, 3, i);
+                const char* item = lua_tostring(L, -1);
+                items.emplace_back(item ? item : "");
+                lua_pop(L, 1);
+            }
+
+            std::vector<const char*> itemPtrs;
+            itemPtrs.reserve(items.size());
+            for (const auto& item : items) {
+                itemPtrs.push_back(item.c_str());
+            }
+
+            bool changed = ImGui::Combo(label, &currentIndex, itemPtrs.data(), static_cast<int>(itemPtrs.size()));
+            lua_pushboolean(L, changed);
+            lua_pushinteger(L, currentIndex);
+            return 2;
+        },
+        0);
+    lua_setfield(L, t, "Combo");
 
     // Checkbox(label, v) -> changed, v
     lua_pushcclosure(
