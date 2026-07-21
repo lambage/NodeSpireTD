@@ -67,6 +67,36 @@ target_link_libraries(NodeSpireTD PRIVATE
     Vulkan::Vulkan
 )
 
+# ── Lua metadata generation for LuaLS ─────────────────────────────────────────
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
+if(Python3_Interpreter_FOUND)
+    set(LUA_META_OUTPUT "${CMAKE_SOURCE_DIR}/assets/lua/meta/engine_globals.lua")
+
+    file(GLOB_RECURSE LUA_BINDING_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/src/*.cpp"
+        "${CMAKE_SOURCE_DIR}/src/*.hpp"
+    )
+
+    add_custom_command(
+        OUTPUT "${LUA_META_OUTPUT}"
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tools/gen_lua_metadata.py"
+            --source-root "${CMAKE_SOURCE_DIR}/src"
+            --output "${LUA_META_OUTPUT}"
+        DEPENDS
+            "${CMAKE_SOURCE_DIR}/tools/gen_lua_metadata.py"
+            ${LUA_BINDING_SOURCES}
+        COMMENT "Generating Lua metadata from C++ Lua bindings"
+        VERBATIM
+    )
+
+    add_custom_target(GenerateLuaMetadata DEPENDS "${LUA_META_OUTPUT}")
+    add_dependencies(NodeSpireTD GenerateLuaMetadata)
+else()
+    message(WARNING "Python3 interpreter not found; Lua metadata will not auto-generate.")
+endif()
+
 # ── Shader compilation ─────────────────────────────────────────────────────────
 find_program(GLSLC_EXECUTABLE NAMES glslc
     HINTS "${VULKAN_SDK_PATH}/Bin" "$ENV{VULKAN_SDK}/Bin"

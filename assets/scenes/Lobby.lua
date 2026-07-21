@@ -1,5 +1,3 @@
----@diagnostic disable: undefined-global
-
 local M = {}
 
 local kWindowW = 820
