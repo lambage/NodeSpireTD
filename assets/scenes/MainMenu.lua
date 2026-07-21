@@ -4,6 +4,8 @@ local kMenuW = 420
 local kMenuH = 320
 
 --local backTexture = nil
+local clickSound = nil
+local closeSound = nil
 
 function M.onEnter()
     local tex, err = Texture.load(VulkanContext, "assets/images/splash_screen.png")
@@ -12,9 +14,20 @@ function M.onEnter()
     else
         -- Texture failed to load; the splash screen will show text only
     end
+
+    clickSound = Audio.load("assets/audio/click.ogg")
+    closeSound = Audio.load("assets/audio/close.ogg")
 end
 
 function M.onExit()
+    if clickSound then
+        Audio.release(clickSound)
+        clickSound = nil
+    end
+    if closeSound then
+        Audio.release(closeSound)
+        closeSound = nil
+    end
     backTexture = nil
 end
 
@@ -65,11 +78,23 @@ function M.render(state, dt, elapsedSeconds)
     ImGui.End()
 
     if playClicked then
+        if clickSound then
+            Audio.play(clickSound, false, 1.0)
+        end
         Gameplay.requestScene(Gameplay.Scene.Lobby, "Loading level selection...")
     elseif optionsClicked then
+        if clickSound then
+            Audio.play(clickSound, false, 1.0)
+        end
         Gameplay.requestScene(Gameplay.Scene.Options, "Loading options...")
     elseif quitClicked then
-        Gameplay.requestQuit()
+        if closeSound then
+            Audio.playAsync(closeSound, false, 0.75, function()
+                Gameplay.requestQuit()
+            end)
+        else
+            Gameplay.requestQuit()
+        end
     end
 end
 

@@ -24,6 +24,8 @@
 
 namespace {
 
+constexpr float kAudioStartGraceSeconds = 0.05f;
+
 bool useExclusiveFullscreen(const AppSettings& settings) {
     return settings.fullscreen && settings.exclusiveFullscreen;
 }
@@ -50,6 +52,10 @@ bool hasDisplayChanges(const AppSettings& left, const AppSettings& right) {
     return left.fullscreen != right.fullscreen || left.exclusiveFullscreen != right.exclusiveFullscreen ||
            left.displayWidth != right.displayWidth ||
            left.displayHeight != right.displayHeight || left.refreshRate != right.refreshRate;
+}
+
+std::string makeAudioAssetKey(const std::string& path, AudioChannel channel) {
+    return (channel == AudioChannel::Music ? "music:" : "sfx:") + path;
 }
 
 float computeMusicVolumePercent(const AppSettings& settings, float gain) {
@@ -93,12 +99,14 @@ bool isSoundStopped(const sf::Sound& sound) {
 struct LuaMusicPlayback {
     std::string path;
     float gain = 1.0f;
+    float ageSeconds = 0.0f;
     std::unique_ptr<sf::Music> music;
 };
 
 struct LuaSfxPlayback {
     std::string path;
     float gain = 1.0f;
+    float ageSeconds = 0.0f;
     std::shared_ptr<sf::SoundBuffer> buffer;
     std::unique_ptr<sf::Sound> sound;
 };
@@ -269,6 +277,7 @@ int AppController::run() {
         SceneId currentSceneId = SceneId::Splash;
         std::vector<LuaMusicPlayback> activeLuaMusicPlaybacks;
         std::vector<LuaSfxPlayback> activeLuaSfxPlaybacks;
+        std::unordered_set<std::string> activeAudioAssetKeys;
         std::unordered_map<std::string, std::shared_ptr<sf::SoundBuffer>> luaSfxBufferCache;
 
         struct PendingSceneTransition {
@@ -304,6 +313,7 @@ int AppController::run() {
                                     activeLevelName,
                                     activeLevelAssetPath,
                                     activeLevelScriptPath,
+                                    activeAudioAssetKeys,
                                     vulkanContext.get(),
                                     imguiLayer->headingFont(),
                                     imguiLayer->titleFont()};
@@ -407,6 +417,34 @@ int AppController::run() {
                     sceneRequests = sceneIt->second->consumeSceneRequests();
                 }
 
+                for (const AudioReleaseRequest& request : sceneRequests.audioReleaseRequests) {
+                    if (request.path.empty()) {
+                        continue;
+                    }
+
+                    if (request.channel == AudioChannel::Sfx) {
+                        luaSfxBufferCache.erase(request.path);
+                    }
+                }
+
+                for (const AudioPreloadRequest& request : sceneRequests.audioPreloadRequests) {
+                    if (request.path.empty()) {
+                        spdlog::warn("Rejected empty audio preload request path.");
+                        continue;
+                    }
+
+                    if (request.channel == AudioChannel::Sfx) {
+                        if (!luaSfxBufferCache.contains(request.path)) {
+                            auto loadedBuffer = std::make_shared<sf::SoundBuffer>();
+                            if (!loadedBuffer->loadFromFile(request.path)) {
+                                spdlog::warn("Failed to preload sfx file from Lua request: {}", request.path);
+                                continue;
+                            }
+                            luaSfxBufferCache.emplace(request.path, std::move(loadedBuffer));
+                        }
+                    }
+                }
+
                 for (const AudioPlayRequest& request : sceneRequests.audioPlayRequests) {
                     if (request.path.empty()) {
                         spdlog::warn("Rejected empty audio playback request path.");
@@ -475,6 +513,7 @@ int AppController::run() {
 
             for (auto& playback : activeLuaMusicPlaybacks) {
                 if (playback.music) {
+                    playback.ageSeconds += dt;
                     playback.music->setVolume(computeMusicVolumePercent(activeSettings, playback.gain));
                 }
             }
@@ -482,12 +521,15 @@ int AppController::run() {
             activeLuaMusicPlaybacks.erase(
                 std::remove_if(activeLuaMusicPlaybacks.begin(), activeLuaMusicPlaybacks.end(),
                                [](const LuaMusicPlayback& playback) {
-                                   return !playback.music || isMusicStopped(*playback.music);
+                                   return !playback.music ||
+                                          (playback.ageSeconds >= kAudioStartGraceSeconds &&
+                                           isMusicStopped(*playback.music));
                                }),
                 activeLuaMusicPlaybacks.end());
 
             for (auto& playback : activeLuaSfxPlaybacks) {
                 if (playback.sound) {
+                    playback.ageSeconds += dt;
                     playback.sound->setVolume(computeSfxVolumePercent(activeSettings, playback.gain));
                 }
             }
@@ -495,9 +537,23 @@ int AppController::run() {
             activeLuaSfxPlaybacks.erase(
                 std::remove_if(activeLuaSfxPlaybacks.begin(), activeLuaSfxPlaybacks.end(),
                                [](const LuaSfxPlayback& playback) {
-                                   return !playback.sound || isSoundStopped(*playback.sound);
+                                   return !playback.sound ||
+                                          (playback.ageSeconds >= kAudioStartGraceSeconds &&
+                                           isSoundStopped(*playback.sound));
                                }),
                 activeLuaSfxPlaybacks.end());
+
+            activeAudioAssetKeys.clear();
+            for (const auto& playback : activeLuaMusicPlaybacks) {
+                if (playback.music) {
+                    activeAudioAssetKeys.insert(makeAudioAssetKey(playback.path, AudioChannel::Music));
+                }
+            }
+            for (const auto& playback : activeLuaSfxPlaybacks) {
+                if (playback.sound) {
+                    activeAudioAssetKeys.insert(makeAudioAssetKey(playback.path, AudioChannel::Sfx));
+                }
+            }
 
             imguiLayer->endFrame();
 

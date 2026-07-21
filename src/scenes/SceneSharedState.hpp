@@ -4,6 +4,7 @@
 
 #include <imgui.h>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class VulkanContext;
@@ -24,6 +25,7 @@ struct SceneSharedState {
     std::string& activeLevelName;
     std::string& activeLevelAssetPath;
     std::string& activeLevelScriptPath;
+    const std::unordered_set<std::string>& activeAudioAssetKeys;
     VulkanContext* vulkanContext = nullptr;
     ImFont* headingFont = nullptr;
     ImFont* titleFont = nullptr;

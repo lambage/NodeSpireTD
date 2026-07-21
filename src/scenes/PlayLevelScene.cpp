@@ -1896,6 +1896,28 @@ void PlayLevelScene::registerLuaGameplayApi() {
     registerPlayOggFn("playMusic", AudioChannel::Music);
     registerPlayOggFn("playSfx", AudioChannel::Sfx);
 
+    auto registerPreloadAudioFn = [&](const char* fieldName, AudioChannel channel) {
+        lua_pushlightuserdata(L_, this);
+        lua_pushinteger(L_, static_cast<lua_Integer>(channel));
+        lua_pushcclosure(
+            L_,
+            [](lua_State* L) -> int {
+                auto* self = luaSceneSelf(L);
+                const AudioChannel channel = static_cast<AudioChannel>(lua_tointeger(L, lua_upvalueindex(2)));
+                const std::string path = luaL_checkstring(L, 1);
+                if (path.empty()) {
+                    return pushCommandResult(L, false, "expected a non-empty audio file path");
+                }
+
+                self->requestPreloadAudio(path, channel);
+                return pushCommandResult(L, true, "queued");
+            },
+            2);
+        lua_setfield(L_, gameplayTable, fieldName);
+    };
+
+    registerPreloadAudioFn("preloadSfx", AudioChannel::Sfx);
+
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(
         L_,

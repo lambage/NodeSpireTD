@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <string>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 #include <volk.h>
 
@@ -38,6 +39,16 @@ struct AudioPlayRequest {
     float gain = 1.0f;
 };
 
+struct AudioPreloadRequest {
+    std::string path{};
+    AudioChannel channel = AudioChannel::Sfx;
+};
+
+struct AudioReleaseRequest {
+    std::string path{};
+    AudioChannel channel = AudioChannel::Sfx;
+};
+
 struct SceneRequestState {
     bool quitRequested = false;
     bool applySettingsRequested = false;
@@ -47,6 +58,8 @@ struct SceneRequestState {
     bool sceneTransitionRequested = false;
     SceneTransitionRequest sceneTransition{};
 
+    std::vector<AudioPreloadRequest> audioPreloadRequests{};
+    std::vector<AudioReleaseRequest> audioReleaseRequests{};
     std::vector<AudioPlayRequest> audioPlayRequests{};
 };
 
@@ -122,6 +135,114 @@ class IScene {
         sceneRequests_.audioPlayRequests.push_back(std::move(request));
     }
 
+    void requestPreloadAudio(std::string path, AudioChannel channel = AudioChannel::Sfx) {
+        if (path.empty()) {
+            return;
+        }
+
+        AudioPreloadRequest request;
+        request.path = std::move(path);
+        request.channel = channel;
+        sceneRequests_.audioPreloadRequests.push_back(std::move(request));
+    }
+
+    void requestReleaseAudio(std::string path, AudioChannel channel = AudioChannel::Sfx) {
+        if (path.empty()) {
+            return;
+        }
+
+        AudioReleaseRequest request;
+        request.path = std::move(path);
+        request.channel = channel;
+        sceneRequests_.audioReleaseRequests.push_back(std::move(request));
+    }
+
+    int loadAudioHandle(std::string path, AudioChannel channel = AudioChannel::Sfx) {
+        if (path.empty()) {
+            return 0;
+        }
+
+        const std::string assetKey = makeAudioAssetKey(path, channel);
+        if (const auto existing = audioAssetKeyToHandle_.find(assetKey); existing != audioAssetKeyToHandle_.end()) {
+            auto handleIt = audioHandles_.find(existing->second);
+            if (handleIt != audioHandles_.end()) {
+                return handleIt->first;
+            }
+            audioAssetKeyToHandle_.erase(existing);
+        }
+
+        const int handle = nextAudioHandleId_++;
+        LoadedAudioHandle loaded{};
+        loaded.path = std::move(path);
+        loaded.channel = channel;
+        loaded.assetKey = assetKey;
+        audioHandles_[handle] = std::move(loaded);
+        audioAssetKeyToHandle_[assetKey] = handle;
+        requestPreloadAudio(audioHandles_[handle].path, channel);
+        return handle;
+    }
+
+    bool playAudioHandle(int handle, bool loop, float gain, std::string& outReason) {
+        const auto it = audioHandles_.find(handle);
+        if (it == audioHandles_.end()) {
+            outReason = "invalid audio handle";
+            return false;
+        }
+
+        requestPlayAudio(it->second.path, it->second.channel, loop, gain);
+        outReason = "queued";
+        return true;
+    }
+
+    bool releaseAudioHandle(int handle, std::string& outReason) {
+        const auto it = audioHandles_.find(handle);
+        if (it == audioHandles_.end()) {
+            outReason = "invalid audio handle";
+            return false;
+        }
+
+        requestReleaseAudio(it->second.path, it->second.channel);
+        audioAssetKeyToHandle_.erase(it->second.assetKey);
+        audioHandles_.erase(it);
+        outReason = "queued";
+        return true;
+    }
+
+    void releaseAllAudioHandles() {
+        for (const auto& [handle, loaded] : audioHandles_) {
+            (void)handle;
+            requestReleaseAudio(loaded.path, loaded.channel);
+        }
+        audioHandles_.clear();
+        audioAssetKeyToHandle_.clear();
+    }
+
+    bool isAudioHandlePlaying(int handle) const {
+        const auto it = audioHandles_.find(handle);
+        if (it == audioHandles_.end() || !activeAudioAssetKeys_) {
+            return false;
+        }
+        return activeAudioAssetKeys_->contains(it->second.assetKey);
+    }
+
+    void setActiveAudioAssetKeys(const std::unordered_set<std::string>* activeAudioAssetKeys) {
+        activeAudioAssetKeys_ = activeAudioAssetKeys;
+    }
+
   private:
+    static std::string makeAudioAssetKey(const std::string& path, AudioChannel channel) {
+        return (channel == AudioChannel::Music ? "music:" : "sfx:") + path;
+    }
+
+    struct LoadedAudioHandle {
+        std::string path;
+        AudioChannel channel = AudioChannel::Sfx;
+        std::string assetKey;
+    };
+
+    int nextAudioHandleId_ = 1;
+    std::unordered_map<int, LoadedAudioHandle> audioHandles_;
+    std::unordered_map<std::string, int> audioAssetKeyToHandle_;
+    const std::unordered_set<std::string>* activeAudioAssetKeys_ = nullptr;
     SceneRequestState sceneRequests_{};
 };

@@ -51,6 +51,58 @@ bool tryParseSceneId(const std::string& name, SceneId& outSceneId) {
 
 GameScene::~GameScene() = default;
 
+void GameScene::clearPendingAudioCallbacks() {
+    if (!L_) {
+        pendingAudioCallbacks_.clear();
+        return;
+    }
+
+    for (const PendingAudioCallback& pending : pendingAudioCallbacks_) {
+        if (pending.callbackRef != LUA_NOREF) {
+            luaL_unref(L_, LUA_REGISTRYINDEX, pending.callbackRef);
+        }
+    }
+    pendingAudioCallbacks_.clear();
+}
+
+void GameScene::processPendingAudioCallbacks() {
+    if (!L_ || pendingAudioCallbacks_.empty()) {
+        return;
+    }
+
+    for (std::size_t i = 0; i < pendingAudioCallbacks_.size();) {
+        PendingAudioCallback& pending = pendingAudioCallbacks_[i];
+        const bool playing = isAudioHandlePlaying(pending.handle);
+        bool fireCallback = false;
+
+        if (playing) {
+            pending.observedPlaying = true;
+        } else if (pending.observedPlaying) {
+            fireCallback = true;
+        } else if (pending.settleFramesRemaining > 0) {
+            pending.settleFramesRemaining -= 1;
+        } else {
+            // If playback never enters a playing state (e.g. decode/load failure),
+            // still resolve async callers instead of hanging forever.
+            fireCallback = true;
+        }
+
+        if (!fireCallback) {
+            ++i;
+            continue;
+        }
+
+        lua_rawgeti(L_, LUA_REGISTRYINDEX, pending.callbackRef);
+        if (lua_pcall(L_, 0, 0, 0) != LUA_OK) {
+            spdlog::error("Audio.playAsync callback error: {}", lua_tostring(L_, -1));
+            lua_pop(L_, 1);
+        }
+
+        luaL_unref(L_, LUA_REGISTRYINDEX, pending.callbackRef);
+        pendingAudioCallbacks_.erase(pendingAudioCallbacks_.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+}
+
 void GameScene::handleEvent(const sf::Event& event, ImGuiLayer& imguiLayer) {
     imguiLayer.processEvent(event);
 }
@@ -162,7 +214,10 @@ void GameScene::luaOnEnter(int scriptRef) {
 }
 
 void GameScene::luaOnExit(SceneSharedState& state, int scriptRef) {
+    clearPendingAudioCallbacks();
+
     if (scriptRef == LUA_NOREF) {
+        releaseAllAudioHandles();
         return;
     }
 
@@ -187,13 +242,18 @@ void GameScene::luaOnExit(SceneSharedState& state, int scriptRef) {
     // Force GC so __gc on texture userdata runs now, while Vulkan is still alive
     lua_gc(L_, LUA_GCCOLLECT, 0);
 
+    releaseAllAudioHandles();
     luaL_unref(L_, LUA_REGISTRYINDEX, scriptRef);
 }
 
 void GameScene::luaOnRender(SceneSharedState& state, int scriptRef, float dt) {
     elapsedSeconds_ += dt;
 
+    setActiveAudioAssetKeys(&state.activeAudioAssetKeys);
+    processPendingAudioCallbacks();
+
     if (scriptRef == LUA_NOREF) {
+        setActiveAudioAssetKeys(nullptr);
         return;
     }
 
@@ -203,6 +263,7 @@ void GameScene::luaOnRender(SceneSharedState& state, int scriptRef, float dt) {
 
     if (!lua_isfunction(L_, -1)) {
         lua_pop(L_, 1);
+        setActiveAudioAssetKeys(nullptr);
         return;
     }
 
@@ -213,8 +274,11 @@ void GameScene::luaOnRender(SceneSharedState& state, int scriptRef, float dt) {
     if (lua_pcall(L_, 3, 0, 0) != LUA_OK) {
         spdlog::error("GameScene render error: {}", lua_tostring(L_, -1));
         lua_pop(L_, 1);
+        setActiveAudioAssetKeys(nullptr);
         return;
     }
+
+    setActiveAudioAssetKeys(nullptr);
 }
 
 void GameScene::registerCoreGameplayApi() {
@@ -350,6 +414,207 @@ void GameScene::registerCoreGameplayApi() {
 
     registerPlayAudioFn("playMusic", AudioChannel::Music);
     registerPlayAudioFn("playSfx", AudioChannel::Sfx);
+
+    auto registerPreloadAudioFn = [&](const char* fieldName, AudioChannel channel) {
+        lua_pushlightuserdata(L_, this);
+        lua_pushinteger(L_, static_cast<lua_Integer>(channel));
+        lua_pushcclosure(
+            L_,
+            [](lua_State* L) -> int {
+                auto* self = luaSceneSelf(L);
+                const AudioChannel channel = static_cast<AudioChannel>(lua_tointeger(L, lua_upvalueindex(2)));
+                const std::string path = luaL_checkstring(L, 1);
+                if (path.empty()) {
+                    return pushCommandResult(L, false, "expected a non-empty audio file path");
+                }
+
+                self->requestPreloadAudio(path, channel);
+                return pushCommandResult(L, true, "queued");
+            },
+            2);
+        lua_setfield(L_, gameplayTable, fieldName);
+    };
+
+    registerPreloadAudioFn("preloadSfx", AudioChannel::Sfx);
+
+    lua_newtable(L_);
+    const int audioTable = lua_gettop(L_);
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const std::string path = luaL_checkstring(L, 1);
+            if (path.empty()) {
+                lua_pushnil(L);
+                lua_pushstring(L, "expected a non-empty audio file path");
+                return 2;
+            }
+
+            AudioChannel channel = AudioChannel::Sfx;
+            if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) {
+                if (!lua_isstring(L, 2)) {
+                    lua_pushnil(L);
+                    lua_pushstring(L, "channel must be 'sfx' or 'music'");
+                    return 2;
+                }
+
+                const std::string channelName = lua_tostring(L, 2);
+                if (channelName == "music") {
+                    channel = AudioChannel::Music;
+                } else if (channelName == "sfx") {
+                    channel = AudioChannel::Sfx;
+                } else {
+                    lua_pushnil(L);
+                    lua_pushstring(L, "channel must be 'sfx' or 'music'");
+                    return 2;
+                }
+            }
+
+            const int handle = self->loadAudioHandle(path, channel);
+            if (handle <= 0) {
+                lua_pushnil(L);
+                lua_pushstring(L, "failed to create audio handle");
+                return 2;
+            }
+
+            lua_pushinteger(L, static_cast<lua_Integer>(handle));
+            return 1;
+        },
+        1);
+    lua_setfield(L_, audioTable, "load");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int handle = static_cast<int>(luaL_checkinteger(L, 1));
+
+            bool loop = false;
+            float gain = 1.0f;
+            if (lua_gettop(L) >= 2) {
+                if (lua_istable(L, 2)) {
+                    lua_getfield(L, 2, "loop");
+                    if (!lua_isnil(L, -1)) {
+                        loop = lua_toboolean(L, -1) != 0;
+                    }
+                    lua_pop(L, 1);
+
+                    lua_getfield(L, 2, "gain");
+                    if (lua_isnumber(L, -1)) {
+                        gain = static_cast<float>(lua_tonumber(L, -1));
+                    }
+                    lua_pop(L, 1);
+                } else if (lua_isboolean(L, 2)) {
+                    loop = lua_toboolean(L, 2) != 0;
+                    if (lua_gettop(L) >= 3 && lua_isnumber(L, 3)) {
+                        gain = static_cast<float>(lua_tonumber(L, 3));
+                    }
+                } else if (lua_isnumber(L, 2)) {
+                    gain = static_cast<float>(lua_tonumber(L, 2));
+                } else {
+                    return pushCommandResult(L, false, "expected options table, loop flag, or gain");
+                }
+            }
+
+            std::string reason;
+            const bool ok = self->playAudioHandle(handle, loop, gain, reason);
+            return pushCommandResult(L, ok, reason.c_str());
+        },
+        1);
+    lua_setfield(L_, audioTable, "play");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int argCount = lua_gettop(L);
+            if (argCount < 2) {
+                return pushCommandResult(L, false, "expected handle and callback");
+            }
+
+            if (!lua_isfunction(L, argCount)) {
+                return pushCommandResult(L, false, "last argument must be callback function");
+            }
+
+            const int handle = static_cast<int>(luaL_checkinteger(L, 1));
+
+            bool loop = false;
+            float gain = 1.0f;
+            const int optionsArgCount = argCount - 2;
+            if (optionsArgCount >= 1) {
+                if (lua_istable(L, 2)) {
+                    lua_getfield(L, 2, "loop");
+                    if (!lua_isnil(L, -1)) {
+                        loop = lua_toboolean(L, -1) != 0;
+                    }
+                    lua_pop(L, 1);
+
+                    lua_getfield(L, 2, "gain");
+                    if (lua_isnumber(L, -1)) {
+                        gain = static_cast<float>(lua_tonumber(L, -1));
+                    }
+                    lua_pop(L, 1);
+                } else if (lua_isboolean(L, 2)) {
+                    loop = lua_toboolean(L, 2) != 0;
+                    if (optionsArgCount >= 2 && lua_isnumber(L, 3)) {
+                        gain = static_cast<float>(lua_tonumber(L, 3));
+                    }
+                } else if (lua_isnumber(L, 2)) {
+                    gain = static_cast<float>(lua_tonumber(L, 2));
+                } else {
+                    return pushCommandResult(L, false, "expected options table, loop flag, or gain");
+                }
+            }
+
+            std::string reason;
+            const bool ok = self->playAudioHandle(handle, loop, gain, reason);
+            if (!ok) {
+                return pushCommandResult(L, false, reason.c_str());
+            }
+
+            lua_pushvalue(L, argCount);
+            const int callbackRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+            GameScene::PendingAudioCallback pending;
+            pending.handle = handle;
+            pending.callbackRef = callbackRef;
+            self->pendingAudioCallbacks_.push_back(std::move(pending));
+            return pushCommandResult(L, true, "queued");
+        },
+        1);
+    lua_setfield(L_, audioTable, "playAsync");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int handle = static_cast<int>(luaL_checkinteger(L, 1));
+
+            std::string reason;
+            const bool ok = self->releaseAudioHandle(handle, reason);
+            return pushCommandResult(L, ok, reason.c_str());
+        },
+        1);
+    lua_setfield(L_, audioTable, "release");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const int handle = static_cast<int>(luaL_checkinteger(L, 1));
+            lua_pushboolean(L, self->isAudioHandlePlaying(handle));
+            return 1;
+        },
+        1);
+    lua_setfield(L_, audioTable, "isPlaying");
+
+    lua_setglobal(L_, "Audio");
 
     lua_newtable(L_);
     lua_pushinteger(L_, static_cast<lua_Integer>(SceneId::Splash));
