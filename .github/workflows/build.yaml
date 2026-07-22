@@ -20,7 +20,14 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # Step 2: Set up Ninja build system
+    # Step 2: Install Modern CMake (Forces upgrade past version 4.3+)
+    - name: Setup Advanced CMake
+      uses: lucasmelin/setup-cmake@v3
+      with:
+        # Installs the latest stable release (e.g., 4.x)
+        cmake-version: 'latest'      
+
+    # Step 2.1: Set up Ninja build system
     - name: Setup Ninja
       uses: ashutoshvarma/setup-ninja@master
       with:
@@ -56,7 +63,7 @@ jobs:
     - name: Setup Vulkan SDK
       uses: jakoch/install-vulkan-sdk-action@v1.2.0
       with:
-        vulkan_version: 'latest'
+        vulkan_version: '1.4.350.1'
         cache: true
 
     # Step 6: Configure CMake

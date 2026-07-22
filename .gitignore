@@ -86,5 +86,5 @@ Thumbs.db
 external/
 .local/
 
-.github/*
+.github/agents/*
 
