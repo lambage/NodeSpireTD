@@ -50,15 +50,15 @@ jobs:
           libsndfile1-dev \
           libflac-dev \
           libvorbis-dev \
-          libgl1-mesa-dev
+          libgl1-mesa-dev \
+          libmbedtls-dev 
 
     # Step 5a: Manual Vulkan Installation (Windows Only via correct URL format)
     - name: Install Vulkan SDK (Windows)
       if: matrix.os == 'windows-latest'
       run: |
-        # Using curl.exe explicitly bypasses the broken PowerShell alias
         Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkansdk-windows-X64-1.4.350.0.exe" -OutFile "vulkan_installer.exe"
-        start-process vulkan_installer.exe -ArgumentList '/S /D=C:\VulkanSDK\1.4.350.0' -Wait
+        start-process vulkan_installer.exe -ArgumentList '--accept-licenses --default-answer --root C:\VulkanSDK\1.4.350.0 --confirm-command install' -Wait
         echo "VULKAN_SDK=C:\VulkanSDK\1.4.350.0" >> $env:GITHUB_ENV
         echo "C:\VulkanSDK\1.4.350.0\Bin" >> $env:GITHUB_PATH
       shell: powershell
