@@ -68,13 +68,13 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: |
         call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
-        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake --build build --config Release"
+        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake.exe -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
+        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake.exe --build build --config Release"
       shell: cmd    
 
     # Step 6b: Configure CMake (Linux)
     - name: Configure CMake
       if: matrix.os == 'ubuntu-latest'
       run: |
-        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
-        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake --build build --config Release"
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --config Release
