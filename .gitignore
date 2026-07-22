@@ -86,10 +86,5 @@ Thumbs.db
 external/
 .local/
 
-# 3D model files, we'll eventually use git lfs for these, but for now we don't want to check them in
-*.glb
-*.spv
-*.blend
-
 .github/*
 
