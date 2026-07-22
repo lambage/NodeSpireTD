@@ -25,7 +25,14 @@ jobs:
       id: cmake-and-ninja
       uses: lukka/get-cmake@latest
 
-    # Step 3: Linux-Only System Dependencies (For SFML & X11/Vulkan Windowing)
+    # Step 3: Windows-Only Compiler Setup
+    - name: Setup MSVC Environment (Windows Only)
+      if: matrix.os == 'windows-latest'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    # Step 4: Linux-Only System Dependencies (For SFML & X11/Vulkan Windowing)
     - name: Install Linux Graphics & Audio Dependencies
       if: matrix.os == 'ubuntu-latest'
       run: |
@@ -48,7 +55,7 @@ jobs:
           libssh2-1-dev \
           libssl-dev
 
-    # Step 4: Vulkan Installation
+    # Step 5: Vulkan Installation
     - name: Install Vulkan SDK
       uses: SpargatGroup/setup-vulkan-sdk@v1.1.0
       with:
@@ -56,17 +63,18 @@ jobs:
         components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
         cache: 'true'
 
-    # Step 5: Windows-Only Compiler Setup
-    - name: Setup MSVC Environment (Windows Only)
-      if: matrix.os == 'windows-latest'
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-
-    # Step 6: Configure CMake
+    # Step 6a: Configure CMake
     - name: Configure CMake
-      run: "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
+      if: matrix.os == 'windows-latest'
+      run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
+        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
+        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake --build build --config Release"
+      shell: cmd    
 
-    # Step 7: Execute the build
-    - name: Build Project
-      run: "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake --build build --config Release"
+    # Step 6b: Configure CMake (Linux)
+    - name: Configure CMake
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release"
+        "${{ steps.cmake-and-ninja.outputs.cmake-path }}cmake --build build --config Release"
