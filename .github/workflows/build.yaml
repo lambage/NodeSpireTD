@@ -46,6 +46,7 @@ jobs:
           libxcursor-dev \
           libudev-dev \
           libfreetype6-dev \
+          libharfbuzz-dev \
           libopenal-dev \
           libsndfile1-dev \
           libflac-dev \
@@ -58,15 +59,13 @@ jobs:
     # Step 5a: Manual Vulkan Installation (Windows Only via correct URL format)
     - name: Install Vulkan SDK (Windows)
       if: matrix.os == 'windows-latest'
-      run: |
-        Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkansdk-windows-X64-1.4.350.0.exe" -OutFile "vulkan_installer.exe"
-        
-        # Swapping flags to --mode unattended ensures the background UI dialog is suppressed completely
-        7z x vulkan_installer.exe -oC:\VulkanSDK\1.4.350.0 -y
-        
-        echo "VULKAN_SDK=C:\VulkanSDK\1.4.350.0" >> $env:GITHUB_ENV
-        echo "C:\VulkanSDK\1.4.350.0\Bin" >> $env:GITHUB_PATH
-      shell: powershell
+      uses: humbletim/setup-vulkan-sdk@v1.2.0
+      with:
+        # Pulls the header & library toolset directly without executing a background wizard 
+        vulkan-query-version: '1.4.350.0'
+        # Fetches shader tools (glslangValidator) and critical validation layers automatically
+        vulkan-components: Vulkan-Headers, Vulkan-Loader, Glslang
+        cache: true
 
     # Step 5b: Manual Vulkan Installation (Linux Only)
     - name: Install Vulkan SDK (Linux)
