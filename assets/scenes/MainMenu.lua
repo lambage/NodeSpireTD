@@ -13,6 +13,7 @@ local quitButtonHoverTexture = nil
 
 local clickSound = nil
 local closeSound = nil
+local hoverSound = nil
 
 local menuState = {
     playHovered = false,
@@ -69,6 +70,7 @@ function M.onEnter()
 
     clickSound = Audio.loadSfx("assets/audio/click.ogg")
     closeSound = Audio.loadSfx("assets/audio/close.ogg")
+    hoverSound = Audio.loadSfx("assets/audio/hover.ogg")
 end
 
 function M.onExit()
@@ -123,6 +125,9 @@ function M.render(state, dt, elapsedSeconds)
     local playButtonDisplayTexture = menuState.playHovered and playButtonHoverTexture or playButtonTexture
     local playClicked    = ImGui.ImageButton("Play", playButtonDisplayTexture, dw * 0.12, dh * 0.12)
     if ImGui.IsItemHovered() then
+        if menuState.playHovered == false and hoverSound then
+            Audio.playSfx(hoverSound, false, 0.5)
+        end
         menuState.playHovered = true
     else
         menuState.playHovered = false
@@ -130,6 +135,9 @@ function M.render(state, dt, elapsedSeconds)
     local optionsButtonDisplayTexture = menuState.optionsHovered and optionsButtonHoverTexture or optionsButtonTexture
     local optionsClicked = ImGui.ImageButton("Options", optionsButtonDisplayTexture, dw * 0.12, dh * 0.12)
     if ImGui.IsItemHovered() then
+        if menuState.optionsHovered == false and hoverSound then
+            Audio.playSfx(hoverSound, false, 0.5)
+        end
         menuState.optionsHovered = true
     else
         menuState.optionsHovered = false
@@ -137,6 +145,9 @@ function M.render(state, dt, elapsedSeconds)
     local quitButtonDisplayTexture = menuState.quitHovered and quitButtonHoverTexture or quitButtonTexture
     local quitClicked = ImGui.ImageButton("Quit", quitButtonDisplayTexture, dw * 0.12, dh * 0.12)
     if ImGui.IsItemHovered() then
+        if menuState.quitHovered == false and hoverSound then
+            Audio.playSfx(hoverSound, false, 0.5)
+        end        
         menuState.quitHovered = true
     else
         menuState.quitHovered = false
