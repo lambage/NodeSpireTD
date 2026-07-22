@@ -65,8 +65,8 @@ jobs:
 
     # Step 6: Configure CMake
     - name: Configure CMake
-      run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      run: "${{ steps.cmake-and-ninja.outputs.cmake-path }}" -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
     # Step 7: Execute the build
     - name: Build Project
-      run: cmake --build build --config Release
+      run: "${{ steps.cmake-and-ninja.outputs.cmake-path }}" --build build --config Release
