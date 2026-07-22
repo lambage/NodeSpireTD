@@ -52,12 +52,25 @@ jobs:
           libvorbis-dev \
           libgl1-mesa-dev
 
-    # Step 5: Install Vulkan SDK (Automatically handles Windows vs. Linux)
-    - name: Setup Vulkan SDK
-      uses: jakoch/install-vulkan-sdk-action@v1.2.0
-      with:
-        vulkan_version: '1.4.350.1'
-        cache: true
+    # Step 5a: Manual Vulkan Installation (Windows Only via correct URL format)
+    - name: Install Vulkan SDK (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        curl -L -o vulkan_installer.exe "https://sdk.lunarg.com/sdk/download/1.4.350.0/windows/vulkansdk-windows-X64-1.4.350.0.exe"
+        start-process vulkan_installer.exe -ArgumentList '/S /D=C:\VulkanSDK\1.4.350.0' -Wait
+        echo "VULKAN_SDK=C:\VulkanSDK\1.4.350.0" >> $env:GITHUB_ENV
+        echo "C:\VulkanSDK\1.4.350.0\Bin" >> $env:GITHUB_PATH
+      shell: powershell
+
+    # Step 5b: Manual Vulkan Installation (Linux Only)
+    - name: Install Vulkan SDK (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        wget https://lunarg.com
+        mkdir -p $HOME/VulkanSDK/1.4.350.0
+        tar -xzf vulkansdk-linux-x86_64-1.4.350.0.tar.gz -C $HOME/VulkanSDK/1.4.350.0 --strip-components=1
+        echo "VULKAN_SDK=$HOME/VulkanSDK/1.4.350.0/x86_64" >> $GITHUB_ENV
+        echo "$HOME/VulkanSDK/1.4.350.0/x86_64/bin" >> $GITHUB_PATH
 
     # Step 6: Configure CMake
     - name: Configure CMake
