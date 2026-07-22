@@ -43,14 +43,6 @@ function M.render(state, dt, elapsedSeconds)
         ImGui.Image(splashTexture, drawW, drawH)
     end
 
-    -- Centered title (uses TitleFont if available)
-    if TitleFont then ImGui.PushFont(TitleFont) end
-    local title  = "NodeSpireTD"
-    local titleW = ImGui.CalcTextSize(title)
-    ImGui.SetCursorPos(math.max(0, (ImGui.GetWindowWidth() - titleW) * 0.5), 28)
-    ImGui.Text(title)
-    if TitleFont then ImGui.PopFont() end
-
     -- Status line anchored near the bottom
     local status  = "Initializing systems..."
     local statusW = ImGui.CalcTextSize(status)

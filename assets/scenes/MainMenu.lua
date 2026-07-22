@@ -1,11 +1,24 @@
 local M = {}
 
 local kMenuW = 420
-local kMenuH = 320
+local kMenuH = 480
 
---local backTexture = nil
+local backTexture = nil
+local playButtonTexture = nil
+local playButtonHoverTexture = nil
+local optionsButtonTexture = nil
+local optionsButtonHoverTexture = nil
+local quitButtonTexture = nil
+local quitButtonHoverTexture = nil
+
 local clickSound = nil
 local closeSound = nil
+
+local menuState = {
+    playHovered = false,
+    optionsHovered = false,
+    quitHovered = false
+}
 
 function M.onEnter()
     local tex, err = Texture.load(VulkanContext, "assets/images/splash_screen.png")
@@ -15,12 +28,57 @@ function M.onEnter()
         -- Texture failed to load; the splash screen will show text only
     end
 
+    local playTex, err = Texture.load(VulkanContext, "assets/images/play_button.png")
+    if playTex then
+        playButtonTexture = playTex
+    else
+        -- Texture failed to load; the button will show text only
+    end
+
+    local playHoverTex, err = Texture.load(VulkanContext, "assets/images/play_button_hover.png")
+    if playHoverTex then
+        playButtonHoverTexture = playHoverTex
+    else
+        -- Texture failed to load; the button will show text only
+    end
+
+    local optionsTex, err = Texture.load(VulkanContext, "assets/images/options_button.png")
+    if optionsTex then
+        optionsButtonTexture = optionsTex
+    else
+        -- Texture failed to load; the button will show text only
+    end
+    local optionsHoverTex, err = Texture.load(VulkanContext, "assets/images/options_button_hover.png")
+    if optionsHoverTex then
+        optionsButtonHoverTexture = optionsHoverTex
+    else
+        -- Texture failed to load; the button will show text only
+    end
+    local quitTex, err = Texture.load(VulkanContext, "assets/images/quit_button.png")
+    if quitTex then
+        quitButtonTexture = quitTex
+    else
+        -- Texture failed to load; the button will show text only
+    end
+    local quitHoverTex, err = Texture.load(VulkanContext, "assets/images/quit_button_hover.png")
+    if quitHoverTex then
+        quitButtonHoverTexture = quitHoverTex
+    else
+        -- Texture failed to load; the button will show text only
+    end
+
     clickSound = Audio.loadSfx("assets/audio/click.ogg")
     closeSound = Audio.loadSfx("assets/audio/close.ogg")
 end
 
 function M.onExit()
     backTexture = nil
+    playButtonTexture = nil
+    playButtonHoverTexture = nil
+    optionsButtonTexture = nil
+    optionsButtonHoverTexture = nil
+    quitButtonTexture = nil
+    quitButtonHoverTexture = nil
 end
 
 function M.render(state, dt, elapsedSeconds)
@@ -52,21 +110,41 @@ function M.render(state, dt, elapsedSeconds)
     local flags = ImGuiWindowFlags.NoResize  |
                   ImGuiWindowFlags.NoMove    |
                   ImGuiWindowFlags.NoCollapse |
-                  ImGuiWindowFlags.NoTitleBar
+                  ImGuiWindowFlags.NoTitleBar |
+                  ImGuiWindowFlags.NoSavedSettings |
+                  ImGuiWindowFlags.NoBackground
     ImGui.Begin("MainMenu", flags)
 
-    if HeadingFont then ImGui.PushFont(HeadingFont) end
-    ImGui.Text("NodeSpireTD")
-    if HeadingFont then ImGui.PopFont() end
-
-    ImGui.Text("Deploy. Defend. Adapt.")
-    ImGui.Separator()
+    ImGui.PushStyleColor(ImGuiCol.Button, 0.0, 0.0, 0.0, 0.0)
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0.0, 0.0, 0.0, 0.0)
+    ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0.0, 0.0, 0.0, 0.0)
 
     -- Render all buttons first so ImGui processes them all this frame
-    local playClicked    = ImGui.Button("Play",    -1, 42)
-    local optionsClicked = ImGui.Button("Options", -1, 42)
-    local quitClicked    = ImGui.Button("Quit",    -1, 42)
+    local playButtonDisplayTexture = menuState.playHovered and playButtonHoverTexture or playButtonTexture
+    local playClicked    = ImGui.ImageButton("Play", playButtonDisplayTexture, dw * 0.12, dh * 0.12)
+    if ImGui.IsItemHovered() then
+        menuState.playHovered = true
+    else
+        menuState.playHovered = false
+    end
+    local optionsButtonDisplayTexture = menuState.optionsHovered and optionsButtonHoverTexture or optionsButtonTexture
+    local optionsClicked = ImGui.ImageButton("Options", optionsButtonDisplayTexture, dw * 0.12, dh * 0.12)
+    if ImGui.IsItemHovered() then
+        menuState.optionsHovered = true
+    else
+        menuState.optionsHovered = false
+    end
+    local quitButtonDisplayTexture = menuState.quitHovered and quitButtonHoverTexture or quitButtonTexture
+    local quitClicked = ImGui.ImageButton("Quit", quitButtonDisplayTexture, dw * 0.12, dh * 0.12)
+    if ImGui.IsItemHovered() then
+        menuState.quitHovered = true
+    else
+        menuState.quitHovered = false
+    end
 
+    ImGui.PopStyleColor()
+    ImGui.PopStyleColor()
+    ImGui.PopStyleColor()
     ImGui.End()
 
     if playClicked then
