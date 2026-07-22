@@ -56,25 +56,13 @@ jobs:
           libssh2-1-dev \
           libssl-dev
 
-    # Step 5a: Manual Vulkan Installation (Windows Only via correct URL format)
-    - name: Install Vulkan SDK (Windows)
-      if: matrix.os == 'windows-latest'
-      uses: humbletim/setup-vulkan-sdk@v1.2.0
+    # Step 5: Vulkan Installation
+    - name: Install Vulkan SDK
+      uses: SpargatGroup/setup-vulkan-sdk@v1.1.0
       with:
-        # Pulls the header & library toolset directly without executing a background wizard 
-        vulkan-query-version: '1.4.350.0'
-        # Fetches shader tools (glslangValidator) and critical validation layers automatically
-        vulkan-components: Vulkan-Headers, Vulkan-Loader, Glslang
-        no-cache: true 
-
-    # Step 5b: Manual Vulkan Installation (Linux Only)
-    - name: Install Vulkan SDK (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      uses: jakoch/install-vulkan-sdk-action@v1.2.0
-      with:
-        vulkan_version: '1.3.296.0'
-        install_runtime: false
-        cache: true
+        version: 'latest'
+        components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
+        cache: 'true'
 
     # Step 6: Configure CMake
     - name: Configure CMake
