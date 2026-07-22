@@ -1,0 +1,68 @@
+name: Cross-Platform CMake Ninja Build with Vulkan
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+    # Step 1: Check out the code
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # Step 2: Set up Ninja build system
+    - name: Setup Ninja
+      uses: ashutoshvarma/setup-ninja@master
+      with:
+        version: 1.11.1
+
+    # Step 3: Windows-Only Compiler Setup
+    - name: Setup MSVC Environment (Windows Only)
+      if: matrix.os == 'windows-latest'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    # Step 4: Linux-Only System Dependencies (For SFML & X11/Vulkan Windowing)
+    - name: Install Linux Graphics & Audio Dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libx11-dev \
+          libxrandr-dev \
+          libxi-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libudev-dev \
+          libfreetype6-dev \
+          libopenal-dev \
+          libsndfile1-dev \
+          libflac-dev \
+          libvorbis-dev \
+          libgl1-mesa-dev
+
+    # Step 5: Install Vulkan SDK (Automatically handles Windows vs. Linux)
+    - name: Setup Vulkan SDK
+      uses: jakoch/install-vulkan-sdk-action@v1.2.0
+      with:
+        vulkan_version: 'latest'
+        cache: true
+
+    # Step 6: Configure CMake
+    - name: Configure CMake
+      run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    # Step 7: Execute the build
+    - name: Build Project
+      run: cmake --build build --config Release

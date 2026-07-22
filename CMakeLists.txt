@@ -18,8 +18,16 @@ set(SFML_BUILD_GRAPHICS ON CACHE INTERNAL "")
 FetchContent_MakeAvailable(SFML)
 
 if(WIN32)
-    set(VULKAN_SDK_PATH "E:/VulkanSDK/1.4.350.0" CACHE PATH "Path to LunarG Vulkan SDK")
-    if(EXISTS "${VULKAN_SDK_PATH}/Include/vulkan/vulkan.h")
+    # Prefer the VULKAN_SDK environment variable (set automatically by the LunarG
+    # Vulkan SDK installer). Fall back to VULKAN_SDK_PATH for anyone who wants to
+    # override it explicitly, e.g. via -DVULKAN_SDK_PATH=... or a local cache entry.
+    if(DEFINED ENV{VULKAN_SDK} AND NOT VULKAN_SDK_PATH)
+        set(VULKAN_SDK_PATH "$ENV{VULKAN_SDK}" CACHE PATH "Path to LunarG Vulkan SDK")
+    else()
+        set(VULKAN_SDK_PATH "" CACHE PATH "Path to LunarG Vulkan SDK")
+    endif()
+
+    if(VULKAN_SDK_PATH AND EXISTS "${VULKAN_SDK_PATH}/Include/vulkan/vulkan.h")
         set(ENV{VULKAN_SDK} "${VULKAN_SDK_PATH}")
         set(Vulkan_INCLUDE_DIR "${VULKAN_SDK_PATH}/Include")
         set(Vulkan_LIBRARY "${VULKAN_SDK_PATH}/Lib/vulkan-1.lib")
