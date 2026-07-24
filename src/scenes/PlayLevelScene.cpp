@@ -199,7 +199,7 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     // Reset camera
     cameraController_.reset();
 
-    LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext);
+    LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext, state.audioEngine);
     registerLuaGameplayApi();
 
     gameplayState_.resetForNewRun();

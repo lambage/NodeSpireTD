@@ -5,14 +5,8 @@ local kWindowH = 480
 
 local backTexture = nil
 
-local clickSound = nil
-local closeSound = nil
-local hoverSound = nil
-
-local menuState = {
-	loadLevelHovered = false,
-	backHovered = false
-}
+local loadLevelButton = nil
+local backButton = nil
 
 function M.onEnter()
 	local tex, err = Texture.load(VulkanContext, "assets/images/splash_screen.png")
@@ -22,13 +16,16 @@ function M.onEnter()
         -- Texture failed to load; the splash screen will show text only
     end
 
-    clickSound = Audio.loadSfx("assets/audio/click.ogg")
-    closeSound = Audio.loadSfx("assets/audio/close.ogg")
-    hoverSound = Audio.loadSfx("assets/audio/hover.ogg")
+    loadLevelButton = GameButton.new("loadLevel", "Load Level", 170.0, 40.0,
+        "assets/audio/hover.ogg", "assets/audio/click.ogg")
+    backButton = GameButton.new("back", "Back", 140.0, 40.0,
+        "assets/audio/hover.ogg", "assets/audio/close.ogg")
 end
 
 function M.onExit()
 	backTexture = nil
+	loadLevelButton = nil
+	backButton = nil
 end
 
 function M.render(state, dt, elapsedSeconds)
@@ -120,8 +117,7 @@ function M.render(state, dt, elapsedSeconds)
 	if not hasLevels then
 		ImGui.BeginDisabled()
 	end
-	if ImGui.Button("Load Level", 170.0, 40.0) then
-		Audio.playSfx(clickSound, false, 1.0)
+	if loadLevelButton:render() then
 		local selectedName = "level"
 		for i = 1, #levels do
 			if levels[i].selected then
@@ -131,32 +127,14 @@ function M.render(state, dt, elapsedSeconds)
 		end
 		Gameplay.requestScene(Gameplay.Scene.PlayLevel, string.format("Loading level: %s...", selectedName))
 	end
-	if ImGui.IsItemHovered() then
-		if menuState.loadLevelHovered == false and hoverSound then
-			Audio.playSfx(hoverSound, false, 0.5)
-		end
-		menuState.loadLevelHovered = true
-	else
-		menuState.loadLevelHovered = false
-	end
-	
+
 	if not hasLevels then
 		ImGui.EndDisabled()
 	end
 
 	ImGui.SameLine()
-	if ImGui.Button("Back", 140.0, 40.0) then
+	if backButton:render() then
 		Gameplay.requestScene(Gameplay.Scene.MainMenu, "Returning to main menu...")
-		Audio.playSfx(closeSound, false, 1.0)
-	end
-
-	if ImGui.IsItemHovered() then
-		if menuState.backHovered == false and hoverSound then
-			Audio.playSfx(hoverSound, false, 0.5)
-		end
-		menuState.backHovered = true
-	else
-		menuState.backHovered = false
 	end
 
 	ImGui.End()

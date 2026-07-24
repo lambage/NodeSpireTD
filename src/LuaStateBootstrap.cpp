@@ -1,7 +1,10 @@
 #include "LuaStateBootstrap.hpp"
 
+#include "AudioEngine.hpp"
 #include "VulkanContext.hpp"
 #include "lua.hpp"
+#include "utility/GameButton.hpp"
+#include "utility/GameImageButton.hpp"
 #include "utility/VulkanTexture.hpp"
 
 #include <imgui.h>
@@ -11,7 +14,7 @@
 
 
 namespace LuaStateBootstrap {
-void initializeEngineState(lua_State* L, const VulkanContext* context) {
+void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngine* audioEngine) {
     if (!L) {
         spdlog::warn("Lua state is null. Skipping ImGui Lua bindings initialization.");
         return;
@@ -23,6 +26,13 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         lua_pushnil(L);
     }
     lua_setglobal(L, "VulkanContext");
+
+    if (audioEngine) {
+        lua_pushlightuserdata(L, audioEngine);
+    } else {
+        lua_pushnil(L);
+    }
+    lua_setglobal(L, "AudioEngine");
 
     // ImVec2 constructor: ImVec2(x, y) -> { x=..., y=... }
     lua_pushcclosure(
@@ -1303,6 +1313,197 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
     lua_setfield(L, texTable, "load");
 
     lua_setglobal(L, "Texture");
+
+    // GameButton userdata ("NST.GameButton")
+    // Full userdata holds a heap-allocated GameButton*; __gc deletes it.
+    luaL_newmetatable(L, "NST.GameButton");
+    int gameButtonMeta = lua_gettop(L);
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameButton**>(lua_touserdata(L, 1));
+            if (ppButton && *ppButton) {
+                delete *ppButton;
+                *ppButton = nullptr;
+            }
+            return 0;
+        },
+        0);
+    lua_setfield(L, gameButtonMeta, "__gc");
+
+    lua_newtable(L);
+    int gameButtonMethods = lua_gettop(L);
+
+    // button:render() -> bool clicked
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameButton**>(luaL_checkudata(L, 1, "NST.GameButton"));
+            lua_pushboolean(L, (*ppButton)->render());
+            return 1;
+        },
+        0);
+    lua_setfield(L, gameButtonMethods, "render");
+
+    // button:setLabel(label)
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameButton**>(luaL_checkudata(L, 1, "NST.GameButton"));
+            (*ppButton)->setLabel(luaL_checkstring(L, 2));
+            return 0;
+        },
+        0);
+    lua_setfield(L, gameButtonMethods, "setLabel");
+
+    // button:setSize(w, h)
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameButton**>(luaL_checkudata(L, 1, "NST.GameButton"));
+            const float w = static_cast<float>(luaL_checknumber(L, 2));
+            const float h = static_cast<float>(luaL_checknumber(L, 3));
+            (*ppButton)->setSize(w, h);
+            return 0;
+        },
+        0);
+    lua_setfield(L, gameButtonMethods, "setSize");
+
+    lua_setfield(L, gameButtonMeta, "__index"); // metatable.__index = methods table
+    lua_pop(L, 1);                              // pop metatable
+
+    // GameButton global:
+    // GameButton.new(id, label, w, h, [hoverSoundPath, [clickSoundPath]]) -> button
+    lua_newtable(L);
+    int gameButtonTable = lua_gettop(L);
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const char* id = luaL_checkstring(L, 1);
+            const char* label = luaL_checkstring(L, 2);
+            const float w = static_cast<float>(luaL_checknumber(L, 3));
+            const float h = static_cast<float>(luaL_checknumber(L, 4));
+            const char* hoverSoundPath = luaL_optstring(L, 5, "");
+            const char* clickSoundPath = luaL_optstring(L, 6, "");
+
+            lua_getglobal(L, "AudioEngine");
+            if (lua_type(L, -1) != LUA_TLIGHTUSERDATA) {
+                lua_pop(L, 1);
+                return luaL_error(L, "GameButton.new: AudioEngine is unavailable");
+            }
+            auto* audioEngine = static_cast<AudioEngine*>(lua_touserdata(L, -1));
+            lua_pop(L, 1);
+
+            auto* button = new GameButton(id, *audioEngine, label, w, h, nullptr, hoverSoundPath, clickSoundPath);
+            auto** ppButton = static_cast<GameButton**>(lua_newuserdata(L, sizeof(GameButton*)));
+            *ppButton = button;
+            luaL_getmetatable(L, "NST.GameButton");
+            lua_setmetatable(L, -2);
+            return 1;
+        },
+        0);
+    lua_setfield(L, gameButtonTable, "new");
+
+    lua_setglobal(L, "GameButton");
+
+    // GameImageButton userdata ("NST.GameImageButton")
+    // Full userdata holds a heap-allocated GameImageButton*; __gc deletes it.
+    luaL_newmetatable(L, "NST.GameImageButton");
+    int gameImageButtonMeta = lua_gettop(L);
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameImageButton**>(lua_touserdata(L, 1));
+            if (ppButton && *ppButton) {
+                delete *ppButton;
+                *ppButton = nullptr;
+            }
+            return 0;
+        },
+        0);
+    lua_setfield(L, gameImageButtonMeta, "__gc");
+
+    lua_newtable(L);
+    int gameImageButtonMethods = lua_gettop(L);
+
+    // button:render() -> bool clicked
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameImageButton**>(luaL_checkudata(L, 1, "NST.GameImageButton"));
+            lua_pushboolean(L, (*ppButton)->render());
+            return 1;
+        },
+        0);
+    lua_setfield(L, gameImageButtonMethods, "render");
+
+    // button:setSize(w, h)
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameImageButton**>(luaL_checkudata(L, 1, "NST.GameImageButton"));
+            const float w = static_cast<float>(luaL_checknumber(L, 2));
+            const float h = static_cast<float>(luaL_checknumber(L, 3));
+            (*ppButton)->setSize(w, h);
+            return 0;
+        },
+        0);
+    lua_setfield(L, gameImageButtonMethods, "setSize");
+
+    lua_setfield(L, gameImageButtonMeta, "__index"); // metatable.__index = methods table
+    lua_pop(L, 1);                                   // pop metatable
+
+    // GameImageButton global:
+    // GameImageButton.new(VulkanContext, id, imagePath, imageHoverPath, w, h,
+    //                      [hoverSoundPath, [clickSoundPath]]) -> button | nil, err
+    lua_newtable(L);
+    int gameImageButtonTable = lua_gettop(L);
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            if (lua_type(L, 1) != LUA_TLIGHTUSERDATA) {
+                return luaL_error(L, "GameImageButton.new: arg 1 must be VulkanContext lightuserdata");
+            }
+            auto* ctx = static_cast<VulkanContext*>(lua_touserdata(L, 1));
+            const char* id = luaL_checkstring(L, 2);
+            const char* imagePath = luaL_checkstring(L, 3);
+            const char* imageHoverPath = luaL_checkstring(L, 4);
+            const float w = static_cast<float>(luaL_checknumber(L, 5));
+            const float h = static_cast<float>(luaL_checknumber(L, 6));
+            const char* hoverSoundPath = luaL_optstring(L, 7, "");
+            const char* clickSoundPath = luaL_optstring(L, 8, "");
+
+            lua_getglobal(L, "AudioEngine");
+            if (lua_type(L, -1) != LUA_TLIGHTUSERDATA) {
+                lua_pop(L, 1);
+                return luaL_error(L, "GameImageButton.new: AudioEngine is unavailable");
+            }
+            auto* audioEngine = static_cast<AudioEngine*>(lua_touserdata(L, -1));
+            lua_pop(L, 1);
+
+            try {
+                auto* button = new GameImageButton(id, *ctx, *audioEngine, imagePath, imageHoverPath, w, h, nullptr,
+                                                    hoverSoundPath, clickSoundPath);
+                auto** ppButton = static_cast<GameImageButton**>(lua_newuserdata(L, sizeof(GameImageButton*)));
+                *ppButton = button;
+                luaL_getmetatable(L, "NST.GameImageButton");
+                lua_setmetatable(L, -2);
+                return 1;
+            } catch (const std::exception& ex) {
+                lua_pushnil(L);
+                lua_pushstring(L, ex.what());
+                return 2;
+            }
+        },
+        0);
+    lua_setfield(L, gameImageButtonTable, "new");
+
+    lua_setglobal(L, "GameImageButton");
 }
 
 } // namespace LuaStateBootstrap
+

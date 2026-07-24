@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.31.6)
 add_executable(NodeSpireTD 
     main.cpp
     AppController.cpp
+    AudioEngine.cpp
     SettingsManager.cpp
     PlatformRuntime.cpp
     LocalAchievementService.cpp
@@ -10,8 +11,10 @@ add_executable(NodeSpireTD
     Scenes.cpp
     VulkanContext.cpp
     LuaStateBootstrap.cpp
-    utility/VulkanTexture.cpp
+    utility/GameImageButton.cpp
+    utility/GameButton.cpp
     utility/TemplateAnimator.cpp
+    utility/VulkanTexture.cpp
     utility/WorldAssetLoader.cpp
     utility/WorldRenderer.cpp
     ImGuiLayer.cpp

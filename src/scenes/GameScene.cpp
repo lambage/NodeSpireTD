@@ -269,7 +269,7 @@ static void pushSceneState(lua_State* L, const SceneSharedState& state) {
 }
 
 int GameScene::loadLuaScript(SceneSharedState& state, const std::string& scriptPath) {
-    LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext);
+    LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext, state.audioEngine);
     registerCoreGameplayApi();
 
     if (state.titleFont) {

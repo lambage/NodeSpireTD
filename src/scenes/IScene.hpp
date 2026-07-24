@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioEngine.hpp"
 #include "ImGuiLayer.hpp"
 #include "lua.hpp"
 #include "scenes/SceneSharedState.hpp"
@@ -25,11 +26,6 @@ struct SceneTransitionRequest {
     SceneId target = SceneId::MainMenu;
     std::string message{};
     float minDurationSeconds = 0.0f;
-};
-
-enum class AudioChannel {
-    Music,
-    Sfx
 };
 
 struct AudioPlayRequest {

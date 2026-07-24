@@ -1,7 +1,11 @@
 local M = {}
 
+local acceptButton = nil
+local revertButton = nil
+local applyButton = nil
+local backButton = nil
+
 local clickSound = nil
-local closeSound = nil
 
 local function modeLabel(mode)
     return string.format("%d x %d @ %d Hz", mode.width or 0, mode.height or 0, mode.refreshRate or 0)
@@ -13,18 +17,20 @@ local function playClick()
     end
 end
 
-local function playClose()
-    if closeSound then
-        Audio.playSfx(closeSound, false, 1.0)
-    end
-end
-
 function M.onEnter()
     clickSound = Audio.loadSfx("assets/audio/click.ogg")
-    closeSound = Audio.loadSfx("assets/audio/close.ogg")
+
+    acceptButton = GameButton.new("acceptDisplayChanges", "Accept Changes", 170.0, 0.0, "", "assets/audio/click.ogg")
+    revertButton = GameButton.new("revertDisplayChanges", "Revert", 120.0, 0.0, "", "assets/audio/click.ogg")
+    applyButton = GameButton.new("applySettings", "Apply", 140.0, 40.0, "", "assets/audio/click.ogg")
+    backButton = GameButton.new("backToMainMenu", "Back", 140.0, 40.0, "", "assets/audio/close.ogg")
 end
 
 function M.onExit()
+    acceptButton = nil
+    revertButton = nil
+    applyButton = nil
+    backButton = nil
 end
 
 local function renderGfxTab(state, settings)
@@ -226,16 +232,14 @@ function M.render(state, dt, elapsedSeconds)
         ImGui.Text(string.format("Reverting in %.1f seconds", state.displayConfirmationSecondsRemaining or 0.0))
         ImGui.Separator()
 
-        local acceptClicked = ImGui.Button("Accept Changes", 170.0, 0.0)
+        local acceptClicked = acceptButton:render()
         ImGui.SameLine()
-        local revertClicked = ImGui.Button("Revert", 120.0, 0.0)
+        local revertClicked = revertButton:render()
 
         if acceptClicked then
-            playClick()
             Gameplay.requestAcceptDisplayChanges()
             ImGui.CloseCurrentPopup()
         elseif revertClicked then
-            playClick()
             Gameplay.requestRevertDisplayChanges()
             ImGui.CloseCurrentPopup()
         end
@@ -244,17 +248,15 @@ function M.render(state, dt, elapsedSeconds)
     end
 
     ImGui.Separator()
-    local applyClicked = ImGui.Button("Apply", 140.0, 40.0)
+    local applyClicked = applyButton:render()
     ImGui.SameLine()
-    local backClicked = ImGui.Button("Back", 140.0, 40.0)
+    local backClicked = backButton:render()
 
     ImGui.End()
 
     if applyClicked then
-        playClick()
         Gameplay.requestApplySettings()
     elseif backClicked then
-        playClose()
         Gameplay.requestScene(Gameplay.Scene.MainMenu, "Returning to main menu...")
     end
 end

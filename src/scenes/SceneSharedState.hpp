@@ -8,6 +8,7 @@
 #include <vector>
 
 class VulkanContext;
+class AudioEngine;
 
 struct DisplayModeOption {
     int width = 1280;
@@ -27,8 +28,10 @@ struct SceneSharedState {
     std::string& activeLevelScriptPath;
     const std::unordered_set<std::string>& activeAudioAssetKeys;
     VulkanContext* vulkanContext = nullptr;
+    AudioEngine* audioEngine = nullptr;
     ImFont* headingFont = nullptr;
     ImFont* titleFont = nullptr;
 };
 
 std::string modeLabel(const DisplayModeOption& mode);
+

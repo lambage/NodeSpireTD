@@ -6,6 +6,22 @@ local debugPickSpheresVisible = false
 local debugUiVisible = false
 local towerSlotTextures = {}
 
+local kSlotW, kSlotH, kSlotPreviewH = 150, 108, 52
+
+local startMatchButton = nil
+local playAgainButton = nil
+local backToLobbyButton = nil
+local slotButtons = {}
+local exitToMissionSelectButton = nil
+local spend25Button = nil
+local damageBase10Button = nil
+local startWaveButton = nil
+local clearSelectionButton = nil
+local compositeToggleButton = nil
+local prevClipButton = nil
+local nextClipButton = nil
+local selectWalkingButton = nil
+
 local function UiTextWrapped(text)
     ImGui.TextWrapped(tostring(text or ""))
 end
@@ -55,6 +71,26 @@ function M.onEnter()
     if Gameplay.setDebugPickSpheresVisible then
         Gameplay.setDebugPickSpheresVisible(debugPickSpheresVisible)
     end
+
+    startMatchButton = GameButton.new("startMatch", "Start Match", -1.0, 42.0)
+    playAgainButton = GameButton.new("playAgain", "Play Again", -1.0, 42.0)
+    backToLobbyButton = GameButton.new("backToLobby", "Back to Lobby", -1.0, 38.0)
+
+    slotButtons = {}
+    for i = 1, 5 do
+        slotButtons[i] = GameButton.new(string.format("towerSlot_%d", i), string.format("[%d] Empty", i),
+            kSlotW, kSlotH - kSlotPreviewH)
+    end
+
+    exitToMissionSelectButton = GameButton.new("exitToMissionSelect", "Exit to Mission Select", -1.0, 30.0)
+    spend25Button = GameButton.new("spend25", "Spend 25", -1, 0)
+    damageBase10Button = GameButton.new("damageBase10", "Damage Base 10", -1, 0)
+    startWaveButton = GameButton.new("startWave", "Start Wave", -1, 0)
+    clearSelectionButton = GameButton.new("clearSelection", "Clear Selection", 160, 0)
+    compositeToggleButton = GameButton.new("compositeToggle", "Composite: OFF", 160, 0)
+    prevClipButton = GameButton.new("prevClip", "Prev Clip", 160, 0)
+    nextClipButton = GameButton.new("nextClip", "Next Clip", 160, 0)
+    selectWalkingButton = GameButton.new("selectWalking", "Select Walking", 160, 0)
 end
 
 local function drawMatchStateOverlay(gs)
@@ -91,16 +127,16 @@ local function drawMatchStateOverlay(gs)
     ImGui.Spacing()
 
     if status == "WaitingToStart" then
-        if ImGui.Button("Start Match", -1.0, 42.0) then
+        if startMatchButton:render() then
             local r = Gameplay.requestStartWave and Gameplay.requestStartWave() or { ok = false, reason = "requestStartWave unavailable" }
             lastResult = string.format("Start match -> ok=%s reason=%s", tostring(r.ok), tostring(r.reason))
         end
     else
-        if ImGui.Button("Play Again", -1.0, 42.0) then
+        if playAgainButton:render() then
             Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Restarting level...")
         end
         ImGui.Spacing()
-        if ImGui.Button("Back to Lobby", -1.0, 38.0) then
+        if backToLobbyButton:render() then
             Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
         end
     end
@@ -267,7 +303,9 @@ function M.render(state, dt, elapsed)
             label = string.format("[%d] Empty", i)
         end
 
-        local slotButtonClicked = ImGui.Button(label, slotW, slotH - previewH)
+        local slotButton = slotButtons[i]
+        slotButton:setLabel(label)
+        local slotButtonClicked = slotButton:render()
         if previewClicked or slotButtonClicked then
             if available and Gameplay.selectTowerSlot then
                 local r = Gameplay.selectTowerSlot(i)
@@ -327,7 +365,7 @@ function M.render(state, dt, elapsed)
     end
 
     ImGui.Spacing()
-    if ImGui.Button("Exit to Mission Select", -1.0, 30.0) then
+    if exitToMissionSelectButton:render() then
         Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
     end
     ImGui.End()
@@ -353,17 +391,17 @@ function M.render(state, dt, elapsed)
     ImGui.Text(string.format("Waves Defined: %d", gs.waveCount or 0))
     ImGui.Text(string.format("Status: %s", gs.matchStatus))
 
-    if ImGui.Button("Spend 25", -1, 0) then
+    if spend25Button:render() then
         local r = Gameplay.requestSpendMoney(25)
         lastResult = string.format("Spend 25 -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
 
-    if ImGui.Button("Damage Base 10", -1, 0) then
+    if damageBase10Button:render() then
         local r = Gameplay.requestDamageBase(10)
         lastResult = string.format("Damage 10 -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
 
-    if ImGui.Button("Start Wave", -1, 0) then
+    if startWaveButton:render() then
         local r = Gameplay.requestStartWave()
         lastResult = string.format("Start wave -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
@@ -381,7 +419,7 @@ function M.render(state, dt, elapsed)
     ImGui.Separator()
     ImGui.Text(string.format("[H] Pick Spheres: %s", debugPickSpheresVisible and "ON" or "OFF"))
 
-    if ImGui.Button("Clear Selection", 160, 0) then
+    if clearSelectionButton:render() then
         Gameplay.clearDebugSelection()
     end
 
@@ -419,7 +457,8 @@ function M.render(state, dt, elapsed)
     local compositeMode = Gameplay.getCompositeAnimationMode()
     ImGui.Text(string.format("Clip List: %d total, active=%d", clipCount, activeClip))
     ImGui.Text(string.format("Composite Mode: %s", tostring(compositeMode)))
-    if ImGui.Button(compositeMode and "Composite: ON" or "Composite: OFF", 160, 0) then
+    compositeToggleButton:setLabel(compositeMode and "Composite: ON" or "Composite: OFF")
+    if compositeToggleButton:render() then
         local r = Gameplay.setCompositeAnimationMode(not compositeMode)
         lastResult = string.format("Toggle composite -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
@@ -431,15 +470,15 @@ function M.render(state, dt, elapsed)
         end
     end
 
-    if ImGui.Button("Prev Clip", 160, 0) then
+    if prevClipButton:render() then
         local r = Gameplay.setAnimationClip(math.max(0, activeClip - 1))
         lastResult = string.format("Prev clip -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
-    if ImGui.Button("Next Clip", 160, 0) then
+    if nextClipButton:render() then
         local r = Gameplay.setAnimationClip(math.min(math.max(0, clipCount - 1), activeClip + 1))
         lastResult = string.format("Next clip -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
-    if ImGui.Button("Select Walking", 160, 0) then
+    if selectWalkingButton:render() then
         local r = Gameplay.setAnimationClip("Walking")
         lastResult = string.format("Select Walking -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
@@ -484,6 +523,20 @@ end
 
 function M.onExit()
     towerSlotTextures = {}
+
+    startMatchButton = nil
+    playAgainButton = nil
+    backToLobbyButton = nil
+    slotButtons = {}
+    exitToMissionSelectButton = nil
+    spend25Button = nil
+    damageBase10Button = nil
+    startWaveButton = nil
+    clearSelectionButton = nil
+    compositeToggleButton = nil
+    prevClipButton = nil
+    nextClipButton = nil
+    selectWalkingButton = nil
 end
 
 return M

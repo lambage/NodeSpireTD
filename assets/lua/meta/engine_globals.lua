@@ -22,10 +22,23 @@ Audio.playSfxAsync = nil
 ---@type any
 Audio.release = nil
 
+---@type any
+AudioEngine = nil
+
 ---@class NS.Entity
 Entity = {}
 ---@type any
 Entity.Load = nil
+
+---@class NS.GameButton
+GameButton = {}
+---@type any
+GameButton.new = nil
+
+---@class NS.GameImageButton
+GameImageButton = {}
+---@type any
+GameImageButton.new = nil
 
 ---@class NS.Gameplay
 Gameplay = {}
