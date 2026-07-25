@@ -1,7 +1,11 @@
 local M = {}
 
 local kMenuW = 420
-local kMenuH = 480
+local kMenuH = 600
+local kReferenceWidth = 2560.0
+local kReferenceHeight = 1080.0
+local kButtonWidthAtReference = kReferenceWidth * 0.12
+local kButtonHeightAtReference = kReferenceHeight * 0.12
 
 local backTexture = nil
 
@@ -10,6 +14,23 @@ local optionsButton = nil
 local quitButton = nil
 
 local closeSound = nil
+
+local function computeMenuButtonSize(displayW, displayH)
+    local scale = math.min(displayW / kReferenceWidth, displayH / kReferenceHeight)
+    return kButtonWidthAtReference * scale, kButtonHeightAtReference * scale
+end
+
+local function renderCenteredMenuButton(button, buttonW, buttonH)
+    if not button then
+        return false
+    end
+
+    local windowW = ImGui.GetWindowSize()
+    local centeredX = math.max(0.0, (windowW - buttonW) * 0.5)
+    ImGui.SetCursorPosX(centeredX)
+    button:setSize(buttonW, buttonH)
+    return button:render()
+end
 
 function M.onEnter()
     local tex, err = Texture.load(VulkanContext, "assets/images/splash_screen.png")
@@ -20,7 +41,7 @@ function M.onEnter()
     end
 
     local dw, dh = ImGui.GetDisplaySize()
-    local buttonW, buttonH = dw * 0.12, dh * 0.12
+    local buttonW, buttonH = computeMenuButtonSize(dw, dh)
 
     playButton, err = GameImageButton.new(VulkanContext, "Play", "assets/images/play_button.png",
         "assets/images/play_button_hover.png", buttonW, buttonH,
@@ -55,6 +76,7 @@ function M.onExit()
 end
 
 function M.render(state, dt, elapsedSeconds)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0.0, 0.0)
     ImGui.SetNextWindowFullscreen()
     local flags = ImGuiWindowFlags.NoDecoration  |
                   ImGuiWindowFlags.NoMove         |
@@ -68,13 +90,16 @@ function M.render(state, dt, elapsedSeconds)
         local scale    = math.min(aw / imgW, ah / imgH)
         local drawW    = imgW * scale
         local drawH    = imgH * scale
+        local drawX   = (aw - drawW) * 0.5
+        local drawY   = (ah - drawH) * 0.5
         ImGui.SetCursorPos(
-            math.max(0, (aw - drawW) * 0.5),
-            math.max(0, (ah - drawH) * 0.45)
+            math.max(0, drawX),
+            math.max(0, drawY)
         )
         ImGui.Image(backTexture, drawW, drawH)
     end
     ImGui.End()
+    ImGui.PopStyleVar()
 
     local dw, dh = ImGui.GetDisplaySize()
     ImGui.SetNextWindowPos((dw - kMenuW) * 0.5, (dh - kMenuH) * 0.5, ImGuiCond.Always)
@@ -92,26 +117,14 @@ function M.render(state, dt, elapsedSeconds)
     ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0.0, 0.0, 0.0, 0.0)
     ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0.0, 0.0, 0.0, 0.0)
 
-    local buttonW, buttonH = dw * 0.12, dh * 0.12
+    local buttonW, buttonH = computeMenuButtonSize(dw, dh)
 
     -- Render all buttons first so ImGui processes them all this frame
-    local playClicked = false
-    if playButton then
-        playButton:setSize(buttonW, buttonH)
-        playClicked = playButton:render()
-    end
+    local playClicked = renderCenteredMenuButton(playButton, buttonW, buttonH)
 
-    local optionsClicked = false
-    if optionsButton then
-        optionsButton:setSize(buttonW, buttonH)
-        optionsClicked = optionsButton:render()
-    end
+    local optionsClicked = renderCenteredMenuButton(optionsButton, buttonW, buttonH)
 
-    local quitClicked = false
-    if quitButton then
-        quitButton:setSize(buttonW, buttonH)
-        quitClicked = quitButton:render()
-    end
+    local quitClicked = renderCenteredMenuButton(quitButton, buttonW, buttonH)
 
     ImGui.PopStyleColor()
     ImGui.PopStyleColor()

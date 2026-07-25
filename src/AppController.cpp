@@ -24,8 +24,16 @@
 
 namespace {
 
+bool supportsExclusiveFullscreen() {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
 bool useExclusiveFullscreen(const AppSettings& settings) {
-    return settings.fullscreen && settings.exclusiveFullscreen;
+    return supportsExclusiveFullscreen() && settings.fullscreen && settings.exclusiveFullscreen;
 }
 
 sf::VideoMode toVideoMode(const AppSettings& settings) {
@@ -56,6 +64,9 @@ AppSettings sanitizeSettings(AppSettings settings) {
     settings.displayWidth = std::max(640, settings.displayWidth);
     settings.displayHeight = std::max(480, settings.displayHeight);
     settings.refreshRate = std::max(30, settings.refreshRate);
+    if (!supportsExclusiveFullscreen()) {
+        settings.exclusiveFullscreen = false;
+    }
     settings.graphicsQuality = std::clamp(settings.graphicsQuality, 0, 3);
     settings.masterVolume = std::clamp(settings.masterVolume, 0.0f, 1.0f);
     settings.musicVolume = std::clamp(settings.musicVolume, 0.0f, 1.0f);
@@ -291,6 +302,19 @@ int AppController::run() {
             }
         };
 
+        auto reloadActiveSceneResources = [&]() {
+            auto sceneIt = sceneGraph.find(currentSceneId);
+            if (sceneIt == sceneGraph.end()) {
+                return;
+            }
+
+            SceneSharedState exitState = makeSceneState();
+            sceneIt->second->onExit(exitState);
+
+            SceneSharedState enterState = makeSceneState();
+            sceneIt->second->onEnter(enterState);
+        };
+
         if (auto initialSceneIt = sceneGraph.find(currentSceneId); initialSceneIt != sceneGraph.end()) {
             SceneSharedState initialState = makeSceneState();
             initialSceneIt->second->onEnter(initialState);
@@ -453,6 +477,7 @@ int AppController::run() {
                 workingSettings = activeSettings;
                 selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
                 rebuildRuntime(activeSettings);
+                reloadActiveSceneResources();
                 settingsManager.save(activeSettings);
 
                 pendingDisplayConfirmation = {};
@@ -484,6 +509,7 @@ int AppController::run() {
                     workingSettings = activeSettings;
                     selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
                     rebuildRuntime(activeSettings);
+                    reloadActiveSceneResources();
                     pendingDisplayConfirmation = nextConfirmation;
 
                     currentFrame = 0;

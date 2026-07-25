@@ -30,6 +30,7 @@ end
 
 function M.render(state, dt, elapsedSeconds)
 	
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0.0, 0.0)
 	ImGui.SetNextWindowFullscreen()
     local flags = ImGuiWindowFlags.NoDecoration  |
                   ImGuiWindowFlags.NoMove         |
@@ -50,6 +51,7 @@ function M.render(state, dt, elapsedSeconds)
         ImGui.Image(backTexture, drawW, drawH)
     end
     ImGui.End()
+	ImGui.PopStyleVar()
 
 	local levels = Gameplay.getLobbyLevels and Gameplay.getLobbyLevels() or {}
 	local hasLevels = levels ~= nil and #levels > 0
