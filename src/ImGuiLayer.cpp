@@ -123,6 +123,7 @@ ImGuiKey ImGuiLayer::translateSfmlKeyToImGui(sf::Keyboard::Key key) {
 ImGuiLayer::ImGuiLayer() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
     applyModernStyle();
     loadUiFonts();
 }

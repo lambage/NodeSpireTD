@@ -88,3 +88,6 @@ external/
 
 .github/agents/*
 
+imgui.ini
+
+
