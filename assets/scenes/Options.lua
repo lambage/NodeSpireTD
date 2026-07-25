@@ -2,14 +2,23 @@ local M = {}
 
 local clickSound = nil
 local closeSound = nil
+local lastClickSoundAtSeconds = -math.huge
+local currentUiElapsedSeconds = 0.0
+local kClickDebounceSeconds = 0.08
 
 local function modeLabel(mode)
     return string.format("%d x %d @ %d Hz", mode.width or 0, mode.height or 0, mode.refreshRate or 0)
 end
 
 local function playClick()
+    local nowSeconds = currentUiElapsedSeconds
+    if (nowSeconds - lastClickSoundAtSeconds) < kClickDebounceSeconds then
+        return
+    end
+
     if clickSound then
         Audio.playSfx(clickSound, false, 1.0)
+        lastClickSoundAtSeconds = nowSeconds
     end
 end
 
@@ -22,6 +31,7 @@ end
 function M.onEnter()
     clickSound = Audio.loadSfx("assets/audio/click.ogg")
     closeSound = Audio.loadSfx("assets/audio/close.ogg")
+    lastClickSoundAtSeconds = -math.huge
 end
 
 function M.onExit()
@@ -154,6 +164,7 @@ end
 function M.render(state, dt, elapsedSeconds)
     local _ = dt
     local __ = elapsedSeconds
+    currentUiElapsedSeconds = elapsedSeconds or 0.0
 
     local settings = state.settings
     if not settings then

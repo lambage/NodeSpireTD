@@ -329,6 +329,16 @@ bool VulkanContext::recreateSwapchain(uint32_t width, uint32_t height) {
 
     vkDeviceWaitIdle(device_);
 
+    if (depthImageView_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(device_, depthImageView_, nullptr);
+        depthImageView_ = VK_NULL_HANDLE;
+    }
+    if (depthImage_ != VK_NULL_HANDLE) {
+        vmaDestroyImage(allocator_, depthImage_, depthAllocation_);
+        depthImage_ = VK_NULL_HANDLE;
+        depthAllocation_ = nullptr;
+    }
+
     const std::vector<VkImageView> oldViews = swapchainData_.imageViews;
     const VkSwapchainKHR oldSwapchain = swapchainData_.swapchain;
 

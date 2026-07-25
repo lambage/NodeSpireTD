@@ -1,11 +1,11 @@
 {
     "displayHeight": 1080,
-    "displayWidth": 2560,
+    "displayWidth": 1920,
     "exclusiveFullscreen": false,
     "fullscreen": true,
     "graphicsQuality": 0,
     "masterVolume": 1.0,
-    "musicVolume": 0.028999999165534973,
+    "musicVolume": 0.9750000238418579,
     "muteWhenUnfocused": false,
     "refreshRate": 60,
     "sfxVolume": 1.0,

@@ -222,7 +222,7 @@ void initializeEngineState(lua_State* L, const VulkanContext* context) {
         L,
         [](lua_State* L) -> int {
             auto const str = luaL_checkstring(L, 1);
-            ImGui::TextWrapped(str);
+            ImGui::TextWrapped("%s",str);
             return 0;
         },
         0);
