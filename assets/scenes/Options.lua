@@ -6,14 +6,24 @@ local applyButton = nil
 local backButton = nil
 
 local clickSound = nil
+local closeSound = nil
+local lastClickSoundAtSeconds = -math.huge
+local currentUiElapsedSeconds = 0.0
+local kClickDebounceSeconds = 0.08
 
 local function modeLabel(mode)
     return string.format("%d x %d @ %d Hz", mode.width or 0, mode.height or 0, mode.refreshRate or 0)
 end
 
 local function playClick()
+    local nowSeconds = currentUiElapsedSeconds
+    if (nowSeconds - lastClickSoundAtSeconds) < kClickDebounceSeconds then
+        return
+    end
+
     if clickSound then
         Audio.playSfx(clickSound, false, 1.0)
+        lastClickSoundAtSeconds = nowSeconds
     end
 end
 
@@ -24,6 +34,7 @@ function M.onEnter()
     revertButton = GameButton.new("revertDisplayChanges", "Revert", 120.0, 0.0, "", "assets/audio/click.ogg")
     applyButton = GameButton.new("applySettings", "Apply", 140.0, 40.0, "", "assets/audio/click.ogg")
     backButton = GameButton.new("backToMainMenu", "Back", 140.0, 40.0, "", "assets/audio/close.ogg")
+    lastClickSoundAtSeconds = -math.huge
 end
 
 function M.onExit()
@@ -160,6 +171,7 @@ end
 function M.render(state, dt, elapsedSeconds)
     local _ = dt
     local __ = elapsedSeconds
+    currentUiElapsedSeconds = elapsedSeconds or 0.0
 
     local settings = state.settings
     if not settings then
