@@ -14,14 +14,12 @@
 #include <imgui.h>
 #include <spdlog/spdlog.h>
 
-
-PlayLevelScene::PlayLevelScene() = default;
+PlayLevelScene::PlayLevelScene() : GameScene(), towerLoadController_(L_), enemyLoadController_(L_) {}
 PlayLevelScene::~PlayLevelScene() = default;
 
 namespace {
 
 constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
-constexpr int kTowerPoolPlacementsPerType = 32;
 constexpr float kTowerHiddenY = -10000.0f;
 
 enum class ProjectionRejectReason {
@@ -98,13 +96,8 @@ void publishLevelUiTextures(lua_State* L, const WorldAssetSpec& spec) {
     lua_setglobal(L, "LevelUiTextures");
 }
 
-bool projectWorldToScreen(const glm::vec3& worldPos,
-                          const glm::mat4& view,
-                          const glm::mat4& proj,
-                          const ImVec2& displaySize,
-                          const ImVec2& renderSize,
-                          ImVec2& outScreen,
-                          float& outDepthAbs,
+bool projectWorldToScreen(const glm::vec3& worldPos, const glm::mat4& view, const glm::mat4& proj,
+                          const ImVec2& displaySize, const ImVec2& renderSize, ImVec2& outScreen, float& outDepthAbs,
                           ProjectionRejectReason* outRejectReason = nullptr) {
     if (outRejectReason) {
         *outRejectReason = ProjectionRejectReason::None;
@@ -177,10 +170,6 @@ bool parseTowerPoolGroup(const std::string& group, std::string& outTowerId, int&
     return true;
 }
 
-std::string makeTowerIconTextureId(const std::string& towerId) {
-    return "tower_icon:" + towerId;
-}
-
 } // namespace
 
 // ─── camera helpers ───────────────────────────────────────────────────────────
@@ -203,19 +192,14 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     registerLuaGameplayApi();
 
     gameplayState_.resetForNewRun();
-    towerArchetypes_.clear();
-    towerTemplatePrototypeById_.clear();
-    projectileTemplatePrototypeByTowerId_.clear();
-    towerLoadoutIds_.clear();
-    towerPoolGroupsById_.clear();
-    towerGhostGroupById_.clear();
+    towerLoadController_.reset();
+    enemyLoadController_.reset();
     towerPlacementController_.reset();
     placedTowers_.clear();
     activeProjectiles_.clear();
     nextEnemyRuntimeId_ = 1;
     pendingCommands_.clear();
     activeEnemies_.clear();
-    enemyArchetypes_.clear();
     waveController_.clearAll();
     routeController_.clear();
     selectedEnemyRuntimeId_ = 0;
@@ -233,16 +217,15 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         spdlog::warn("PlayLevelScene: failed to load level definition {}.", selectedLevelScriptPath_.string());
     }
 
-    if (enemyArchetypes_.empty() && !loadEnemyArchetype("assets/models/enemy/goblin1.enemy.lua")) {
+    if (enemyLoadController_.empty() && !enemyLoadController_.loadEnemyArchetype("assets/models/enemy/goblin1.enemy.lua")) {
         spdlog::warn("PlayLevelScene: using built-in enemy defaults because no archetype could be loaded.");
-        EnemyArchetype fallback{};
-        enemyArchetypes_[fallback.id] = fallback;
-        defaultEnemyId_ = fallback.id;
+        enemyLoadController_.registerArchetype(EnemyArchetype{});
     }
 
     if (!waveController_.hasDefinitions() && !selectedWavesScriptPath_.empty() &&
         !loadWaveDefinitions(selectedWavesScriptPath_)) {
-        spdlog::warn("PlayLevelScene: using fallback wave definition because {} failed to load.", selectedWavesScriptPath_);
+        spdlog::warn("PlayLevelScene: using fallback wave definition because {} failed to load.",
+                     selectedWavesScriptPath_);
     }
 
     if (!waveController_.hasDefinitions()) {
@@ -251,51 +234,15 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         waveController_.definitionsMutable().push_back(std::move(fallback));
     }
 
-    discoverTowerArchetypes();
-
-    for (const auto& [towerId, tower] : towerArchetypes_) {
-        if (tower.modelPath.empty()) {
-            continue;
-        }
-
-        if (!tower.previewImagePath.empty()) {
-            WorldUiTextureSpec iconTex;
-            iconTex.id = makeTowerIconTextureId(towerId);
-            iconTex.texturePath = tower.previewImagePath;
-            worldAssetSpec_.uiTextures.push_back(std::move(iconTex));
-        }
-
-        const std::string ghostGroup = "tower_pool_ghost:" + towerId;
-        towerGhostGroupById_[towerId] = ghostGroup;
-
-        auto& poolGroups = towerPoolGroupsById_[towerId];
-        poolGroups.reserve(kTowerPoolPlacementsPerType);
-        for (int i = 0; i < kTowerPoolPlacementsPerType; ++i) {
-            const std::string poolGroup = "tower_pool:" + towerId + ":" + std::to_string(i);
-            poolGroups.push_back(poolGroup);
-        }
-
-        WorldTemplateModelSpec towerTemplate;
-        towerTemplate.id = towerId;
-        towerTemplate.modelPath = tower.modelPath;
-        towerTemplatePrototypeById_[towerId] = static_cast<int>(worldAssetSpec_.towerTemplateModels.size());
-        worldAssetSpec_.towerTemplateModels.push_back(std::move(towerTemplate));
-
-        if (!tower.projectileModelPath.empty()) {
-            WorldTemplateModelSpec projectileTemplate;
-            projectileTemplate.id = "projectile:" + towerId;
-            projectileTemplate.modelPath = tower.projectileModelPath;
-            projectileTemplatePrototypeByTowerId_[towerId] = static_cast<int>(worldAssetSpec_.towerTemplateModels.size());
-            worldAssetSpec_.towerTemplateModels.push_back(std::move(projectileTemplate));
-        }
-    }
+    towerLoadController_.discoverTowerArchetypesInDirectory("assets/models/towers");
+    towerLoadController_.populateWorldAssets(worldAssetSpec_);
 
     publishLevelUiTextures(L_, worldAssetSpec_);
 
     {
         std::vector<std::filesystem::path> templateModels;
-        templateModels.reserve(enemyArchetypes_.size());
-        for (const auto& [id, archetype] : enemyArchetypes_) {
+        templateModels.reserve(enemyLoadController_.archetypes().size());
+        for (const auto& [id, archetype] : enemyLoadController_.archetypes()) {
             (void)id;
             if (archetype.modelPath.empty()) {
                 continue;
@@ -381,15 +328,16 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
             syncTowerInstanceTransforms();
             syncPlacedTowerModels();
         }
-        pickingController_.updateSelectionFromMouse(
-            worldRenderer_.get(), buildViewMatrix(), cameraController_.position(), towerPlacementController_.hasActiveSelection());
+        pickingController_.updateSelectionFromMouse(worldRenderer_.get(), buildViewMatrix(),
+                                                    cameraController_.position(),
+                                                    towerPlacementController_.hasActiveSelection());
         const int selectedInstanceIndex = pickingController_.selectedInstanceIndex();
         selectedEnemyRuntimeId_ =
             (selectedInstanceIndex >= 0 && selectedInstanceIndex < static_cast<int>(activeEnemies_.size()))
                 ? activeEnemies_[static_cast<std::size_t>(selectedInstanceIndex)].runtimeId
                 : 0;
-        worldRenderer_->setHighlightedInstances(
-            pickingController_.hoveredInstanceIndex(), pickingController_.selectedInstanceIndex());
+        worldRenderer_->setHighlightedInstances(pickingController_.hoveredInstanceIndex(),
+                                                pickingController_.selectedInstanceIndex());
     }
 
     luaOnRender(state, scriptRef_, dt);
@@ -430,10 +378,9 @@ bool PlayLevelScene::requestStartWave() {
         gameplayState_.matchStatus = MatchStatus::Running;
     }
 
-    const bool started = waveController_.beginWaveCountdown(gameplayState_,
-                                                            worldRenderer_ && worldRenderer_->isLoaded(),
-                                                            worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
-                                                            routeController_.hasValidRoute());
+    const bool started = waveController_.beginWaveCountdown(
+        gameplayState_, worldRenderer_ && worldRenderer_->isLoaded(),
+        worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(), routeController_.hasValidRoute());
     if (!started && originalStatus == MatchStatus::WaitingToStart) {
         gameplayState_.matchStatus = originalStatus;
     }
@@ -682,8 +629,9 @@ bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
 
 bool PlayLevelScene::loadWaveDefinitions(const std::string& scriptPath) {
     return waveController_.loadWaveDefinitions(
-        L_, scriptPath, defaultEnemyId_, [this](const std::string& enemyId) -> std::optional<PlayLevelWaveController::EnemyWaveDefaults> {
-            const EnemyArchetype* archetype = findEnemyArchetype(enemyId);
+        L_, scriptPath, enemyLoadController_.defaultId(),
+        [this](const std::string& enemyId) -> std::optional<PlayLevelWaveController::EnemyWaveDefaults> {
+            const EnemyArchetype* archetype = enemyLoadController_.findArchetype(enemyId);
             if (!archetype) {
                 return std::nullopt;
             }
@@ -693,304 +641,9 @@ bool PlayLevelScene::loadWaveDefinitions(const std::string& scriptPath) {
         });
 }
 
-bool PlayLevelScene::parseEnemyArchetypeScript(const std::string& scriptPath, EnemyArchetype& outArchetype) {
-    if (!L_) {
-        return false;
-    }
-
-    if (luaL_loadfile(L_, scriptPath.c_str()) != LUA_OK) {
-        spdlog::error("PlayLevelScene: failed to load enemy archetype {}: {}", scriptPath, lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    if (lua_pcall(L_, 0, 1, 0) != LUA_OK) {
-        spdlog::error("PlayLevelScene: enemy archetype script error {}: {}", scriptPath, lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    if (!lua_istable(L_, -1)) {
-        spdlog::error("PlayLevelScene: enemy archetype script must return a table: {}", scriptPath);
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    auto readStringField = [&](const char* key, std::string& out) {
-        lua_getfield(L_, -1, key);
-        if (lua_isstring(L_, -1)) {
-            out = lua_tostring(L_, -1);
-        }
-        lua_pop(L_, 1);
-    };
-
-    readStringField("id", outArchetype.id);
-    readStringField("displayName", outArchetype.displayName);
-    readStringField("model", outArchetype.modelPath);
-
-    lua_getfield(L_, -1, "stats");
-    if (lua_istable(L_, -1)) {
-        lua_getfield(L_, -1, "health");
-        if (lua_isinteger(L_, -1)) {
-            outArchetype.health = static_cast<int>(lua_tointeger(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "moveSpeed");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.moveSpeed = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "rewardMoney");
-        if (lua_isinteger(L_, -1)) {
-            outArchetype.rewardMoney = static_cast<int>(lua_tointeger(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "baseDamage");
-        if (lua_isinteger(L_, -1)) {
-            outArchetype.baseDamage = static_cast<int>(lua_tointeger(L_, -1));
-        }
-        lua_pop(L_, 1);
-    }
-    lua_pop(L_, 1);
-
-    lua_getfield(L_, -1, "render");
-    if (lua_istable(L_, -1)) {
-        lua_getfield(L_, -1, "renderScale");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.renderScale = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "facingYawOffsetDegrees");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.facingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-    }
-    lua_pop(L_, 1);
-
-    lua_pop(L_, 1); // archetype root table
-
-    if (outArchetype.id.empty()) {
-        outArchetype.id = std::filesystem::path(scriptPath).stem().string();
-    }
-
-    if (outArchetype.health <= 0) {
-        outArchetype.health = 1;
-    }
-    if (outArchetype.moveSpeed <= 0.0f) {
-        outArchetype.moveSpeed = 0.1f;
-    }
-    if (outArchetype.spawnIntervalSeconds <= 0.05f) {
-        outArchetype.spawnIntervalSeconds = 0.05f;
-    }
-    if (outArchetype.defeatIntervalSeconds <= 0.05f) {
-        outArchetype.defeatIntervalSeconds = 0.05f;
-    }
-    if (outArchetype.baseDamage <= 0) {
-        outArchetype.baseDamage = 1;
-    }
-    if (outArchetype.renderScale <= 0.01f) {
-        outArchetype.renderScale = 1.0f;
-    }
-
-    return true;
-}
-
-bool PlayLevelScene::loadEnemyArchetype(const std::string& scriptPath) {
-    EnemyArchetype archetype;
-    if (!parseEnemyArchetypeScript(scriptPath, archetype)) {
-        return false;
-    }
-
-    if (defaultEnemyId_.empty()) {
-        defaultEnemyId_ = archetype.id;
-    }
-    if (enemyArchetypes_.empty()) {
-        defaultEnemyId_ = archetype.id;
-    }
-    enemyArchetypes_[archetype.id] = std::move(archetype);
-    return true;
-}
-
-bool PlayLevelScene::parseTowerArchetypeScript(const std::string& scriptPath, TowerArchetype& outArchetype) {
-    if (!L_) {
-        return false;
-    }
-
-    if (luaL_loadfile(L_, scriptPath.c_str()) != LUA_OK) {
-        spdlog::error("PlayLevelScene: failed to load tower archetype {}: {}", scriptPath, lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    if (lua_pcall(L_, 0, 1, 0) != LUA_OK) {
-        spdlog::error("PlayLevelScene: tower archetype script error {}: {}", scriptPath, lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    if (!lua_istable(L_, -1)) {
-        spdlog::error("PlayLevelScene: tower archetype script must return a table: {}", scriptPath);
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    auto readStringField = [&](const char* key, std::string& out) {
-        lua_getfield(L_, -1, key);
-        if (lua_isstring(L_, -1)) {
-            out = lua_tostring(L_, -1);
-        }
-        lua_pop(L_, 1);
-    };
-
-    readStringField("id", outArchetype.id);
-    readStringField("displayName", outArchetype.displayName);
-    readStringField("model", outArchetype.modelPath);
-    readStringField("projectileModel", outArchetype.projectileModelPath);
-    readStringField("previewImage", outArchetype.previewImagePath);
-
-    lua_getfield(L_, -1, "stats");
-    if (lua_istable(L_, -1)) {
-        lua_getfield(L_, -1, "cost");
-        if (lua_isinteger(L_, -1)) {
-            outArchetype.cost = static_cast<int>(lua_tointeger(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "attackRange");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.attackRange = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "attackDamage");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.attackDamage = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "attackSpeed");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.attackSpeed = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "projectileSpeed");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.projectileSpeed = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-    }
-    lua_pop(L_, 1);
-
-    lua_getfield(L_, -1, "render");
-    if (lua_istable(L_, -1)) {
-        lua_getfield(L_, -1, "renderScale");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.renderScale = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, -1, "facingYawOffsetDegrees");
-        if (lua_isnumber(L_, -1)) {
-            outArchetype.facingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
-        }
-        lua_pop(L_, 1);
-    }
-    lua_pop(L_, 1);
-
-    lua_pop(L_, 1);
-
-    if (outArchetype.id.empty()) {
-        outArchetype.id = std::filesystem::path(scriptPath).stem().string();
-    }
-    if (outArchetype.displayName.empty()) {
-        outArchetype.displayName = outArchetype.id;
-    }
-    if (outArchetype.cost <= 0) {
-        outArchetype.cost = 1;
-    }
-    if (outArchetype.attackRange <= 0.1f) {
-        outArchetype.attackRange = 1.0f;
-    }
-    if (outArchetype.attackDamage <= 0.01f) {
-        outArchetype.attackDamage = 1.0f;
-    }
-    if (outArchetype.attackSpeed <= 0.01f) {
-        outArchetype.attackSpeed = 1.0f;
-    }
-    if (outArchetype.projectileSpeed <= 0.1f) {
-        outArchetype.projectileSpeed = 16.0f;
-    }
-    if (outArchetype.renderScale <= 0.01f) {
-        outArchetype.renderScale = 1.0f;
-    }
-
-    return true;
-}
-
-bool PlayLevelScene::loadTowerArchetype(const std::string& scriptPath) {
-    TowerArchetype archetype;
-    if (!parseTowerArchetypeScript(scriptPath, archetype)) {
-        return false;
-    }
-
-    if (archetype.previewImagePath.empty() && !archetype.modelPath.empty()) {
-        std::filesystem::path candidate = std::filesystem::path(archetype.modelPath).replace_extension(".png");
-        if (std::filesystem::exists(candidate)) {
-            archetype.previewImagePath = candidate.string();
-        }
-    }
-
-    towerArchetypes_[archetype.id] = archetype;
-    if (towerLoadoutIds_.size() < 5) {
-        towerLoadoutIds_.push_back(archetype.id);
-    }
-    return true;
-}
-
-void PlayLevelScene::discoverTowerArchetypesInDirectory(const std::filesystem::path& dir) {
-    if (!std::filesystem::exists(dir)) {
-        return;
-    }
-
-    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-        if (entry.is_directory()) {
-            discoverTowerArchetypesInDirectory(entry.path());
-        }
-        else if (!entry.is_regular_file()) {
-            continue;
-        }
-        const std::string name = entry.path().filename().string();
-        if (name.size() >= 10 && name.rfind(".tower.lua") == (name.size() - 10)) {
-            loadTowerArchetype(entry.path().string());
-        }
-    }
-}
-
-void PlayLevelScene::discoverTowerArchetypes() {
-    const std::filesystem::path towersDir = "assets/models/towers";
-    discoverTowerArchetypesInDirectory(towersDir);
-}
-
-const PlayLevelScene::TowerArchetype* PlayLevelScene::findTowerArchetype(const std::string& towerId) const {
-    auto it = towerArchetypes_.find(towerId);
-    if (it == towerArchetypes_.end()) {
-        return nullptr;
-    }
-    return &it->second;
-}
-
-const PlayLevelScene::TowerArchetype* PlayLevelScene::selectedTowerArchetype() const {
+const TowerArchetype* PlayLevelScene::selectedTowerArchetype() const {
     const int selectedSlot = towerPlacementController_.selectedLoadoutIndex();
-    if (selectedSlot < 0 || selectedSlot >= static_cast<int>(towerLoadoutIds_.size())) {
-        return nullptr;
-    }
-    return findTowerArchetype(towerLoadoutIds_[selectedSlot]);
+    return towerLoadController_.archetypeAtLoadoutSlot(selectedSlot);
 }
 
 bool PlayLevelScene::raycastGroundAtCursor(glm::vec3& outHit) const {
@@ -1021,11 +674,10 @@ std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archety
 }
 
 void PlayLevelScene::updateTowerPlacementFromInput() {
-    towerPlacementController_.updateSelectionHotkeys(towerLoadoutIds_.size());
+    towerPlacementController_.updateSelectionHotkeys(towerLoadController_.loadoutIds().size());
     const TowerArchetype* selected = selectedTowerArchetype();
     towerPlacementController_.updatePlacementFromInput(
-        selected != nullptr,
-        [this](glm::vec3& outHit) { return raycastGroundAtCursor(outHit); },
+        selected != nullptr, [this](glm::vec3& outHit) { return raycastGroundAtCursor(outHit); },
         [this, selected](const glm::vec3& worldPos) {
             return selected ? validateTowerPlacement(*selected, worldPos).empty() : false;
         },
@@ -1035,14 +687,9 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
             }
             if (requestSpendMoney(static_cast<float>(selected->cost))) {
                 const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
-                placedTowers_.push_back(PlacedTower{selected->id,
-                                                    worldPos,
-                                                    selected->attackDamage,
-                                                    selected->attackRange,
-                                                    attackIntervalSeconds,
-                                                    0.0f,
-                                                    selected->projectileSpeed,
-                                                    selected->cost});
+                placedTowers_.push_back(PlacedTower{selected->id, worldPos, selected->attackDamage,
+                                                    selected->attackRange, attackIntervalSeconds, 0.0f,
+                                                    selected->projectileSpeed, selected->cost});
                 towerPlacementController_.cancelPlacement();
             }
         });
@@ -1060,13 +707,10 @@ void PlayLevelScene::syncPlacedTowerModels() {
     }
 
     std::vector<AnimatedEntityInstanceSet::Instance> instances;
-    instances.reserve(towerArchetypes_.size() * (kTowerPoolPlacementsPerType + 1));
+    instances.reserve(towerLoadController_.archetypes().size() * (TowerLoadController::kPoolPlacementsPerType + 1));
 
-    auto pushTowerInstance = [&](const TowerArchetype& tower,
-                                 int prototypeIndex,
-                                 const glm::mat4& transform,
-                                 const std::string& debugGroup,
-                                 const std::string& debugLabel) {
+    auto pushTowerInstance = [&](const TowerArchetype& tower, int prototypeIndex, const glm::mat4& transform,
+                                 const std::string& debugGroup, const std::string& debugLabel) {
         AnimatedEntityInstanceSet::Instance instance;
         instance.transform = transform;
         instance.prototypeIndex = prototypeIndex;
@@ -1078,18 +722,18 @@ void PlayLevelScene::syncPlacedTowerModels() {
     const glm::mat4 hidden = glm::translate(glm::mat4{1.0f}, glm::vec3(0.0f, kTowerHiddenY, 0.0f));
     std::unordered_map<std::string, int> usedPerTower;
     for (const PlacedTower& placed : placedTowers_) {
-        const TowerArchetype* tower = findTowerArchetype(placed.towerId);
+        const TowerArchetype* tower = towerLoadController_.findArchetype(placed.towerId);
         if (!tower) {
             continue;
         }
 
-        const auto protoIt = towerTemplatePrototypeById_.find(placed.towerId);
-        if (protoIt == towerTemplatePrototypeById_.end()) {
+        const int prototypeIndex = towerLoadController_.templatePrototypeIndex(placed.towerId);
+        if (prototypeIndex < 0) {
             continue;
         }
 
-        const auto poolsIt = towerPoolGroupsById_.find(placed.towerId);
-        if (poolsIt == towerPoolGroupsById_.end()) {
+        const auto poolsIt = towerLoadController_.poolGroupsById().find(placed.towerId);
+        if (poolsIt == towerLoadController_.poolGroupsById().end()) {
             continue;
         }
 
@@ -1100,33 +744,33 @@ void PlayLevelScene::syncPlacedTowerModels() {
 
         const glm::mat4 model = buildTowerModelTransform(*tower, placed.position);
         const std::string& group = poolsIt->second[poolIndex];
-        pushTowerInstance(*tower, protoIt->second, model, group, group);
+        pushTowerInstance(*tower, prototypeIndex, model, group, group);
     }
 
-    for (const auto& [towerId, groups] : towerPoolGroupsById_) {
-        const TowerArchetype* tower = findTowerArchetype(towerId);
+    for (const auto& [towerId, groups] : towerLoadController_.poolGroupsById()) {
+        const TowerArchetype* tower = towerLoadController_.findArchetype(towerId);
         if (!tower) {
             continue;
         }
-        const auto protoIt = towerTemplatePrototypeById_.find(towerId);
-        if (protoIt == towerTemplatePrototypeById_.end()) {
+        const int prototypeIndex = towerLoadController_.templatePrototypeIndex(towerId);
+        if (prototypeIndex < 0) {
             continue;
         }
 
         const int usedCount = usedPerTower[towerId];
         for (int i = usedCount; i < static_cast<int>(groups.size()); ++i) {
-            pushTowerInstance(*tower, protoIt->second, hidden, groups[i], groups[i]);
+            pushTowerInstance(*tower, prototypeIndex, hidden, groups[i], groups[i]);
         }
     }
 
-    for (const auto& [towerId, ghostGroup] : towerGhostGroupById_) {
-        const TowerArchetype* tower = findTowerArchetype(towerId);
+    for (const auto& [towerId, ghostGroup] : towerLoadController_.ghostGroupById()) {
+        const TowerArchetype* tower = towerLoadController_.findArchetype(towerId);
         if (!tower) {
             continue;
         }
 
-        const auto protoIt = towerTemplatePrototypeById_.find(towerId);
-        if (protoIt == towerTemplatePrototypeById_.end()) {
+        const int prototypeIndex = towerLoadController_.templatePrototypeIndex(towerId);
+        if (prototypeIndex < 0) {
             continue;
         }
 
@@ -1136,17 +780,17 @@ void PlayLevelScene::syncPlacedTowerModels() {
         if (selected && selected->id == towerId && placementState.hasHit) {
             ghost = buildTowerModelTransform(*tower, placementState.worldPos + glm::vec3(0.0f, 0.02f, 0.0f));
         }
-        pushTowerInstance(*tower, protoIt->second, ghost, ghostGroup, ghostGroup);
+        pushTowerInstance(*tower, prototypeIndex, ghost, ghostGroup, ghostGroup);
     }
 
     for (std::size_t i = 0; i < activeProjectiles_.size(); ++i) {
         const ActiveProjectile& projectile = activeProjectiles_[i];
-        const auto protoIt = projectileTemplatePrototypeByTowerId_.find(projectile.towerId);
-        if (protoIt == projectileTemplatePrototypeByTowerId_.end()) {
+        const int prototypeIndex = towerLoadController_.projectileTemplatePrototypeIndex(projectile.towerId);
+        if (prototypeIndex < 0) {
             continue;
         }
 
-        const TowerArchetype* tower = findTowerArchetype(projectile.towerId);
+        const TowerArchetype* tower = towerLoadController_.findArchetype(projectile.towerId);
         if (!tower) {
             continue;
         }
@@ -1159,14 +803,13 @@ void PlayLevelScene::syncPlacedTowerModels() {
         }
 
         const glm::mat4 model = glm::translate(glm::mat4{1.0f}, projectile.position) *
-                                glm::rotate(glm::mat4{1.0f},
-                                            yaw + glm::radians(tower->facingYawOffsetDegrees),
+                                glm::rotate(glm::mat4{1.0f}, yaw + glm::radians(tower->facingYawOffsetDegrees),
                                             glm::vec3(0.0f, 1.0f, 0.0f)) *
                                 glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, tower->renderScale)));
 
         AnimatedEntityInstanceSet::Instance instance;
         instance.transform = model;
-        instance.prototypeIndex = protoIt->second;
+        instance.prototypeIndex = prototypeIndex;
         instance.debugGroup = "tower_projectile:" + projectile.towerId;
         instance.debugLabel = "tower_projectile:" + projectile.towerId + ":" + std::to_string(i);
         instances.push_back(std::move(instance));
@@ -1202,9 +845,9 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
         return;
     }
 
-    const ImVec2 renderSize(
-        (lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
-        (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height) : displaySize.y);
+    const ImVec2 renderSize((lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
+                            (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height)
+                                                           : displaySize.y);
 
     const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
     glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
@@ -1222,7 +865,8 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
 
             ImVec2 screenPoint{};
             float depthAbs = 0.0f;
-            if (!projectWorldToScreen(worldPoint, view, proj, displaySize, renderSize, screenPoint, depthAbs, nullptr)) {
+            if (!projectWorldToScreen(worldPoint, view, proj, displaySize, renderSize, screenPoint, depthAbs,
+                                      nullptr)) {
                 prevValid = false;
                 continue;
             }
@@ -1265,33 +909,13 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
 
     ImVec2 centerScreen{};
     float depthAbs = 0.0f;
-    if (projectWorldToScreen(placementState.worldPos + glm::vec3(0.0f, 0.05f, 0.0f),
-                             view,
-                             proj,
-                             displaySize,
-                             renderSize,
-                             centerScreen,
-                             depthAbs,
-                             nullptr)) {
+    if (projectWorldToScreen(placementState.worldPos + glm::vec3(0.0f, 0.05f, 0.0f), view, proj, displaySize,
+                             renderSize, centerScreen, depthAbs, nullptr)) {
         ImDrawList* drawList = ImGui::GetForegroundDrawList();
         const ImU32 fill = placementState.canPlace ? IM_COL32(90, 255, 120, 85) : IM_COL32(255, 90, 90, 85);
         drawList->AddCircleFilled(centerScreen, 8.0f, fill, 24);
         drawList->AddCircle(centerScreen, 8.0f, col, 24, 2.0f);
     }
-}
-
-const PlayLevelScene::EnemyArchetype* PlayLevelScene::findEnemyArchetype(const std::string& enemyId) const {
-    auto it = enemyArchetypes_.find(enemyId);
-    if (it != enemyArchetypes_.end()) {
-        return &it->second;
-    }
-
-    auto fallbackIt = enemyArchetypes_.find(defaultEnemyId_);
-    if (fallbackIt != enemyArchetypes_.end()) {
-        return &fallbackIt->second;
-    }
-
-    return nullptr;
 }
 
 void PlayLevelScene::applyPendingGameplayCommands() {
@@ -1336,9 +960,9 @@ void PlayLevelScene::reconcileSelectedEnemyAfterSimulation() {
         return;
     }
 
-    const auto it = std::find_if(activeEnemies_.begin(),
-                                 activeEnemies_.end(),
-                                 [this](const ActiveEnemy& enemy) { return enemy.runtimeId == selectedEnemyRuntimeId_; });
+    const auto it = std::find_if(activeEnemies_.begin(), activeEnemies_.end(), [this](const ActiveEnemy& enemy) {
+        return enemy.runtimeId == selectedEnemyRuntimeId_;
+    });
     if (it != activeEnemies_.end()) {
         const int nextIndex = static_cast<int>(std::distance(activeEnemies_.begin(), it));
         pickingController_.setSelectedInstanceIndex(nextIndex);
@@ -1357,8 +981,7 @@ std::string PlayLevelScene::validateStartWaveRequest() const {
         validationState.matchStatus = MatchStatus::Running;
     }
 
-    return waveController_.validateStartWaveRequest(validationState,
-                                                    worldRenderer_ && worldRenderer_->isLoaded(),
+    return waveController_.validateStartWaveRequest(validationState, worldRenderer_ && worldRenderer_->isLoaded(),
                                                     worldRenderer_ && worldRenderer_->hasAnimatedEntityTemplate(),
                                                     routeController_.hasValidRoute());
 }
@@ -1370,7 +993,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
 
     waveController_.updateWaveSpawning(
         gameplayState_, dt, static_cast<int>(activeEnemies_.size()), [this](const std::string& enemyId) {
-            const EnemyArchetype* archetype = findEnemyArchetype(enemyId);
+            const EnemyArchetype* archetype = enemyLoadController_.findArchetype(enemyId);
             const float health = archetype ? archetype->health : 1.0f;
             const float moveSpeed = archetype ? archetype->moveSpeed : 1.0f;
             const float rewardMoney = archetype ? archetype->rewardMoney : 0.0f;
@@ -1378,38 +1001,26 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
             const float baseDamage = archetype ? archetype->baseDamage : 5.0f;
             const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
 
-            activeEnemies_.push_back(ActiveEnemy{enemyId,
-                                                 nextEnemyRuntimeId_++,
-                                                 0.0f,
-                                                 std::max(1.0f, health),
-                                                 std::max(0.05f, moveSpeed),
-                                                 std::max(0.0f, rewardMoney),
-                                                 std::max(1.0f, baseDamage),
-                                                 std::max(0.01f, renderScale),
+            activeEnemies_.push_back(ActiveEnemy{enemyId, nextEnemyRuntimeId_++, 0.0f, std::max(1.0f, health),
+                                                 std::max(0.05f, moveSpeed), std::max(0.0f, rewardMoney),
+                                                 std::max(1.0f, baseDamage), std::max(0.01f, renderScale),
                                                  facingYawOffsetDegrees});
         });
 
-    combatController_.advanceEnemies(dt, routeController_.totalLength(), activeEnemies_, [this](float baseDamage) {
-        requestDamageBase(baseDamage);
-    });
+    combatController_.advanceEnemies(dt, routeController_.totalLength(), activeEnemies_,
+                                     [this](float baseDamage) { requestDamageBase(baseDamage); });
     reconcileSelectedEnemyAfterSimulation();
 
     combatController_.updateTowerAttacks(
-        dt,
-        [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); },
-        placedTowers_,
-        activeEnemies_,
-        activeProjectiles_);
+        dt, [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); }, placedTowers_,
+        activeEnemies_, activeProjectiles_);
 
     combatController_.updateProjectiles(
-        dt,
-        [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); },
-        activeEnemies_,
+        dt, [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); }, activeEnemies_,
         activeProjectiles_);
 
     combatController_.collectDefeatedEnemies(
-        activeEnemies_,
-        [this](float rewardMoney) { gameplayState_.playerMoney += rewardMoney; },
+        activeEnemies_, [this](float rewardMoney) { gameplayState_.playerMoney += rewardMoney; },
         [this]() { gameplayState_.enemiesDefeated += 1; });
     reconcileSelectedEnemyAfterSimulation();
 
@@ -1458,17 +1069,14 @@ void PlayLevelScene::registerLuaGameplayApi() {
             auto* self = luaSceneSelf(L);
             const char* scriptPath = luaL_checkstring(L, 1);
 
-            PlayLevelScene::EnemyArchetype archetype;
-            if (!self->parseEnemyArchetypeScript(scriptPath, archetype)) {
+            EnemyArchetype archetype;
+            if (!self->enemyLoadController_.parseEnemyArchetypeScript(scriptPath, archetype)) {
                 lua_pushnil(L);
                 lua_pushfstring(L, "Entity.Load failed for '%s'", scriptPath);
                 return 2;
             }
 
-            if (self->enemyArchetypes_.empty()) {
-                self->defaultEnemyId_ = archetype.id;
-            }
-            self->enemyArchetypes_[archetype.id] = archetype;
+            self->enemyLoadController_.registerArchetype(archetype);
 
             lua_newtable(L);
             lua_pushstring(L, archetype.id.c_str());
@@ -1509,11 +1117,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             std::string error;
             const bool ok = self->waveController_.registerWaveFromLua(
-                L,
-                1,
-                self->defaultEnemyId_,
+                L, 1, self->enemyLoadController_.defaultId(),
                 [self](const std::string& enemyId) -> std::optional<PlayLevelWaveController::EnemyWaveDefaults> {
-                    const PlayLevelScene::EnemyArchetype* archetype = self->findEnemyArchetype(enemyId);
+                    const EnemyArchetype* archetype = self->enemyLoadController_.findArchetype(enemyId);
                     if (!archetype) {
                         return std::nullopt;
                     }
@@ -1521,8 +1127,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
                     defaults.spawnIntervalSeconds = archetype->spawnIntervalSeconds;
                     return defaults;
                 },
-                overrideRoundDurationSeconds,
-                error);
+                overrideRoundDurationSeconds, error);
 
             lua_pushboolean(L, ok ? 1 : 0);
             if (!ok) {
@@ -1657,9 +1262,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             for (std::size_t i = 0; i < 5; ++i) {
                 lua_newtable(L);
                 const int slotIdx = static_cast<int>(i);
-                const bool hasTower = slotIdx < static_cast<int>(self->towerLoadoutIds_.size());
-                const PlayLevelScene::TowerArchetype* archetype =
-                    hasTower ? self->findTowerArchetype(self->towerLoadoutIds_[slotIdx]) : nullptr;
+                const TowerArchetype* archetype = self->towerLoadController_.archetypeAtLoadoutSlot(slotIdx);
 
                 lua_pushinteger(L, static_cast<lua_Integer>(slotIdx + 1));
                 lua_setfield(L, -2, "slot");
@@ -1687,7 +1290,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
                     lua_setfield(L, -2, "projectileModelPath");
                     lua_pushstring(L, archetype->previewImagePath.c_str());
                     lua_setfield(L, -2, "previewImagePath");
-                    const std::string textureId = makeTowerIconTextureId(archetype->id);
+                    const std::string textureId = TowerLoadController::makeIconTextureId(archetype->id);
                     lua_pushstring(L, textureId.c_str());
                     lua_setfield(L, -2, "previewTextureId");
                 }
@@ -1710,13 +1313,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
             }
 
             const int slotIdx = requestedSlot - 1;
-            if (slotIdx >= static_cast<int>(self->towerLoadoutIds_.size())) {
-                return pushCommandResult(L, false, "loadout slot is empty");
-            }
-
-            const PlayLevelScene::TowerArchetype* tower = self->findTowerArchetype(self->towerLoadoutIds_[slotIdx]);
+            const TowerArchetype* tower = self->towerLoadController_.archetypeAtLoadoutSlot(slotIdx);
             if (!tower) {
-                return pushCommandResult(L, false, "tower definition not found");
+                return pushCommandResult(L, false, "loadout slot is empty");
             }
 
             self->towerPlacementController_.setSelectedLoadoutIndex(slotIdx);
@@ -1743,7 +1342,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             auto* self = luaSceneSelf(L);
             lua_newtable(L);
 
-            const PlayLevelScene::TowerArchetype* tower = self->selectedTowerArchetype();
+            const TowerArchetype* tower = self->selectedTowerArchetype();
             const bool active = tower != nullptr;
             const auto& placementState = self->towerPlacementController_.state();
             lua_pushboolean(L, active);

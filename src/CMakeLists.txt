@@ -19,6 +19,7 @@ add_executable(NodeSpireTD
     utility/WorldRenderer.cpp
     ImGuiLayer.cpp
 
+    scenes/EnemyLoadController.cpp
     scenes/GameScene.cpp
     scenes/LobbyScene.cpp
     scenes/MainMenuScene.cpp
@@ -32,6 +33,7 @@ add_executable(NodeSpireTD
     scenes/PlayLevelScene.cpp
     scenes/SceneSharedState.cpp
     scenes/SplashScreen.cpp
+    scenes/TowerLoadController.cpp
 
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
