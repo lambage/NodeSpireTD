@@ -13,6 +13,7 @@ layout(set = 0, binding = 1) uniform SkinPalette {
 layout(push_constant) uniform PushConstants {
     mat4 mvp;
     mat4 model;
+    float alpha;
 } pc;
 
 layout(location = 0) out vec3 fragNormal;

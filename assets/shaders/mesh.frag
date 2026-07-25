@@ -7,6 +7,12 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform sampler2D baseColorTex;
 
+layout(push_constant) uniform PushConstants {
+    mat4 mvp;
+    mat4 model;
+    float alpha;
+} pc;
+
 void main() {
     const vec3 lightDir = normalize(vec3(0.6, 1.0, 0.4));
     vec3 n    = normalize(fragNormal);
@@ -15,5 +21,5 @@ void main() {
     float light   = ambient + diff * 0.75;
 
     vec4 texColor = texture(baseColorTex, fragUv);
-    outColor = vec4(texColor.rgb * light, texColor.a);
+    outColor = vec4(texColor.rgb * light, texColor.a * pc.alpha);
 }

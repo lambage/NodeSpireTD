@@ -11,6 +11,7 @@ class AnimatedEntityInstanceSet {
   struct Instance {
     glm::mat4 transform{1.0f};
     int prototypeIndex = 0;
+    float alpha = 1.0f;
     std::string debugGroup;
     std::string debugLabel;
   };

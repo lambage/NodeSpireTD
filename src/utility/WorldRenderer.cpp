@@ -19,6 +19,12 @@
 
 namespace {
 
+struct MeshPushConstants {
+    glm::mat4 mvp;
+    glm::mat4 model;
+    float alpha;
+};
+
 VkBuffer createStagingBuffer(VmaAllocator allocator, VkDeviceSize size, VmaAllocation& outAlloc,
                              VmaAllocationInfo& outInfo) {
     VkBufferCreateInfo bufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -890,11 +896,6 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     // ── Push constants / draw each mesh with its own model transform ─────
-    struct PushConstants {
-        glm::mat4 mvp;
-        glm::mat4 model;
-    };
-
     struct HighlightPushConstants {
         glm::mat4 mvp;
         glm::mat4 model;
@@ -908,9 +909,9 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     // ── Draw each mesh (bind its base-colour texture) ─────────────────────
     for (const WorldMesh& mesh : meshes_) {
         const glm::mat4 mvp = proj * view * mesh.modelTransform;
-        const PushConstants pc{mvp, mesh.modelTransform};
+        const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f};
         vkCmdPushConstants(cmd, pipelineLayout_,
-                            VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
 
         VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
         if (ds) vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -958,9 +959,9 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             }
 
             const glm::mat4 mvp = proj * view * world;
-            const PushConstants pc{mvp, world};
+            const MeshPushConstants pc{mvp, world, 1.0f};
             vkCmdPushConstants(cmd, pipelineLayout_,
-                               VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
 
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
@@ -982,12 +983,13 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             return fallback;
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
-            (void)instanceIndex;
             (void)meshIndex;
             const glm::mat4 mvp = proj * view * world;
-            const PushConstants pc{mvp, world};
+            const AnimatedEntityInstanceSet::Instance* towerInstance = towerInstances_.instance(instanceIndex);
+            const float alpha = towerInstance ? towerInstance->alpha : 1.0f;
+            const MeshPushConstants pc{mvp, world, alpha};
             vkCmdPushConstants(cmd, pipelineLayout_,
-                               VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
 
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
@@ -1299,11 +1301,11 @@ void WorldRenderer::buildPipeline() {
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    // Push constants: mvp (mat4) + model (mat4) = 128 bytes
+    // Push constants: mvp (mat4) + model (mat4) + alpha (float)
     VkPushConstantRange pushRange{};
-    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushRange.offset     = 0;
-    pushRange.size       = sizeof(glm::mat4) * 2;
+    pushRange.size       = sizeof(MeshPushConstants);
 
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     layoutInfo.setLayoutCount         = 1;
@@ -1336,6 +1338,13 @@ void WorldRenderer::buildPipeline() {
     depthStencil.depthCompareOp   = VK_COMPARE_OP_LESS;
 
     VkPipelineColorBlendAttachmentState blendAttach{};
+    blendAttach.blendEnable = VK_TRUE;
+    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.colorBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
     blendAttach.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 

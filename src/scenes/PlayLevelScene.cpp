@@ -21,6 +21,7 @@ namespace {
 
 constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
 constexpr float kTowerHiddenY = -10000.0f;
+constexpr float kTowerGhostAlpha = 0.45f;
 
 enum class ProjectionRejectReason {
     None = 0,
@@ -710,10 +711,11 @@ void PlayLevelScene::syncPlacedTowerModels() {
     instances.reserve(towerLoadController_.archetypes().size() * (TowerLoadController::kPoolPlacementsPerType + 1));
 
     auto pushTowerInstance = [&](const TowerArchetype& tower, int prototypeIndex, const glm::mat4& transform,
-                                 const std::string& debugGroup, const std::string& debugLabel) {
+                                 const std::string& debugGroup, const std::string& debugLabel, float alpha) {
         AnimatedEntityInstanceSet::Instance instance;
         instance.transform = transform;
         instance.prototypeIndex = prototypeIndex;
+        instance.alpha = alpha;
         instance.debugGroup = debugGroup;
         instance.debugLabel = debugLabel;
         instances.push_back(std::move(instance));
@@ -744,7 +746,7 @@ void PlayLevelScene::syncPlacedTowerModels() {
 
         const glm::mat4 model = buildTowerModelTransform(*tower, placed.position);
         const std::string& group = poolsIt->second[poolIndex];
-        pushTowerInstance(*tower, prototypeIndex, model, group, group);
+        pushTowerInstance(*tower, prototypeIndex, model, group, group, 1.0f);
     }
 
     for (const auto& [towerId, groups] : towerLoadController_.poolGroupsById()) {
@@ -759,7 +761,7 @@ void PlayLevelScene::syncPlacedTowerModels() {
 
         const int usedCount = usedPerTower[towerId];
         for (int i = usedCount; i < static_cast<int>(groups.size()); ++i) {
-            pushTowerInstance(*tower, prototypeIndex, hidden, groups[i], groups[i]);
+            pushTowerInstance(*tower, prototypeIndex, hidden, groups[i], groups[i], 1.0f);
         }
     }
 
@@ -780,7 +782,7 @@ void PlayLevelScene::syncPlacedTowerModels() {
         if (selected && selected->id == towerId && placementState.hasHit) {
             ghost = buildTowerModelTransform(*tower, placementState.worldPos + glm::vec3(0.0f, 0.02f, 0.0f));
         }
-        pushTowerInstance(*tower, prototypeIndex, ghost, ghostGroup, ghostGroup);
+        pushTowerInstance(*tower, prototypeIndex, ghost, ghostGroup, ghostGroup, kTowerGhostAlpha);
     }
 
     for (std::size_t i = 0; i < activeProjectiles_.size(); ++i) {
