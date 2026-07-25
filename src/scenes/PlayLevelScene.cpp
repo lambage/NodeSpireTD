@@ -953,27 +953,28 @@ bool PlayLevelScene::loadTowerArchetype(const std::string& scriptPath) {
     return true;
 }
 
-void PlayLevelScene::discoverTowerArchetypes() {
-    const std::filesystem::path towersDir = "assets/models/towers";
-    if (!std::filesystem::exists(towersDir)) {
+void PlayLevelScene::discoverTowerArchetypesInDirectory(const std::filesystem::path& dir) {
+    if (!std::filesystem::exists(dir)) {
         return;
     }
 
-    std::vector<std::filesystem::path> scripts;
-    for (const auto& entry : std::filesystem::directory_iterator(towersDir)) {
-        if (!entry.is_regular_file()) {
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.is_directory()) {
+            discoverTowerArchetypesInDirectory(entry.path());
+        }
+        else if (!entry.is_regular_file()) {
             continue;
         }
         const std::string name = entry.path().filename().string();
         if (name.size() >= 10 && name.rfind(".tower.lua") == (name.size() - 10)) {
-            scripts.push_back(entry.path());
+            loadTowerArchetype(entry.path().string());
         }
     }
-    std::sort(scripts.begin(), scripts.end());
+}
 
-    for (const auto& path : scripts) {
-        loadTowerArchetype(path.string());
-    }
+void PlayLevelScene::discoverTowerArchetypes() {
+    const std::filesystem::path towersDir = "assets/models/towers";
+    discoverTowerArchetypesInDirectory(towersDir);
 }
 
 const PlayLevelScene::TowerArchetype* PlayLevelScene::findTowerArchetype(const std::string& towerId) const {

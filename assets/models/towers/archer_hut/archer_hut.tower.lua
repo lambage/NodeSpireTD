@@ -1,8 +1,8 @@
 return {
     id = "archer_hut",
     displayName = "Archer Hut",
-    model = "assets/models/towers/archer_hut.glb",
-    projectileModel = "assets/models/towers/archer_hut_arrow.glb",
+    model = "assets/models/towers/archer_hut/archer_hut.glb",
+    projectileModel = "assets/models/towers/archer_hut/archer_hut_arrow.glb",
 
     stats = {
         health = 35,
@@ -13,7 +13,7 @@ return {
     },
 
     render = {
-        renderScale = 1.0,
-        facingYawOffsetDegrees = 180.0,
+        renderScale = 2.0,
+        facingYawOffsetDegrees = 0.0,
     },
 }

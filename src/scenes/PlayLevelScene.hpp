@@ -116,6 +116,7 @@ class PlayLevelScene final : public GameScene {
     bool parseTowerArchetypeScript(const std::string& scriptPath, TowerArchetype& outArchetype);
     bool loadTowerArchetype(const std::string& scriptPath);
     void discoverTowerArchetypes();
+    void discoverTowerArchetypesInDirectory(const std::filesystem::path& dir);
     const TowerArchetype* findTowerArchetype(const std::string& towerId) const;
     const TowerArchetype* selectedTowerArchetype() const;
     bool raycastGroundAtCursor(glm::vec3& outHit) const;
