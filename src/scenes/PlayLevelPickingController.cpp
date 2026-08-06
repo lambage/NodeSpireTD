@@ -298,9 +298,9 @@ bool PlayLevelPickingController::updateHoverFromMouse(const WorldRenderer* world
     }
 
     ModelSelection hover{};
-    if (pickModelAtCursor(worldRenderer, view, rayOrigin, hover) && hover.instanceIndex >= 0) {
+    if (pickModelAtCursor(worldRenderer, view, rayOrigin, hover) && isSelectableSelection(hover)) {
         hoverSelection_ = hover;
-        hoveredInstanceIndex_ = hover.instanceIndex;
+        hoveredInstanceIndex_ = (hover.instanceIndex >= 0) ? hover.instanceIndex : -1;
         return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
     }
 

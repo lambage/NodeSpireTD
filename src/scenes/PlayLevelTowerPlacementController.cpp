@@ -25,18 +25,25 @@ void PlayLevelTowerPlacementController::cancelPlacement() {
     state_.canPlace = false;
 }
 
-void PlayLevelTowerPlacementController::updateSelectionHotkeys(std::size_t loadoutSize) {
+bool PlayLevelTowerPlacementController::updateSelectionHotkeys(std::size_t loadoutSize) {
     if (ImGui::IsKeyPressed(ImGuiKey_1, false)) {
         selectedLoadoutIndex_ = (loadoutSize >= 1) ? 0 : -1;
+        return selectedLoadoutIndex_ >= 0;
     } else if (ImGui::IsKeyPressed(ImGuiKey_2, false)) {
         selectedLoadoutIndex_ = (loadoutSize >= 2) ? 1 : -1;
+        return selectedLoadoutIndex_ >= 0;
     } else if (ImGui::IsKeyPressed(ImGuiKey_3, false)) {
         selectedLoadoutIndex_ = (loadoutSize >= 3) ? 2 : -1;
+        return selectedLoadoutIndex_ >= 0;
     } else if (ImGui::IsKeyPressed(ImGuiKey_4, false)) {
         selectedLoadoutIndex_ = (loadoutSize >= 4) ? 3 : -1;
+        return selectedLoadoutIndex_ >= 0;
     } else if (ImGui::IsKeyPressed(ImGuiKey_5, false)) {
         selectedLoadoutIndex_ = (loadoutSize >= 5) ? 4 : -1;
+        return selectedLoadoutIndex_ >= 0;
     }
+
+    return false;
 }
 
 void PlayLevelTowerPlacementController::updatePlacementFromInput(bool hasSelectedTower,

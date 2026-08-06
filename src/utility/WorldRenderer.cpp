@@ -747,7 +747,6 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         });
 
     constexpr float kDynamicProxyRadiusPadding = 0.20f;
-    constexpr float kDynamicProxyDistanceSlack = 0.35f;
     for (const auto& [instanceIndex, proxy] : dynamicProxyBounds) {
         if (!proxy.valid) {
             continue;
@@ -761,7 +760,9 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         if (!raySphereIntersect(rayOrigin, rayDir, center, radius, t)) {
             continue;
         }
-        if (t >= (bestT + kDynamicProxyDistanceSlack)) {
+        // Never allow a proxy bound to override a closer geometric hit.
+        // This keeps front-most objects authoritative when entities overlap in screen space.
+        if (t >= bestT) {
             continue;
         }
 
@@ -1223,7 +1224,7 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
             }
 
             const glm::mat4 mvp = proj * view * mesh.modelTransform;
-            const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f, 2.5f};
+            const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f, 5.5f};
             vkCmdPushConstants(cmd, pipelineLayout_,
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(MeshPushConstants), &pc);

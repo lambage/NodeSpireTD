@@ -679,8 +679,20 @@ std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archety
     return {};
 }
 
+void PlayLevelScene::clearActiveSelectionForTowerPlacement(const char* reason) {
+    selectedEnemyRuntimeId_ = 0;
+    if (pickingController_.selectedSelection().valid || pickingController_.selectedInstanceIndex() >= 0) {
+        pickingController_.clearSelection(reason);
+    }
+}
+
 void PlayLevelScene::updateTowerPlacementFromInput() {
-    towerPlacementController_.updateSelectionHotkeys(towerLoadController_.loadoutIds().size());
+    const bool selectedFromHotkey =
+        towerPlacementController_.updateSelectionHotkeys(towerLoadController_.loadoutIds().size());
+    if (selectedFromHotkey) {
+        clearActiveSelectionForTowerPlacement("loadout tower selected");
+    }
+
     const TowerArchetype* selected = selectedTowerArchetype();
     towerPlacementController_.updatePlacementFromInput(
         selected != nullptr, [this](glm::vec3& outHit) { return raycastGroundAtCursor(outHit); },
@@ -1391,6 +1403,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             }
 
             self->towerPlacementController_.setSelectedLoadoutIndex(slotIdx);
+            self->clearActiveSelectionForTowerPlacement("loadout tower selected");
             return pushCommandResult(L, true, "selected");
         },
         1);

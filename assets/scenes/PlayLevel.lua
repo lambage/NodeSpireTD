@@ -24,6 +24,12 @@ local compositeToggleButton = nil
 local prevClipButton = nil
 local nextClipButton = nil
 local selectWalkingButton = nil
+local resumeGameButton = nil
+local quitGameButton = nil
+local applyPauseSettingsButton = nil
+
+local escapeMenuVisible = false
+local escapeMenuStatus = ""
 
 local function UiTextWrapped(text)
     ImGui.TextWrapped(tostring(text or ""))
@@ -89,6 +95,108 @@ local function useLiveTowerPreview(slot)
     return proto >= 0
 end
 
+local function hasActivePlacement()
+    if not Gameplay.getTowerPlacementState then
+        return false
+    end
+    local placement = Gameplay.getTowerPlacementState()
+    return placement and placement.active
+end
+
+local function hasActiveSelection()
+    if not Gameplay.getDebugSelection then
+        return false
+    end
+    local selection = Gameplay.getDebugSelection()
+    return selection and selection.valid
+end
+
+local function drawEscapeMenu(state)
+    if not escapeMenuVisible then
+        return
+    end
+
+    local displayW, displayH = ImGui.GetDisplaySize()
+    local panelW, panelH = 560, 520
+    ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.35, ImGuiCond.Always)
+    ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
+    ImGui.SetNextWindowBgAlpha(0.95)
+
+    ImGui.Begin("PauseMenu", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoTitleBar)
+
+    if TitleFont then
+        ImGui.PushFont(TitleFont)
+    end
+    TextCentered("Paused")
+    if TitleFont then
+        ImGui.PopFont()
+    end
+
+    ImGui.Spacing()
+    UiTextWrapped("Press Esc to resume.")
+    ImGui.Separator()
+
+    local settings = state and state.settings or nil
+    local audioDirty = false
+    if settings and ImGui.SliderFloat then
+        ImGui.Text("Quick Audio")
+        local changed, value = ImGui.SliderFloat("Master Volume##pause", settings.masterVolume or 0.8, 0.0, 1.0)
+        if changed then
+            settings.masterVolume = value
+            audioDirty = true
+        end
+
+        changed, value = ImGui.SliderFloat("Music Volume##pause", settings.musicVolume or 0.7, 0.0, 1.0)
+        if changed then
+            settings.musicVolume = value
+            audioDirty = true
+        end
+
+        changed, value = ImGui.SliderFloat("SFX Volume##pause", settings.sfxVolume or 0.8, 0.0, 1.0)
+        if changed then
+            settings.sfxVolume = value
+            audioDirty = true
+        end
+
+        if applyPauseSettingsButton ~= nil then
+            if applyPauseSettingsButton:render() then
+                if Gameplay.requestApplySettings then
+                    Gameplay.requestApplySettings()
+                    escapeMenuStatus = "Audio settings applied"
+                else
+                    escapeMenuStatus = "requestApplySettings unavailable"
+                end
+            elseif audioDirty then
+                escapeMenuStatus = "Audio changed. Click Apply Audio to commit."
+            end
+        end
+    end
+
+    ImGui.Spacing()
+    ImGui.Separator()
+    ImGui.Spacing()
+
+    if resumeGameButton ~= nil then
+        if resumeGameButton:render() then
+            escapeMenuVisible = false
+            escapeMenuStatus = ""
+        end
+    end
+
+    if quitGameButton ~= nil then
+        if quitGameButton:render() then
+            Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
+        end
+    end
+
+    if escapeMenuStatus ~= "" then
+        ImGui.Spacing()
+        UiTextWrapped(escapeMenuStatus)
+    end
+
+    ImGui.End()
+end
+
 function M.onEnter()
     lastResult = "PlayLevel script loaded"
     if Gameplay.getDebugPickSpheresVisible then
@@ -99,8 +207,8 @@ function M.onEnter()
     end
 
     startMatchButton = GameButton.new("startMatch", "Start Match", 120.0, 42.0)
-    playAgainButton = GameButton.new("playAgain", "Play Again", -1.0, 42.0)
-    backToLobbyButton = GameButton.new("backToLobby", "Back to Lobby", -1.0, 38.0)
+    playAgainButton = GameButton.new("playAgain", "Play Again", 120.0, 42.0)
+    backToLobbyButton = GameButton.new("backToLobby", "Back to Lobby", 120.0, 38.0)
 
     slotButtons = {}
     for i = 1, 5 do
@@ -117,6 +225,12 @@ function M.onEnter()
     prevClipButton = GameButton.new("prevClip", "Prev Clip", 160, 0)
     nextClipButton = GameButton.new("nextClip", "Next Clip", 160, 0)
     selectWalkingButton = GameButton.new("selectWalking", "Select Walking", 160, 0)
+    resumeGameButton = GameButton.new("resumeGame", "Resume", -1.0, 42.0)
+    quitGameButton = GameButton.new("quitGame", "Quit Game", -1.0, 42.0)
+    applyPauseSettingsButton = GameButton.new("applyPauseSettings", "Apply Audio", -1.0, 34.0)
+
+    escapeMenuVisible = false
+    escapeMenuStatus = ""
 end
 
 local function drawMatchStateOverlay(gs)
@@ -141,7 +255,7 @@ local function drawMatchStateOverlay(gs)
     end
 
     local displayW, displayH = ImGui.GetDisplaySize()
-    local panelW, panelH = 520, 280
+    local panelW, panelH = 520, 340
     ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.35, ImGuiCond.Always)
     ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
     ImGui.SetNextWindowBgAlpha(alpha)
@@ -274,7 +388,20 @@ function M.render(state, dt, elapsed)
 
     if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.Escape then
         if ImGui.IsKeyPressed(ImGuiKey.Escape, false) then
-            Gameplay.cancelTowerPlacement()
+            if escapeMenuVisible then
+                escapeMenuVisible = false
+                escapeMenuStatus = ""
+            elseif hasActivePlacement() then
+                Gameplay.cancelTowerPlacement()
+            elseif hasActiveSelection() then
+                if Gameplay.clearDebugSelection then
+                    Gameplay.clearDebugSelection()
+                    lastResult = "Selection cleared"
+                end
+            else
+                escapeMenuVisible = true
+                escapeMenuStatus = ""
+            end
         end
     end
 
@@ -436,6 +563,8 @@ function M.render(state, dt, elapsed)
     end
 
     ImGui.End()
+
+    drawEscapeMenu(state)
 
     if not debugUiVisible then
         return
@@ -647,6 +776,12 @@ function M.onExit()
     prevClipButton = nil
     nextClipButton = nil
     selectWalkingButton = nil
+    resumeGameButton = nil
+    quitGameButton = nil
+    applyPauseSettingsButton = nil
+
+    escapeMenuVisible = false
+    escapeMenuStatus = ""
 end
 
 return M

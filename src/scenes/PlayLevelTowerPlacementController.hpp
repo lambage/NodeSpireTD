@@ -26,7 +26,7 @@ class PlayLevelTowerPlacementController {
 
     void cancelPlacement();
 
-    void updateSelectionHotkeys(std::size_t loadoutSize);
+    bool updateSelectionHotkeys(std::size_t loadoutSize);
     void updatePlacementFromInput(bool hasSelectedTower,
                                   const RaycastGroundFn& raycastGround,
                                   const CanPlaceFn& canPlace,

@@ -83,6 +83,7 @@ class PlayLevelScene final : public GameScene {
     const TowerArchetype* selectedTowerArchetype() const;
     bool raycastGroundAtCursor(glm::vec3& outHit) const;
     std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
+    void clearActiveSelectionForTowerPlacement(const char* reason);
     void updateTowerPlacementFromInput();
     glm::mat4 buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
     void syncPlacedTowerModels();
