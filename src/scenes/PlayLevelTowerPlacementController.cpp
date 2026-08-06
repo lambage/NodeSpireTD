@@ -37,10 +37,6 @@ void PlayLevelTowerPlacementController::updateSelectionHotkeys(std::size_t loado
     } else if (ImGui::IsKeyPressed(ImGuiKey_5, false)) {
         selectedLoadoutIndex_ = (loadoutSize >= 5) ? 4 : -1;
     }
-
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-        cancelPlacement();
-    }
 }
 
 void PlayLevelTowerPlacementController::updatePlacementFromInput(bool hasSelectedTower,
