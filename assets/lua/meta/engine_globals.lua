@@ -102,6 +102,8 @@ Gameplay.setCompositeAnimationMode = nil
 Gameplay.setDebugPickSpheresVisible = nil
 ---@type any
 Gameplay.setPickEnabled = nil
+---@type any
+Gameplay.setTowerPreviewSlots = nil
 
 ---@type any
 HeadingFont = nil
@@ -168,6 +170,8 @@ ImGui.EndTabItem = nil
 ImGui.GetContentRegionAvail = nil
 ---@type any
 ImGui.GetCursorPos = nil
+---@type any
+ImGui.GetCursorScreenPos = nil
 ---@type any
 ImGui.GetDisplaySize = nil
 ---@type any

@@ -33,6 +33,12 @@ local function TextCentered(text)
     ImGui.Text(tostring(text or ""))
 end
 
+local function CenterButton(button)
+    local availableW, _ = ImGui.GetContentRegionAvail()
+    local buttonW, _ = button:getSize()
+    ImGui.SetCursorPosX((availableW - buttonW) * 0.5)
+end
+
 local function getTowerPreviewTexture(slot)
     if not slot or not slot.available then
         return nil
@@ -63,6 +69,23 @@ local function getTowerPreviewTexture(slot)
     return nil
 end
 
+local function useLiveTowerPreview(slot)
+    if not slot or not slot.available then
+        return false
+    end
+    local setTowerPreviewSlots = Gameplay and Gameplay["setTowerPreviewSlots"]
+    if not setTowerPreviewSlots then
+        return false
+    end
+    local getCursorScreenPos = ImGui and ImGui["GetCursorScreenPos"]
+    if not getCursorScreenPos then
+        return false
+    end
+
+    local proto = tonumber(slot and slot.previewPrototypeIndex) or -1
+    return proto >= 0
+end
+
 function M.onEnter()
     lastResult = "PlayLevel script loaded"
     if Gameplay.getDebugPickSpheresVisible then
@@ -72,7 +95,7 @@ function M.onEnter()
         Gameplay.setDebugPickSpheresVisible(debugPickSpheresVisible)
     end
 
-    startMatchButton = GameButton.new("startMatch", "Start Match", -1.0, 42.0)
+    startMatchButton = GameButton.new("startMatch", "Start Match", 120.0, 42.0)
     playAgainButton = GameButton.new("playAgain", "Play Again", -1.0, 42.0)
     backToLobbyButton = GameButton.new("backToLobby", "Back to Lobby", -1.0, 38.0)
 
@@ -101,9 +124,11 @@ local function drawMatchStateOverlay(gs)
 
     local title = ""
     local subtitle = ""
+    local alpha = 0.5
     if status == "WaitingToStart" then
         title = "Prepare Your Defenses"
         subtitle = "Start when ready."
+        alpha = 0.15
     elseif status == "Victory" then
         title = "You won"
         subtitle = "All waves are cleared."
@@ -116,28 +141,53 @@ local function drawMatchStateOverlay(gs)
     local panelW, panelH = 520, 240
     ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.5, ImGuiCond.Always)
     ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
-    ImGui.SetNextWindowBgAlpha(0.92)
-    ImGui.Begin("MatchStateOverlay", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+    ImGui.SetNextWindowBgAlpha(alpha)
+    ImGui.Begin("MatchStateOverlay",
+        ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
 
-    ImGui.Text(title)
+    if TitleFont then
+        ImGui.PushFont(TitleFont)
+    end
+    TextCentered(title)
+    if TitleFont then
+        ImGui.PopFont()
+    end
+
     ImGui.Spacing()
-    UiTextWrapped(subtitle)
+
+	if HeadingFont then
+		ImGui.PushFont(HeadingFont)
+	end
+    TextCentered(subtitle)
+	if HeadingFont then
+		ImGui.PopFont()
+	end
+
     ImGui.Spacing()
-    ImGui.Separator()
     ImGui.Spacing()
 
     if status == "WaitingToStart" then
-        if startMatchButton:render() then
-            local r = Gameplay.requestStartWave and Gameplay.requestStartWave() or { ok = false, reason = "requestStartWave unavailable" }
-            lastResult = string.format("Start match -> ok=%s reason=%s", tostring(r.ok), tostring(r.reason))
+        if startMatchButton ~= nil then
+            CenterButton(startMatchButton)
+            if startMatchButton:render() then
+                local r = Gameplay.requestStartWave and Gameplay.requestStartWave() or
+                { ok = false, reason = "requestStartWave unavailable" }
+                lastResult = string.format("Start match -> ok=%s reason=%s", tostring(r.ok), tostring(r.reason))
+            end
         end
     else
-        if playAgainButton:render() then
-            Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Restarting level...")
+        if playAgainButton ~= nil then
+            CenterButton(playAgainButton)
+            if playAgainButton:render() then
+                Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Restarting level...")
+            end
         end
         ImGui.Spacing()
-        if backToLobbyButton:render() then
-            Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
+        if backToLobbyButton ~= nil then
+            CenterButton(backToLobbyButton)
+            if backToLobbyButton:render() then
+                Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
+            end
         end
     end
 
@@ -151,7 +201,6 @@ local function drawWaveCountdownOverlay(gs)
     end
 
     if gs.waveCountdownActive then
-
         local remaining = gs.waveCountdownRemainingSeconds
         local title = string.format("Next wave in")
 
@@ -160,14 +209,15 @@ local function drawWaveCountdownOverlay(gs)
         ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.05, ImGuiCond.Always)
         ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
         ImGui.SetNextWindowBgAlpha(0.92)
-        ImGui.Begin("MatchStateOverlay", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+        ImGui.Begin("MatchStateOverlay",
+            ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
 
         UiTextWrapped(title)
         ImGui.ProgressBar(remaining / (gs.waveCountdownDurationSeconds or 1.0), -1.0, 18.0, "")
         ImGui.Spacing()
         if TitleFont then
             ImGui.PushFont(TitleFont)
-        end       
+        end
         TextCentered(string.format("%d", math.ceil(remaining or 0.0)))
         if TitleFont then
             ImGui.PopFont()
@@ -182,21 +232,21 @@ local function drawWaveCountdownOverlay(gs)
         ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.05, ImGuiCond.Always)
         ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
         ImGui.SetNextWindowBgAlpha(0.92)
-        ImGui.Begin("MatchStateOverlay", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+        ImGui.Begin("MatchStateOverlay",
+            ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
 
         UiTextWrapped(title)
         ImGui.ProgressBar(remaining / (gs.waveRoundDurationSeconds or 1.0), -1.0, 18.0, "")
         ImGui.Spacing()
         if TitleFont then
             ImGui.PushFont(TitleFont)
-        end       
+        end
         TextCentered(string.format("%d", math.ceil(remaining or 0.0)))
         if TitleFont then
             ImGui.PopFont()
         end
         ImGui.End()
     end
-
 end
 
 function M.render(state, dt, elapsed)
@@ -218,6 +268,12 @@ function M.render(state, dt, elapsed)
         end
     end
 
+    if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.Escape then
+        if ImGui.IsKeyPressed(ImGuiKey.Escape, false) then
+            Gameplay.cancelTowerPlacement()
+        end
+    end
+
     if gs.worldLoading then
         local displayW, displayH = ImGui.GetDisplaySize()
         local panelW, panelH = 600, 260
@@ -225,7 +281,8 @@ function M.render(state, dt, elapsed)
         ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.5, ImGuiCond.Once)
         ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Once)
         ImGui.SetNextWindowBgAlpha(0.88)
-        ImGui.Begin("WorldLoading", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoScrollbar)
+        ImGui.Begin("WorldLoading",
+            ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoScrollbar)
         ImGui.Text(string.format("Loading  %s", state.activeLevelName or "Level"))
         ImGui.Separator()
         ImGui.Spacing()
@@ -239,7 +296,7 @@ function M.render(state, dt, elapsed)
 
     drawMatchStateOverlay(gs)
     drawWaveCountdownOverlay(gs)
-    
+
     local loadout = nil
     if Gameplay.getTowerLoadout then
         loadout = Gameplay.getTowerLoadout()
@@ -262,6 +319,10 @@ function M.render(state, dt, elapsed)
     ImGui.SetNextWindowBgAlpha(0.84)
     ImGui.Begin("TowerLoadout", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
 
+    local previewSlots = {}
+    local setTowerPreviewSlots = Gameplay and Gameplay["setTowerPreviewSlots"]
+    local getCursorScreenPos = ImGui and ImGui["GetCursorScreenPos"]
+
     for i = 1, 5 do
         local slot = loadout and loadout[i] or nil
         local available = slot and slot.available
@@ -280,15 +341,34 @@ function M.render(state, dt, elapsed)
         ImGui.BeginGroup()
         local previewClicked = false
         if available then
-            local preview = getTowerPreviewTexture(slot)
-            if preview then
-                if ImGui.ImageButton then
-                    previewClicked = ImGui.ImageButton(string.format("tower_preview_%d", i), preview, slotW, previewH)
-                else
-                    ImGui.Image(preview, slotW, previewH)
-                end
+            if useLiveTowerPreview(slot) then
+                local x, y = getCursorScreenPos()
+                local proto = tonumber(slot and slot.previewPrototypeIndex) or -1
+                table.insert(previewSlots, {
+                    slot = i,
+                    prototypeIndex = proto,
+                    x = x,
+                    y = y,
+                    w = slotW,
+                    h = previewH,
+                })
+
+                ImGui.PushStyleColor(ImGuiCol.Button, 0.0, 0.0, 0.0, 0.0)
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 1.0, 1.0, 1.0, 0.08)
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, 1.0, 1.0, 1.0, 0.14)
+                previewClicked = ImGui.Button(string.format("##tower_preview_%d", i), slotW, previewH)
+                ImGui.PopStyleColor(3)
             else
-                previewClicked = ImGui.Button(string.format("[%d] Preview", i), slotW, previewH)
+                local preview = getTowerPreviewTexture(slot)
+                if preview then
+                    if ImGui.ImageButton then
+                        previewClicked = ImGui.ImageButton(string.format("tower_preview_%d", i), preview, slotW, previewH)
+                    else
+                        ImGui.Image(preview, slotW, previewH)
+                    end
+                else
+                    previewClicked = ImGui.Button(string.format("[%d] Preview", i), slotW, previewH)
+                end
             end
         else
             previewClicked = ImGui.Button(string.format("[%d] Empty", i), slotW, previewH)
@@ -320,10 +400,15 @@ function M.render(state, dt, elapsed)
         end
     end
 
+    if setTowerPreviewSlots then
+        setTowerPreviewSlots(previewSlots)
+    end
+
     if placement and placement.active then
         local reason = tostring(placement.reason or "")
         local verdict = placement.canPlace and "VALID" or "INVALID"
-        ImGui.Text(string.format("Placement: %s  |  %s", verdict, tostring(placement.displayName or placement.towerId or "tower")))
+        ImGui.Text(string.format("Placement: %s  |  %s", verdict,
+            tostring(placement.displayName or placement.towerId or "tower")))
         ImGui.Text(string.format("Range: %.1f  |  Esc: cancel", tonumber(placement.attackRange or 0.0)))
         if reason ~= "" then
             UiTextWrapped(reason)
@@ -336,8 +421,8 @@ function M.render(state, dt, elapsed)
         UiTextWrapped(lastLoadoutResult)
     end
 
-    ImGui.End()    
-    
+    ImGui.End()
+
     if not debugUiVisible then
         return
     end
@@ -350,13 +435,16 @@ function M.render(state, dt, elapsed)
     ImGui.Separator()
 
     if gs.worldLoaded then
-        ImGui.Text(string.format("Meshes %d  |  Verts %d  |  Tris %d", gs.meshCount or 0, gs.vertexCount or 0, gs.triCount or 0))
+        ImGui.Text(string.format("Meshes %d  |  Verts %d  |  Tris %d", gs.meshCount or 0, gs.vertexCount or 0,
+            gs.triCount or 0))
         ImGui.Text(string.format("Base HP %d  |  Money %d  |  Wave %d", gs.baseHealth, gs.playerMoney, gs.currentWave))
         ImGui.Text(string.format("Enemy Clip %s", gs.enemyAnimationName or "none"))
-        ImGui.Text(string.format("To Spawn %d  |  Alive %d  |  Defeated %d", gs.enemiesToSpawn or 0, gs.enemiesAlive or 0, gs.enemiesDefeated or 0))
+        ImGui.Text(string.format("To Spawn %d  |  Alive %d  |  Defeated %d", gs.enemiesToSpawn or 0, gs.enemiesAlive or 0,
+            gs.enemiesDefeated or 0))
         ImGui.Text(string.format("Path Points %d  |  Waves %d", gs.routePointCount or 0, gs.waveCount or 0))
         if gs.cameraPosition then
-            ImGui.Text(string.format("Pos (%.1f, %.1f, %.1f)", gs.cameraPosition.x or 0.0, gs.cameraPosition.y or 0.0, gs.cameraPosition.z or 0.0))
+            ImGui.Text(string.format("Pos (%.1f, %.1f, %.1f)", gs.cameraPosition.x or 0.0, gs.cameraPosition.y or 0.0,
+                gs.cameraPosition.z or 0.0))
         end
         ImGui.Text("RMB+drag: look   WASD: fly   Space/Q: up/down   Shift: sprint")
     else
@@ -365,7 +453,7 @@ function M.render(state, dt, elapsed)
     end
 
     ImGui.Spacing()
-    if exitToMissionSelectButton:render() then
+    if exitToMissionSelectButton ~= nil and exitToMissionSelectButton:render() then
         Gameplay.requestScene(Gameplay.Scene.Lobby, "Returning to mission select...")
     end
     ImGui.End()
@@ -382,8 +470,10 @@ function M.render(state, dt, elapsed)
     ImGui.Text(string.format("Money: %d", gs.playerMoney))
     ImGui.Text(string.format("Wave: %d", gs.currentWave))
     ImGui.Text(string.format("Wave Active: %s", tostring(gs.waveInProgress)))
-    ImGui.Text(string.format("Pre-Wave Countdown: %s (%.1fs)", tostring(gs.waveCountdownActive), gs.waveCountdownRemainingSeconds or 0.0))
-    ImGui.Text(string.format("Round Timer: %.1fs / %.1fs", gs.waveRoundRemainingSeconds or 0.0, gs.waveRoundDurationSeconds or 0.0))
+    ImGui.Text(string.format("Pre-Wave Countdown: %s (%.1fs)", tostring(gs.waveCountdownActive),
+        gs.waveCountdownRemainingSeconds or 0.0))
+    ImGui.Text(string.format("Round Timer: %.1fs / %.1fs", gs.waveRoundRemainingSeconds or 0.0,
+        gs.waveRoundDurationSeconds or 0.0))
     ImGui.Text(string.format("To Spawn: %d", gs.enemiesToSpawn or 0))
     ImGui.Text(string.format("Alive: %d", gs.enemiesAlive or 0))
     ImGui.Text(string.format("Defeated: %d", gs.enemiesDefeated or 0))
@@ -391,17 +481,17 @@ function M.render(state, dt, elapsed)
     ImGui.Text(string.format("Waves Defined: %d", gs.waveCount or 0))
     ImGui.Text(string.format("Status: %s", gs.matchStatus))
 
-    if spend25Button:render() then
+    if spend25Button ~= nil and spend25Button:render() then
         local r = Gameplay.requestSpendMoney(25)
         lastResult = string.format("Spend 25 -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
 
-    if damageBase10Button:render() then
+    if damageBase10Button ~= nil and damageBase10Button:render() then
         local r = Gameplay.requestDamageBase(10)
         lastResult = string.format("Damage 10 -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
 
-    if startWaveButton:render() then
+    if startWaveButton ~= nil and startWaveButton:render() then
         local r = Gameplay.requestStartWave()
         lastResult = string.format("Start wave -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
@@ -419,7 +509,7 @@ function M.render(state, dt, elapsed)
     ImGui.Separator()
     ImGui.Text(string.format("[H] Pick Spheres: %s", debugPickSpheresVisible and "ON" or "OFF"))
 
-    if clearSelectionButton:render() then
+    if clearSelectionButton ~= nil and clearSelectionButton:render() then
         Gameplay.clearDebugSelection()
     end
 
@@ -457,10 +547,12 @@ function M.render(state, dt, elapsed)
     local compositeMode = Gameplay.getCompositeAnimationMode()
     ImGui.Text(string.format("Clip List: %d total, active=%d", clipCount, activeClip))
     ImGui.Text(string.format("Composite Mode: %s", tostring(compositeMode)))
-    compositeToggleButton:setLabel(compositeMode and "Composite: ON" or "Composite: OFF")
-    if compositeToggleButton:render() then
-        local r = Gameplay.setCompositeAnimationMode(not compositeMode)
-        lastResult = string.format("Toggle composite -> ok=%s reason=%s", tostring(r.ok), r.reason)
+    if compositeToggleButton ~= nil then
+        compositeToggleButton:setLabel(compositeMode and "Composite: ON" or "Composite: OFF")
+        if compositeToggleButton:render() then
+            local r = Gameplay.setCompositeAnimationMode(not compositeMode)
+            lastResult = string.format("Toggle composite -> ok=%s reason=%s", tostring(r.ok), r.reason)
+        end
     end
     if clips.names then
         for i = 1, #clips.names do
@@ -470,15 +562,15 @@ function M.render(state, dt, elapsed)
         end
     end
 
-    if prevClipButton:render() then
+    if prevClipButton ~= nil and prevClipButton:render() then
         local r = Gameplay.setAnimationClip(math.max(0, activeClip - 1))
         lastResult = string.format("Prev clip -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
-    if nextClipButton:render() then
+    if nextClipButton ~= nil and nextClipButton:render() then
         local r = Gameplay.setAnimationClip(math.min(math.max(0, clipCount - 1), activeClip + 1))
         lastResult = string.format("Next clip -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
-    if selectWalkingButton:render() then
+    if selectWalkingButton ~= nil and selectWalkingButton:render() then
         local r = Gameplay.setAnimationClip("Walking")
         lastResult = string.format("Select Walking -> ok=%s reason=%s", tostring(r.ok), r.reason)
     end
@@ -486,7 +578,8 @@ function M.render(state, dt, elapsed)
     local ad = sel.animationDebug
     if ad and ad.enabled then
         ImGui.Text(string.format("Debug Clip Index: %d / %d", ad.selectedClipIndex or -1, ad.clipCount or 0))
-        ImGui.Text(string.format("Composite Applied Clips: %d  Mode: %s", ad.compositeAppliedClips or 0, tostring(ad.compositeMode)))
+        ImGui.Text(string.format("Composite Applied Clips: %d  Mode: %s", ad.compositeAppliedClips or 0,
+            tostring(ad.compositeMode)))
         ImGui.Text(string.format("Anim Time: %.3f / %.3f", ad.timeSeconds or 0.0, ad.durationSeconds or 0.0))
         local norm = 0.0
         if (ad.durationSeconds or 0.0) > 1e-6 then
@@ -504,14 +597,17 @@ function M.render(state, dt, elapsed)
     if sel.valid then
         ImGui.Text(string.format("Group: %s", tostring(sel.group)))
         ImGui.Text(string.format("Label: %s", tostring(sel.label)))
-        ImGui.Text(string.format("Mesh: %d  Node: %d  Skin: %d", sel.meshIndex or -1, sel.nodeIndex or -1, sel.skinIndex or -1))
+        ImGui.Text(string.format("Mesh: %d  Node: %d  Skin: %d", sel.meshIndex or -1, sel.nodeIndex or -1,
+            sel.skinIndex or -1))
         ImGui.Text(string.format("Instance: %d", sel.instanceIndex or -1))
         ImGui.Text(string.format("Distance: %.3f", sel.distance or 0.0))
         if sel.hitPosition then
-            ImGui.Text(string.format("Hit Pos: (%.2f, %.2f, %.2f)", sel.hitPosition.x or 0.0, sel.hitPosition.y or 0.0, sel.hitPosition.z or 0.0))
+            ImGui.Text(string.format("Hit Pos: (%.2f, %.2f, %.2f)", sel.hitPosition.x or 0.0, sel.hitPosition.y or 0.0,
+                sel.hitPosition.z or 0.0))
         end
         if sel.hitNormal then
-            ImGui.Text(string.format("Hit Nrm: (%.2f, %.2f, %.2f)", sel.hitNormal.x or 0.0, sel.hitNormal.y or 0.0, sel.hitNormal.z or 0.0))
+            ImGui.Text(string.format("Hit Nrm: (%.2f, %.2f, %.2f)", sel.hitNormal.x or 0.0, sel.hitNormal.y or 0.0,
+                sel.hitNormal.z or 0.0))
         end
     else
         ImGui.Text("No selection")

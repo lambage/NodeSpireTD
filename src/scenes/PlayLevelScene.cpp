@@ -297,12 +297,17 @@ void PlayLevelScene::renderWorld(VkCommandBuffer cmd, VkExtent2D extent) {
     lastRenderExtent_ = extent;
     if (worldRenderer_ && worldRenderer_->isLoaded()) {
         worldRenderer_->render(cmd, extent, buildViewMatrix());
+        if (!towerPreviewPanels_.empty()) {
+            worldRenderer_->renderTowerPreviewPanels(cmd, extent, towerPreviewPanels_, towerPreviewSpinRadians_);
+        }
     }
 }
 
 // ─── per-frame ────────────────────────────────────────────────────────────────
 
 void PlayLevelScene::render(SceneSharedState& state, float dt) {
+    towerPreviewPanels_.clear();
+    towerPreviewSpinRadians_ = std::fmod(towerPreviewSpinRadians_ + dt * 0.55f, 6.2831853071795864769f);
 
     applyPendingGameplayCommands();
     updateWaveSimulation(dt);
@@ -1276,6 +1281,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 if (archetype) {
                     lua_pushstring(L, archetype->id.c_str());
                     lua_setfield(L, -2, "id");
+                    lua_pushinteger(L, self->towerLoadController_.templatePrototypeIndex(archetype->id));
+                    lua_setfield(L, -2, "previewPrototypeIndex");
                     lua_pushstring(L, archetype->displayName.c_str());
                     lua_setfield(L, -2, "displayName");
                     lua_pushinteger(L, archetype->cost);
@@ -1303,6 +1310,69 @@ void PlayLevelScene::registerLuaGameplayApi() {
         },
         1);
     lua_setfield(L_, gameplayTable, "getTowerLoadout");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            self->towerPreviewPanels_.clear();
+
+            if (!lua_istable(L, 1)) {
+                return 0;
+            }
+
+            const int count = static_cast<int>(lua_rawlen(L, 1));
+            self->towerPreviewPanels_.reserve(static_cast<std::size_t>(count));
+            for (int i = 1; i <= count; ++i) {
+                lua_geti(L, 1, i);
+                if (!lua_istable(L, -1)) {
+                    lua_pop(L, 1);
+                    continue;
+                }
+
+                TowerPreviewPanel panel;
+
+                lua_getfield(L, -1, "prototypeIndex");
+                if (lua_isinteger(L, -1)) {
+                    panel.prototypeIndex = static_cast<int>(lua_tointeger(L, -1));
+                }
+                lua_pop(L, 1);
+
+                lua_getfield(L, -1, "x");
+                if (lua_isnumber(L, -1)) {
+                    panel.x = static_cast<float>(lua_tonumber(L, -1));
+                }
+                lua_pop(L, 1);
+
+                lua_getfield(L, -1, "y");
+                if (lua_isnumber(L, -1)) {
+                    panel.y = static_cast<float>(lua_tonumber(L, -1));
+                }
+                lua_pop(L, 1);
+
+                lua_getfield(L, -1, "w");
+                if (lua_isnumber(L, -1)) {
+                    panel.width = static_cast<float>(lua_tonumber(L, -1));
+                }
+                lua_pop(L, 1);
+
+                lua_getfield(L, -1, "h");
+                if (lua_isnumber(L, -1)) {
+                    panel.height = static_cast<float>(lua_tonumber(L, -1));
+                }
+                lua_pop(L, 1);
+
+                if (panel.prototypeIndex >= 0 && panel.width > 1.0f && panel.height > 1.0f) {
+                    self->towerPreviewPanels_.push_back(panel);
+                }
+
+                lua_pop(L, 1);
+            }
+            return 0;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "setTowerPreviewSlots");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(

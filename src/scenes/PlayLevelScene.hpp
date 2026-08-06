@@ -10,6 +10,7 @@
 #include "scenes/PlayLevelWaveController.hpp"
 #include "scenes/TowerLoadController.hpp"
 #include "utility/WorldAssetLoader.hpp"
+#include "utility/WorldRenderer.hpp"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <cstdint>
@@ -19,8 +20,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-class WorldRenderer;
 
 class PlayLevelScene final : public GameScene {
   public:
@@ -67,6 +66,8 @@ class PlayLevelScene final : public GameScene {
     std::string loadStatus_;
     PlayLevelPickingController pickingController_{};
     std::uint64_t selectedEnemyRuntimeId_ = 0;
+    std::vector<TowerPreviewPanel> towerPreviewPanels_;
+    float towerPreviewSpinRadians_ = 0.0f;
 
     // Flying camera state
     PlayLevelCameraController cameraController_{};

@@ -27,6 +27,10 @@ void GameButton::setSize(float width, float height) {
     height_ = height;
 }
 
+std::tuple<float, float> GameButton::getSize() const {
+    return std::make_tuple(width_, height_);
+}
+
 bool GameButton::render() {
     const std::string displayId = label_ + "##" + id_;
     const bool clicked = ImGui::Button(displayId.c_str(), ImVec2(width_, height_));

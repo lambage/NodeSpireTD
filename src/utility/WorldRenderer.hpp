@@ -77,6 +77,14 @@ struct WorldPickDebugSphere {
     std::string label;
 };
 
+struct TowerPreviewPanel {
+    int prototypeIndex = -1;
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
 class WorldRenderer {
   public:
     explicit WorldRenderer(lua_State* L, VulkanContext& ctx);
@@ -138,6 +146,10 @@ class WorldRenderer {
     const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return templateAnimationDebugInfo(); }
 
     void render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view);
+    void renderTowerPreviewPanels(VkCommandBuffer cmd,
+                                  VkExtent2D extent,
+                                  const std::vector<TowerPreviewPanel>& panels,
+                                  float spinRadians);
     void release();
 
   private:
@@ -230,4 +242,5 @@ class WorldRenderer {
     VkShaderModule loadSpirv(const std::filesystem::path& path) const;
     WorldMesh uploadMesh(const std::vector<WorldVertex>& verts, const std::vector<uint32_t>& idx);
     VkBuffer  uploadBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage, VmaAllocation& alloc);
+    bool computeTowerPrototypeBounds(int prototypeIndex, glm::vec3& outCenter, float& outRadius) const;
 };

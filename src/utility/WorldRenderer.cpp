@@ -1084,6 +1084,173 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     templateAnimator_->update(0.0f);
 }
 
+bool WorldRenderer::computeTowerPrototypeBounds(int prototypeIndex, glm::vec3& outCenter, float& outRadius) const {
+    bool found = false;
+    glm::vec3 minBounds(0.0f);
+    glm::vec3 maxBounds(0.0f);
+
+    for (const WorldMesh& mesh : towerTemplateMeshes_) {
+        if (mesh.templatePrototypeIndex != prototypeIndex) {
+            continue;
+        }
+
+        const glm::vec3 worldCenter = glm::vec3(mesh.modelTransform * glm::vec4(mesh.localBoundsCenter, 1.0f));
+        const float worldRadius =
+            std::max(0.05f, mesh.localBoundsRadius * std::max(0.01f, maxScaleFromMatrix(mesh.modelTransform)));
+        const glm::vec3 extent(worldRadius);
+
+        if (!found) {
+            minBounds = worldCenter - extent;
+            maxBounds = worldCenter + extent;
+            found = true;
+        } else {
+            minBounds = glm::min(minBounds, worldCenter - extent);
+            maxBounds = glm::max(maxBounds, worldCenter + extent);
+        }
+    }
+
+    if (!found) {
+        return false;
+    }
+
+    outCenter = (minBounds + maxBounds) * 0.5f;
+    outRadius = std::max(0.2f, glm::distance(minBounds, maxBounds) * 0.5f);
+    return true;
+}
+
+void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
+                                             VkExtent2D extent,
+                                             const std::vector<TowerPreviewPanel>& panels,
+                                             float spinRadians) {
+    if (!loaded_ || pipeline_ == VK_NULL_HANDLE || panels.empty()) {
+        return;
+    }
+
+    const int fbWidth = static_cast<int>(extent.width);
+    const int fbHeight = static_cast<int>(extent.height);
+    if (fbWidth <= 0 || fbHeight <= 0) {
+        return;
+    }
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    uploadIdentitySkinPalette();
+
+    for (std::size_t panelIdx = 0; panelIdx < panels.size(); ++panelIdx) {
+        const TowerPreviewPanel& panel = panels[panelIdx];
+        if (panel.prototypeIndex < 0 || panel.width <= 1.0f || panel.height <= 1.0f) {
+            continue;
+        }
+
+        int x = static_cast<int>(std::floor(panel.x));
+        int y = static_cast<int>(std::floor(panel.y));
+        int w = static_cast<int>(std::ceil(panel.width));
+        int h = static_cast<int>(std::ceil(panel.height));
+
+        if (x < 0) {
+            w += x;
+            x = 0;
+        }
+        if (y < 0) {
+            h += y;
+            y = 0;
+        }
+        if (x + w > fbWidth) {
+            w = fbWidth - x;
+        }
+        if (y + h > fbHeight) {
+            h = fbHeight - y;
+        }
+        if (w <= 2 || h <= 2) {
+            continue;
+        }
+
+        glm::vec3 targetCenter(0.0f);
+        float targetRadius = 0.5f;
+        if (!computeTowerPrototypeBounds(panel.prototypeIndex, targetCenter, targetRadius)) {
+            continue;
+        }
+
+        VkClearAttachment clears[2]{};
+        clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clears[0].colorAttachment = 0;
+        clears[0].clearValue.color.float32[0] = 0.08f;
+        clears[0].clearValue.color.float32[1] = 0.10f;
+        clears[0].clearValue.color.float32[2] = 0.12f;
+        clears[0].clearValue.color.float32[3] = 1.0f;
+
+        clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        clears[1].clearValue.depthStencil.depth = 1.0f;
+        clears[1].clearValue.depthStencil.stencil = 0;
+
+        VkClearRect clearRect{};
+        clearRect.rect.offset = {x, y};
+        clearRect.rect.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+        vkCmdClearAttachments(cmd, 2, clears, 1, &clearRect);
+
+        VkViewport viewport{};
+        viewport.x = static_cast<float>(x);
+        viewport.y = static_cast<float>(y);
+        viewport.width = static_cast<float>(w);
+        viewport.height = static_cast<float>(h);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {x, y};
+        scissor.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        const float aspect = static_cast<float>(w) / static_cast<float>(h);
+        glm::mat4 proj = glm::perspective(glm::radians(35.0f), aspect, 0.01f, 500.0f);
+        proj[1][1] *= -1.0f;
+
+        const float phase = static_cast<float>(panelIdx) * 0.47f;
+        const float yaw = spinRadians + phase;
+        const float camDistance = targetRadius * 2.7f + 0.6f;
+        const float camHeight = targetRadius * 0.40f + 0.15f;
+        const glm::vec3 camPos = targetCenter +
+                                  glm::vec3(std::sin(yaw) * camDistance, camHeight, std::cos(yaw) * camDistance);
+        const glm::vec3 lookAtPoint = targetCenter + glm::vec3(0.0f, targetRadius * 0.10f, 0.0f);
+        const glm::mat4 view = glm::lookAt(camPos, lookAtPoint, glm::vec3(0.0f, 1.0f, 0.0f));
+
+        for (const WorldMesh& mesh : towerTemplateMeshes_) {
+            if (mesh.templatePrototypeIndex != panel.prototypeIndex) {
+                continue;
+            }
+
+            const glm::mat4 mvp = proj * view * mesh.modelTransform;
+            const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f};
+            vkCmdPushConstants(cmd, pipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(MeshPushConstants), &pc);
+
+            VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
+            if (ds) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipelineLayout_, 0, 1, &ds, 0, nullptr);
+            }
+
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+        }
+    }
+
+    VkViewport fullViewport{};
+    fullViewport.width = static_cast<float>(extent.width);
+    fullViewport.height = static_cast<float>(extent.height);
+    fullViewport.minDepth = 0.0f;
+    fullViewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &fullViewport);
+
+    VkRect2D fullScissor{{0, 0}, extent};
+    vkCmdSetScissor(cmd, 0, 1, &fullScissor);
+}
+
 void WorldRenderer::release() {
     // Signal + join background thread before touching GPU resources
     cancelLoad_.store(true, std::memory_order_relaxed);

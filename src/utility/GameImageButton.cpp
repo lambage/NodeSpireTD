@@ -1,6 +1,7 @@
 #include "GameImageButton.hpp"
 
 #include "VulkanContext.hpp"
+#include "imgui.h"
 #include "utility/VulkanTexture.hpp"
 
 
@@ -35,6 +36,10 @@ GameImageButton::~GameImageButton() = default;
 void GameImageButton::setSize(float width, float height) {
     width_ = width;
     height_ = height;
+}
+
+std::tuple<float, float> GameImageButton::getSize() const {
+    return std::make_tuple(width_, height_);
 }
 
 bool GameImageButton::render() {

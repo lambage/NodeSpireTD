@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <string>
+#include <tuple>
 
 // ImGui text button rendered inline in the current layout, with optional
 // hover/click sfx wired through the shared AudioEngine.
@@ -19,6 +20,7 @@ class GameButton {
 
     void setLabel(const std::string& label);
     void setSize(float width, float height);
+    std::tuple<float, float> getSize() const;
 
   private:
     std::string id_;

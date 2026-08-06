@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <tuple>
 
 class VulkanTexture;
 class VulkanContext;
@@ -24,6 +25,7 @@ class GameImageButton {
     bool render();
 
     void setSize(float width, float height);
+    std::tuple<float, float> getSize() const;
 
   private:
     std::string id_;
