@@ -671,6 +671,18 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "GetWindowPos");
 
+    // GetCursorScreenPos() -> x, y
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImVec2 v = ImGui::GetCursorScreenPos();
+            lua_pushnumber(L, v.x);
+            lua_pushnumber(L, v.y);
+            return 2;
+        },
+        0);
+    lua_setfield(L, t, "GetCursorScreenPos");
+
     // GetFrameHeight() -> h
     lua_pushcclosure(
         L,
@@ -1370,6 +1382,17 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, gameButtonMethods, "setSize");
 
+    lua_pushcclosure(L,     
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameButton**>(luaL_checkudata(L, 1, "NST.GameButton"));
+            auto size = (*ppButton)->getSize();
+            lua_pushnumber(L, std::get<0>(size));
+            lua_pushnumber(L, std::get<1>(size));
+            return 2;   
+        },
+        0);
+    lua_setfield(L, gameButtonMethods, "getSize");    
+
     lua_setfield(L, gameButtonMeta, "__index"); // metatable.__index = methods table
     lua_pop(L, 1);                              // pop metatable
 
@@ -1452,6 +1475,17 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         },
         0);
     lua_setfield(L, gameImageButtonMethods, "setSize");
+
+    lua_pushcclosure(L,     
+        [](lua_State* L) -> int {
+            auto** ppButton = static_cast<GameImageButton**>(luaL_checkudata(L, 1, "NST.GameImageButton"));
+            auto size = (*ppButton)->getSize();
+            lua_pushnumber(L, std::get<0>(size));
+            lua_pushnumber(L, std::get<1>(size));
+            return 2;   
+        },
+        0);
+    lua_setfield(L, gameImageButtonMethods, "getSize");
 
     lua_setfield(L, gameImageButtonMeta, "__index"); // metatable.__index = methods table
     lua_pop(L, 1);                                   // pop metatable
