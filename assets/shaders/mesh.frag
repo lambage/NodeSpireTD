@@ -11,6 +11,7 @@ layout(push_constant) uniform PushConstants {
     mat4 mvp;
     mat4 model;
     float alpha;
+    float previewLightBoost;
 } pc;
 
 void main() {
@@ -18,7 +19,8 @@ void main() {
     vec3 n    = normalize(fragNormal);
     float diff    = clamp(dot(n, lightDir), 0.0, 1.0);
     float ambient = 0.25;
-    float light   = ambient + diff * 0.75;
+    float light   = (ambient + diff * 0.75) * max(0.0, pc.previewLightBoost);
+    light = clamp(light, 0.0, 1.35);
 
     vec4 texColor = texture(baseColorTex, fragUv);
     outColor = vec4(texColor.rgb * light, texColor.a * pc.alpha);

@@ -23,6 +23,7 @@ struct MeshPushConstants {
     glm::mat4 mvp;
     glm::mat4 model;
     float alpha;
+    float previewLightBoost;
 };
 
 VkBuffer createStagingBuffer(VmaAllocator allocator, VkDeviceSize size, VmaAllocation& outAlloc,
@@ -909,7 +910,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     // ── Draw each mesh (bind its base-colour texture) ─────────────────────
     for (const WorldMesh& mesh : meshes_) {
         const glm::mat4 mvp = proj * view * mesh.modelTransform;
-        const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f};
+        const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f, 1.0f};
         vkCmdPushConstants(cmd, pipelineLayout_,
                             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
 
@@ -959,7 +960,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             }
 
             const glm::mat4 mvp = proj * view * world;
-            const MeshPushConstants pc{mvp, world, 1.0f};
+            const MeshPushConstants pc{mvp, world, 1.0f, 1.0f};
             vkCmdPushConstants(cmd, pipelineLayout_,
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
 
@@ -987,7 +988,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             const glm::mat4 mvp = proj * view * world;
             const AnimatedEntityInstanceSet::Instance* towerInstance = towerInstances_.instance(instanceIndex);
             const float alpha = towerInstance ? towerInstance->alpha : 1.0f;
-            const MeshPushConstants pc{mvp, world, alpha};
+            const MeshPushConstants pc{mvp, world, alpha, 1.0f};
             vkCmdPushConstants(cmd, pipelineLayout_,
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
 
@@ -1173,9 +1174,9 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
         VkClearAttachment clears[2]{};
         clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         clears[0].colorAttachment = 0;
-        clears[0].clearValue.color.float32[0] = 0.08f;
-        clears[0].clearValue.color.float32[1] = 0.10f;
-        clears[0].clearValue.color.float32[2] = 0.12f;
+        clears[0].clearValue.color.float32[0] = 0.16f;
+        clears[0].clearValue.color.float32[1] = 0.26f;
+        clears[0].clearValue.color.float32[2] = 0.36f;
         clears[0].clearValue.color.float32[3] = 1.0f;
 
         clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -1209,7 +1210,7 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
 
         const float phase = static_cast<float>(panelIdx) * 0.47f;
         const float yaw = spinRadians + phase;
-        const float camDistance = targetRadius * 2.7f + 0.6f;
+        const float camDistance = targetRadius * 1.75f + 0.52f;
         const float camHeight = targetRadius * 0.40f + 0.15f;
         const glm::vec3 camPos = targetCenter +
                                   glm::vec3(std::sin(yaw) * camDistance, camHeight, std::cos(yaw) * camDistance);
@@ -1222,7 +1223,7 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
             }
 
             const glm::mat4 mvp = proj * view * mesh.modelTransform;
-            const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f};
+            const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f, 2.5f};
             vkCmdPushConstants(cmd, pipelineLayout_,
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(MeshPushConstants), &pc);

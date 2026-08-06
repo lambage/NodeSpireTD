@@ -14,6 +14,7 @@ layout(push_constant) uniform PushConstants {
     mat4 mvp;
     mat4 model;
     float alpha;
+    float previewLightBoost;
 } pc;
 
 layout(location = 0) out vec3 fragNormal;

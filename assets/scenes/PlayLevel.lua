@@ -6,7 +6,10 @@ local debugPickSpheresVisible = false
 local debugUiVisible = false
 local towerSlotTextures = {}
 
-local kSlotW, kSlotH, kSlotPreviewH = 150, 108, 52
+local kSlotW = 146
+local kSlotPreviewH = 146
+local kSlotLabelH = 68
+local kSlotH = kSlotPreviewH + kSlotLabelH
 
 local startMatchButton = nil
 local playAgainButton = nil
@@ -101,8 +104,8 @@ function M.onEnter()
 
     slotButtons = {}
     for i = 1, 5 do
-        slotButtons[i] = GameButton.new(string.format("towerSlot_%d", i), string.format("[%d] Empty", i),
-            kSlotW, kSlotH - kSlotPreviewH)
+        slotButtons[i] = GameButton.new(string.format("towerSlot_%d", i), string.format("Slot %d\nEmpty", i),
+            kSlotW, kSlotLabelH)
     end
 
     exitToMissionSelectButton = GameButton.new("exitToMissionSelect", "Exit to Mission Select", -1.0, 30.0)
@@ -128,7 +131,7 @@ local function drawMatchStateOverlay(gs)
     if status == "WaitingToStart" then
         title = "Prepare Your Defenses"
         subtitle = "Start when ready."
-        alpha = 0.15
+        alpha = 0.35
     elseif status == "Victory" then
         title = "You won"
         subtitle = "All waves are cleared."
@@ -138,13 +141,14 @@ local function drawMatchStateOverlay(gs)
     end
 
     local displayW, displayH = ImGui.GetDisplaySize()
-    local panelW, panelH = 520, 240
-    ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.5, ImGuiCond.Always)
+    local panelW, panelH = 520, 280
+    ImGui.SetNextWindowPos((displayW - panelW) * 0.5, (displayH - panelH) * 0.35, ImGuiCond.Always)
     ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
     ImGui.SetNextWindowBgAlpha(alpha)
     ImGui.Begin("MatchStateOverlay",
         ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
 
+    ImGui.SetCursorPosY(50)
     if TitleFont then
         ImGui.PushFont(TitleFont)
     end
@@ -309,14 +313,14 @@ function M.render(state, dt, elapsed)
     local displayW, displayH = ImGui.GetDisplaySize()
     local hudW, hudH = 460, 320
 
-    local slotW, slotH = 150, 108
-    local previewH = 52
+    local slotW, slotH = kSlotW, kSlotH
+    local previewH = kSlotPreviewH
     local gap = 8
-    local barW = slotW * 5 + gap * 4 + 20
-    local barH = slotH + 54
+    local barW = slotW * 5 + gap * 4 + 28
+    local barH = slotH + 62
     ImGui.SetNextWindowPos((displayW - barW) * 0.5, displayH - barH - 12, ImGuiCond.Always)
     ImGui.SetNextWindowSize(barW, barH, ImGuiCond.Always)
-    ImGui.SetNextWindowBgAlpha(0.84)
+    ImGui.SetNextWindowBgAlpha(0.80)
     ImGui.Begin("TowerLoadout", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
 
     local previewSlots = {}
@@ -336,6 +340,14 @@ function M.render(state, dt, elapsed)
             ImGui.PushStyleColor(ImGuiCol.Button, 0.20, 0.54, 0.28, 0.88)
             ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0.26, 0.66, 0.34, 0.95)
             ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0.16, 0.48, 0.24, 0.98)
+        end
+
+        local isEmpty = not available
+        if isEmpty then
+            ImGui.PushStyleColor(ImGuiCol.Button, 0.16, 0.17, 0.20, 0.35)
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, 0.19, 0.20, 0.23, 0.45)
+            ImGui.PushStyleColor(ImGuiCol.ButtonActive, 0.14, 0.15, 0.17, 0.55)
+            ImGui.PushStyleColor(ImGuiCol.Text, 0.62, 0.64, 0.68, 0.75)
         end
 
         ImGui.BeginGroup()
@@ -367,20 +379,20 @@ function M.render(state, dt, elapsed)
                         ImGui.Image(preview, slotW, previewH)
                     end
                 else
-                    previewClicked = ImGui.Button(string.format("[%d] Preview", i), slotW, previewH)
+                    previewClicked = ImGui.Button("Preview", slotW, previewH)
                 end
             end
         else
-            previewClicked = ImGui.Button(string.format("[%d] Empty", i), slotW, previewH)
+            previewClicked = ImGui.Button(string.format("##tower_preview_empty_%d", i), slotW, previewH)
         end
 
-        local label = string.format("[%d]", i)
+        local label = string.format("Slot %d", i)
         if available then
             local displayName = tostring((slot and slot.displayName) or (slot and slot.id) or "Tower")
             local cost = math.floor(tonumber((slot and slot.cost) or 0) or 0)
-            label = string.format("[%d] %s\n$%d", i, displayName, cost)
+            label = string.format("Slot %d\n%s\n$%d", i, displayName, cost)
         else
-            label = string.format("[%d] Empty", i)
+            label = string.format("Slot %d\nEmpty", i)
         end
 
         local slotButton = slotButtons[i]
@@ -394,6 +406,10 @@ function M.render(state, dt, elapsed)
         end
 
         ImGui.EndGroup()
+
+        if isEmpty then
+            ImGui.PopStyleColor(4)
+        end
 
         if selected then
             ImGui.PopStyleColor(3)
@@ -413,8 +429,6 @@ function M.render(state, dt, elapsed)
         if reason ~= "" then
             UiTextWrapped(reason)
         end
-    else
-        ImGui.Text("Select a tower with 1-5 or click a slot. Esc exits placement mode.")
     end
 
     if lastLoadoutResult ~= "" then
