@@ -27,6 +27,7 @@ local selectWalkingButton = nil
 local resumeGameButton = nil
 local quitGameButton = nil
 local applyPauseSettingsButton = nil
+local coinTexture = nil
 
 local escapeMenuVisible = false
 local escapeMenuStatus = ""
@@ -210,6 +211,8 @@ function M.onEnter()
     playAgainButton = GameButton.new("playAgain", "Play Again", 120.0, 42.0)
     backToLobbyButton = GameButton.new("backToLobby", "Back to Lobby", 120.0, 38.0)
 
+    coinTexture = Texture.load(VulkanContext, "assets/images/coin.png")
+
     slotButtons = {}
     for i = 1, 5 do
         slotButtons[i] = GameButton.new(string.format("towerSlot_%d", i), string.format("Slot %d\nEmpty", i),
@@ -367,6 +370,31 @@ local function drawWaveCountdownOverlay(gs)
     end
 end
 
+local function moneyWindow(gs)
+    local displayW, displayH = ImGui.GetDisplaySize()
+    local panelW, panelH = 160, 80
+    ImGui.SetNextWindowPos((displayW - panelW) * 0.75, (displayH - panelH) * 0.99, ImGuiCond.Always)
+    ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
+    ImGui.SetNextWindowBgAlpha(0.35)
+    ImGui.Begin("MoneyWindow",
+        ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoResize)
+
+    ImGui.SetCursorPos(40, 25)
+    local moneyText = string.format("%d", gs.playerMoney or 0)
+    if coinTexture and coinTexture.isValid and coinTexture:isValid() then
+        ImGui.Image(coinTexture, 32, 32)
+        ImGui.SameLine()
+    end
+    if HeadingFont then
+        ImGui.PushFont(HeadingFont)
+    end
+    ImGui.Text(moneyText)
+    if HeadingFont then
+        ImGui.PopFont()
+    end
+    ImGui.End()
+end
+
 function M.render(state, dt, elapsed)
     local gs = Gameplay.getState()
 
@@ -427,6 +455,7 @@ function M.render(state, dt, elapsed)
 
     drawMatchStateOverlay(gs)
     drawWaveCountdownOverlay(gs)
+    moneyWindow(gs)
 
     local loadout = nil
     if Gameplay.getTowerLoadout then

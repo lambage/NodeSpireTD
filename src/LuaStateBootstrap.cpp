@@ -1005,7 +1005,6 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "SetTooltip");
 
-    // Image / ImageButton
     // Image(texture, w, h)
     lua_pushcclosure(
         L,

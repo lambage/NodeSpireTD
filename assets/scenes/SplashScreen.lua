@@ -22,6 +22,7 @@ end
 
 function M.render(state, dt, elapsedSeconds)
     -- Full-screen borderless window
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, 0.0, 0.0)
     ImGui.SetNextWindowFullscreen()
     local flags = ImGuiWindowFlags.NoDecoration  |
                   ImGuiWindowFlags.NoMove         |
@@ -53,6 +54,7 @@ function M.render(state, dt, elapsedSeconds)
     ImGui.Text(status)
 
     ImGui.End()
+    ImGui.PopStyleVar()
 
     -- Signal transition once loading is done and minimum time has elapsed
     if state.loadingComplete and elapsedSeconds >= kMinimumSplashSeconds then
