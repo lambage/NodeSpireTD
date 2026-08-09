@@ -320,6 +320,12 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
     const bool isLoaded = worldRenderer_ && worldRenderer_->isLoaded();
 
     if (isLoaded) {
+        // Copy placement regions and path zones from WorldRenderer (one-time after load)
+        if (placementRegions_.empty() && forbiddenPathZones_.empty()) {
+            placementRegions_ = worldRenderer_->placementRegions();
+            forbiddenPathZones_ = worldRenderer_->forbiddenPathZones();
+        }
+        
         updateRouteFromWorld();
         syncTowerInstanceTransforms();
         syncPlacedTowerModels();
@@ -667,6 +673,7 @@ std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archety
         return "insufficient funds";
     }
 
+    // Check tower spacing
     constexpr float kMinTowerSpacing = 1.7f;
     for (const PlacedTower& tower : placedTowers_) {
         const glm::vec3 delta = worldPos - tower.position;
@@ -676,7 +683,100 @@ std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archety
         }
     }
 
+    // Check if placement is on the path
+    if (isPointOnPath(worldPos)) {
+        return "cannot place towers on the path";
+    }
+
+    // Terrain defaults to ground; region markers can override to cliff/water
+    // Currently allow placement on any terrain type
+
     return {};
+}
+
+PlayLevelScene::TerrainSample PlayLevelScene::sampleTerrainAtCursor() const {
+    TerrainSample sample;
+    
+    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return sample;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 displaySize = io.DisplaySize;
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
+        return sample;
+    }
+
+    const ImVec2 mousePos = io.MousePos;
+    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
+        return sample;
+    }
+
+    // Mirrors PlayLevelPickingController::pickModelAtScreen, which is the proven-correct
+    // screen-to-world raycasting logic used for tower/enemy picking.
+    const float ndcX = (2.0f * mousePos.x) / displaySize.x - 1.0f;
+    const float ndcY = (2.0f * mousePos.y) / displaySize.y - 1.0f;
+
+    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+    constexpr float kFovYRadians = glm::radians(60.0f);
+    glm::mat4 proj = glm::perspective(kFovYRadians, aspect, 0.05f, 2000.0f);
+    proj[1][1] *= -1.0f;
+
+    const glm::mat4 view = buildViewMatrix();
+    const glm::mat4 invVP = glm::inverse(proj * view);
+
+    const glm::vec4 nearClip(ndcX, ndcY, 0.0f, 1.0f);
+    const glm::vec4 farClip(ndcX, ndcY, 1.0f, 1.0f);
+    glm::vec4 nearWorld = invVP * nearClip;
+    glm::vec4 farWorld = invVP * farClip;
+    if (std::abs(nearWorld.w) < 1e-6f || std::abs(farWorld.w) < 1e-6f) {
+        return sample;
+    }
+    nearWorld /= nearWorld.w;
+    farWorld /= farWorld.w;
+
+    glm::vec3 rayDir = glm::vec3(farWorld - nearWorld);
+    const float dirLen2 = glm::dot(rayDir, rayDir);
+    if (dirLen2 <= 1e-8f) {
+        return sample;
+    }
+    rayDir = glm::normalize(rayDir);
+
+    const glm::vec3 camPos = cameraController_.position();
+
+    // Use precise triangle-level raycast against static world geometry (terrain/cliffs),
+    // NOT pickModel() which only uses bounding-sphere approximations for tower/enemy selection.
+    WorldPickHit pickHit;
+    if (!worldRenderer_->raycastStaticGeometry(camPos, rayDir, pickHit)) {
+        return sample;
+    }
+
+    sample.hit = true;
+    sample.worldPosition = pickHit.worldPosition;
+    sample.surfaceNormal = pickHit.worldNormal;
+
+    // Calculate slope: angle between surface normal and up vector
+    // A perfectly horizontal surface has normal pointing up (0, 1, 0)
+    const float dotProduct = glm::dot(sample.surfaceNormal, glm::vec3(0.0f, 1.0f, 0.0f));
+    const float slopeClamped = glm::clamp(dotProduct, -1.0f, 1.0f);
+    const float slopeRadians = std::acos(slopeClamped);
+    sample.slope = glm::degrees(slopeRadians);
+
+    // Check if point is on path
+    sample.onPath = isPointOnPath(sample.worldPosition);
+
+    // Default all terrain to ground; check for cliff/water region overrides
+    sample.towerPlacementType = TowerPlacementRegionType::Ground;
+    for (const TowerPlacementRegion& region : placementRegions_) {
+        if (sample.worldPosition.x >= region.boundsMin.x && sample.worldPosition.x <= region.boundsMax.x &&
+            sample.worldPosition.y >= region.boundsMin.y && sample.worldPosition.y <= region.boundsMax.y &&
+            sample.worldPosition.z >= region.boundsMin.z && sample.worldPosition.z <= region.boundsMax.z) {
+            sample.towerPlacementType = region.type;
+            break;  // Found the region, no need to check others
+        }
+    }
+
+    return sample;
 }
 
 void PlayLevelScene::clearActiveSelectionForTowerPlacement(const char* reason) {
@@ -684,6 +784,35 @@ void PlayLevelScene::clearActiveSelectionForTowerPlacement(const char* reason) {
     if (pickingController_.selectedSelection().valid || pickingController_.selectedInstanceIndex() >= 0) {
         pickingController_.clearSelection(reason);
     }
+}
+
+bool PlayLevelScene::isPointInPlacementRegion(const glm::vec3& worldPos, const TowerPlacementRegion*& outRegion) const {
+    outRegion = nullptr;
+    
+    for (const TowerPlacementRegion& region : placementRegions_) {
+        if (worldPos.x >= region.boundsMin.x && worldPos.x <= region.boundsMax.x &&
+            worldPos.y >= region.boundsMin.y && worldPos.y <= region.boundsMax.y &&
+            worldPos.z >= region.boundsMin.z && worldPos.z <= region.boundsMax.z) {
+            outRegion = &region;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+bool PlayLevelScene::isPointOnPath(const glm::vec3& worldPos) const {
+    constexpr float kPathZoneRadius = 2.5f;  // Distance from path points to consider "on path"
+    
+    for (const glm::vec3& pathPos : forbiddenPathZones_) {
+        const glm::vec3 delta = worldPos - pathPos;
+        const float distSq = glm::dot(delta, delta);
+        if (distSq < (kPathZoneRadius * kPathZoneRadius)) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 void PlayLevelScene::updateTowerPlacementFromInput() {
@@ -695,7 +824,15 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
 
     const TowerArchetype* selected = selectedTowerArchetype();
     towerPlacementController_.updatePlacementFromInput(
-        selected != nullptr, [this](glm::vec3& outHit) { return raycastGroundAtCursor(outHit); },
+        selected != nullptr, [this](glm::vec3& outHit) {
+            // Use terrain-aware sampling instead of flat ground plane
+            TerrainSample sample = sampleTerrainAtCursor();
+            if (!sample.hit) {
+                return false;
+            }
+            outHit = sample.worldPosition;
+            return true;
+        },
         [this, selected](const glm::vec3& worldPos) {
             return selected ? validateTowerPlacement(*selected, worldPos).empty() : false;
         },

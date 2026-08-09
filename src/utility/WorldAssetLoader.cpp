@@ -85,6 +85,43 @@ glm::mat4 composePlacementTransform(const glm::vec3& translation,
     return transform;
 }
 
+// Extract region type from node name (format: "Region_<type>" e.g. "Region_ground", "Region_cliff")
+// Can be expanded to use glTF custom properties later
+bool tryParseRegionFromNode(const fastgltf::Node& node, 
+                           TowerPlacementRegionType& outType,
+                           const glm::mat4& worldTransform,
+                           TowerPlacementRegion& outRegion) {
+    if (node.name.empty()) {
+        return false;
+    }
+
+    std::string nodeName = std::string(node.name);
+    
+    // Look for "Region_<type>" prefix in node name
+    constexpr std::string_view regionPrefix = "Region_";
+    if (nodeName.find(regionPrefix) != 0) {
+        return false;  // Not a region node
+    }
+
+    // Extract region type from name (Region_ground, Region_cliff, Region_water)
+    std::string typeStr = nodeName.substr(regionPrefix.length());
+    if (!towerPlacementRegionTypeFromString(typeStr, outType)) {
+        return false;  // Invalid region type
+    }
+
+    // Extract bounds from node's transform and use a reasonable default size
+    glm::vec3 position = glm::vec3(worldTransform[3]);
+    glm::vec3 boundsSize{2.0f, 2.0f, 2.0f};  // Default size - can be customized later
+
+    outRegion.name = nodeName;
+    outRegion.type = outType;
+    outRegion.center = position;
+    outRegion.boundsMin = position - boundsSize * 0.5f;
+    outRegion.boundsMax = position + boundsSize * 0.5f;
+
+    return true;
+}
+
 } // namespace
 
 bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
@@ -408,7 +445,8 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                              bool captureMarkers,
                              std::vector<WorldStagedMesh>& outMeshes,
                              std::string_view debugGroup,
-                             std::string_view debugLabelPrefix) {
+                             std::string_view debugLabelPrefix,
+                             WorldAssetLoadResult& assetResult) {
         std::function<void(std::size_t, const glm::mat4&)> visitNode =
             [&](std::size_t nodeIdx, const glm::mat4& parentWorld) {
                 if (isCancelled() || meshCount >= kMaxMeshes) {
@@ -430,6 +468,22 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                         if (parseWaypointIndex(nodeName, waypointIndex)) {
                             markers.waypoints[waypointIndex] = markerPos;
                         }
+                    }
+                }
+
+                // Try to parse region information from this node
+                TowerPlacementRegionType regionType;
+                TowerPlacementRegion region;
+                if (tryParseRegionFromNode(node, regionType, world, region)) {
+                    assetResult.placementRegions.push_back(region);
+                }
+
+                // For path zones, check if this node is marked as a path point
+                if (captureMarkers && !node.name.empty()) {
+                    const std::string nodeName = std::string(node.name);
+                    if (nodeName.find("PathPoint") != std::string::npos || 
+                        nodeName.find("path_zone") != std::string::npos) {
+                        assetResult.forbiddenPathZones.push_back(glm::vec3(world[3]));
                     }
                 }
 
@@ -475,7 +529,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
     if (isCancelled()) {
         return false;
     }
-    traverseScene(mapAsset, mapAssetId, glm::mat4{1.0f}, -1, true, outResult.worldMeshes, "map", assetPath.stem().string());
+    traverseScene(mapAsset, mapAssetId, glm::mat4{1.0f}, -1, true, outResult.worldMeshes, "map", assetPath.stem().string(), outResult);
 
     auto loadAndStagePlacedModel = [&](const std::filesystem::path& modelPath,
                                        const glm::mat4& placement,
@@ -530,7 +584,8 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         if (isCancelled()) {
             return;
         }
-        traverseScene(modelAsset, modelAssetId, placement, -1, false, outMeshes, debugGroup, label);
+        WorldAssetLoadResult dummyResult;  // Placed models don't have regions
+        traverseScene(modelAsset, modelAssetId, placement, -1, false, outMeshes, debugGroup, label, dummyResult);
     };
 
     auto loadAndStageModelTemplate = [&](const std::filesystem::path& modelPath,
@@ -587,7 +642,8 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         if (isCancelled()) {
             return;
         }
-        traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, prototypeIndex, false, outMeshes, debugGroup, label);
+        WorldAssetLoadResult dummyResult;  // Template models don't have regions
+        traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, prototypeIndex, false, outMeshes, debugGroup, label, dummyResult);
         if (initializeAnimator) {
             animator.initializeFromAsset(modelAsset);
         }

@@ -64,7 +64,6 @@ void PlayLevelTowerPlacementController::updatePlacementFromInput(bool hasSelecte
     }
 
     state_.worldPos = hitPos;
-    state_.worldPos.y = 0.0f;
     state_.canPlace = canPlace ? canPlace(state_.worldPos) : false;
 
     const ImGuiIO& io = ImGui::GetIO();

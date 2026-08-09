@@ -69,12 +69,52 @@ struct WorldStagedTexture {
     uint32_t height = 0;
 };
 
+// Tower placement region types
+enum class TowerPlacementRegionType {
+    Ground = 0,
+    Cliff = 1,
+    Water = 2
+};
+
+inline std::string towerPlacementRegionTypeToString(TowerPlacementRegionType type) {
+    switch (type) {
+        case TowerPlacementRegionType::Ground:  return "ground";
+        case TowerPlacementRegionType::Cliff:   return "cliff";
+        case TowerPlacementRegionType::Water:   return "water";
+        default:                                 return "unknown";
+    }
+}
+
+inline bool towerPlacementRegionTypeFromString(std::string_view str, TowerPlacementRegionType& outType) {
+    if (str == "ground") {
+        outType = TowerPlacementRegionType::Ground;
+        return true;
+    } else if (str == "cliff") {
+        outType = TowerPlacementRegionType::Cliff;
+        return true;
+    } else if (str == "water") {
+        outType = TowerPlacementRegionType::Water;
+        return true;
+    }
+    return false;
+}
+
+struct TowerPlacementRegion {
+    std::string name;
+    TowerPlacementRegionType type = TowerPlacementRegionType::Ground;
+    glm::vec3 boundsMin{0.0f};
+    glm::vec3 boundsMax{0.0f};
+    glm::vec3 center{0.0f};
+};
+
 struct WorldAssetLoadResult {
     std::vector<WorldStagedMesh> worldMeshes;
     std::vector<WorldStagedMesh> templateMeshes;
     std::vector<WorldStagedMesh> towerTemplateMeshes;
     std::vector<WorldStagedTexture> textures;
     std::vector<glm::vec3> routePoints;
+    std::vector<TowerPlacementRegion> placementRegions;
+    std::vector<glm::vec3> forbiddenPathZones;
 };
 
 class WorldAssetLoader {

@@ -108,6 +108,45 @@ bool raySphereIntersect(const glm::vec3& rayOrigin,
     return false;
 }
 
+bool rayTriangleIntersect(const glm::vec3& rayOrigin,
+                          const glm::vec3& rayDir,
+                          const glm::vec3& v0,
+                          const glm::vec3& v1,
+                          const glm::vec3& v2,
+                          float& outT,
+                          glm::vec3& outBary) {
+    constexpr float kEpsilon = 1e-7f;
+    const glm::vec3 edge1 = v1 - v0;
+    const glm::vec3 edge2 = v2 - v0;
+    const glm::vec3 h = glm::cross(rayDir, edge2);
+    const float a = glm::dot(edge1, h);
+    if (std::abs(a) < kEpsilon) {
+        return false; // ray parallel to triangle plane
+    }
+
+    const float f = 1.0f / a;
+    const glm::vec3 s = rayOrigin - v0;
+    const float u = f * glm::dot(s, h);
+    if (u < 0.0f || u > 1.0f) {
+        return false;
+    }
+
+    const glm::vec3 q = glm::cross(s, edge1);
+    const float v = f * glm::dot(rayDir, q);
+    if (v < 0.0f || u + v > 1.0f) {
+        return false;
+    }
+
+    const float t = f * glm::dot(edge2, q);
+    if (t <= kEpsilon) {
+        return false;
+    }
+
+    outT = t;
+    outBary = glm::vec3(1.0f - u - v, u, v);
+    return true;
+}
+
 } // namespace
 
 // ─── texture helpers ──────────────────────────────────────────────────────────
@@ -480,6 +519,8 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     stagedTowerMeshes_ = std::move(loadResult.towerTemplateMeshes);
     stagedTextures_ = std::move(loadResult.textures);
     routePoints_ = std::move(loadResult.routePoints);
+    placementRegions_ = std::move(loadResult.placementRegions);
+    forbiddenPathZones_ = std::move(loadResult.forbiddenPathZones);
 
     setActivity(0.65f, "Ready — " + std::to_string(stagedMeshes_.size()) + " meshes, " +
                        std::to_string(stagedTextures_.size()) + " textures queued for GPU upload...");
@@ -781,6 +822,64 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         best.nodeIndex = proxy.nodeIndex;
         best.skinIndex = proxy.skinIndex;
         best.instanceIndex = instanceIndex;
+    }
+
+    if (anyHit) {
+        outHit = best;
+    }
+    return anyHit;
+}
+
+bool WorldRenderer::raycastStaticGeometry(const glm::vec3& rayOrigin,
+                                          const glm::vec3& rayDir,
+                                          WorldPickHit& outHit) const {
+    if (!loaded_) {
+        return false;
+    }
+
+    bool anyHit = false;
+    float bestT = std::numeric_limits<float>::max();
+    WorldPickHit best{};
+
+    for (const WorldStagedMesh& mesh : stagedMeshes_) {
+        const glm::mat4& world = mesh.modelTransform;
+        const glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(world)));
+
+        for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
+            const glm::vec3 v0 = glm::vec3(world * glm::vec4(mesh.vertices[mesh.indices[i]].position, 1.0f));
+            const glm::vec3 v1 = glm::vec3(world * glm::vec4(mesh.vertices[mesh.indices[i + 1]].position, 1.0f));
+            const glm::vec3 v2 = glm::vec3(world * glm::vec4(mesh.vertices[mesh.indices[i + 2]].position, 1.0f));
+
+            float t = 0.0f;
+            glm::vec3 bary{};
+            if (!rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2, t, bary)) {
+                continue;
+            }
+            if (t >= bestT) {
+                continue;
+            }
+
+            anyHit = true;
+            bestT = t;
+            best.hit = true;
+            best.distance = t;
+            best.worldPosition = rayOrigin + rayDir * t;
+
+            const glm::vec3 n0 = normalMat * mesh.vertices[mesh.indices[i]].normal;
+            const glm::vec3 n1 = normalMat * mesh.vertices[mesh.indices[i + 1]].normal;
+            const glm::vec3 n2 = normalMat * mesh.vertices[mesh.indices[i + 2]].normal;
+            glm::vec3 normal = glm::normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
+            if (!std::isfinite(normal.x) || !std::isfinite(normal.y) || !std::isfinite(normal.z)) {
+                normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+            best.worldNormal = normal;
+            best.group = mesh.debugGroup;
+            best.label = mesh.debugLabel;
+            best.meshIndex = -1;
+            best.nodeIndex = mesh.sourceNodeIndex;
+            best.skinIndex = mesh.sourceSkinIndex;
+            best.instanceIndex = -1;
+        }
     }
 
     if (anyHit) {

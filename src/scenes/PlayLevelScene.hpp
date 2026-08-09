@@ -21,6 +21,10 @@
 #include <unordered_map>
 #include <vector>
 
+// Forward declare tower placement types
+enum class TowerPlacementRegionType;
+struct TowerPlacementRegion;
+
 class PlayLevelScene final : public GameScene {
   public:
     PlayLevelScene();
@@ -33,6 +37,15 @@ class PlayLevelScene final : public GameScene {
     void renderWorld(VkCommandBuffer cmd, VkExtent2D extent) override;
 
   private:
+    // Terrain sampling result from raycast
+    struct TerrainSample {
+        bool hit = false;
+        glm::vec3 worldPosition{0.0f};
+        glm::vec3 surfaceNormal{0.0f, 1.0f, 0.0f};
+        float slope = 0.0f;  // angle in degrees from horizontal
+        TowerPlacementRegionType towerPlacementType = TowerPlacementRegionType::Ground;  // defaults to ground
+        bool onPath = false;
+    };
     enum class GameplayCommandType {
         SpendMoney,
         DamageBase,
@@ -75,6 +88,11 @@ class PlayLevelScene final : public GameScene {
     TowerLoadController towerLoadController_;
     EnemyLoadController enemyLoadController_;
 
+    // Tower placement regions and validation
+    std::vector<TowerPlacementRegion> placementRegions_;
+    std::vector<glm::vec3> forbiddenPathZones_;
+    float maxTowerPlacementSlopeDegrees_ = 30.0f;
+
     bool requestSpendMoney(float amount);
     bool requestDamageBase(float amount);
     bool requestStartWave();
@@ -82,6 +100,9 @@ class PlayLevelScene final : public GameScene {
 
     const TowerArchetype* selectedTowerArchetype() const;
     bool raycastGroundAtCursor(glm::vec3& outHit) const;
+    TerrainSample sampleTerrainAtCursor() const;
+    bool isPointInPlacementRegion(const glm::vec3& worldPos, const TowerPlacementRegion*& outRegion) const;
+    bool isPointOnPath(const glm::vec3& worldPos) const;
     std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
     void clearActiveSelectionForTowerPlacement(const char* reason);
     void updateTowerPlacementFromInput();

@@ -205,6 +205,10 @@ ImGui.IsItemHovered = nil
 ---@type any
 ImGui.IsKeyPressed = nil
 ---@type any
+ImGui.IsMouseClicked = nil
+---@type any
+ImGui.IsMouseDown = nil
+---@type any
 ImGui.IsWindowFocused = nil
 ---@type any
 ImGui.IsWindowHovered = nil
@@ -339,6 +343,15 @@ ImGuiCond.Once = nil
 
 ---@type any
 ImGuiKey = nil
+
+---@class NS.ImGuiMouseButton
+ImGuiMouseButton = {}
+---@type any
+ImGuiMouseButton.Left = nil
+---@type any
+ImGuiMouseButton.Middle = nil
+---@type any
+ImGuiMouseButton.Right = nil
 
 ---@class NS.ImGuiStyleVar
 ImGuiStyleVar = {}

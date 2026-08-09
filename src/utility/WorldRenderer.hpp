@@ -141,9 +141,17 @@ class WorldRenderer {
                    const glm::vec3& rayDir,
                    WorldPickHit& outHit,
                    const WorldPickOptions& options = {}) const;
+    // Precise triangle-level raycast against the static world geometry (terrain, rocks, cliffs, etc.).
+    // Unlike pickModel() (which uses bounding-sphere approximations tuned for selecting towers/enemies),
+    // this walks the actual CPU-side triangle data retained in stagedMeshes_ for accurate terrain height sampling.
+    bool raycastStaticGeometry(const glm::vec3& rayOrigin,
+                              const glm::vec3& rayDir,
+                              WorldPickHit& outHit) const;
     std::vector<WorldPickDebugSphere> buildDynamicPickDebugSpheres(const WorldPickOptions& options = {}) const;
     const EnemyAnimationDebugInfo& templateAnimationDebugInfo() const;
     const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return templateAnimationDebugInfo(); }
+    const std::vector<TowerPlacementRegion>& placementRegions() const { return placementRegions_; }
+    const std::vector<glm::vec3>& forbiddenPathZones() const { return forbiddenPathZones_; }
 
     void render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view);
     void renderTowerPreviewPanels(VkCommandBuffer cmd,
@@ -215,6 +223,8 @@ class WorldRenderer {
     int hoveredInstanceIndex_ = -1;
     int selectedInstanceIndex_ = -1;
     std::vector<glm::vec3> routePoints_;
+    std::vector<TowerPlacementRegion> placementRegions_;
+    std::vector<glm::vec3> forbiddenPathZones_;
 
     static constexpr uint32_t kMaxSkinJoints = 128;
     VkBuffer      skinPaletteBuffer_ = VK_NULL_HANDLE;

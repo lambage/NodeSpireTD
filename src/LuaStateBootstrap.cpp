@@ -995,6 +995,29 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "IsKeyPressed");
 
+    // IsMouseClicked(button, [repeat]) -> bool
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const ImGuiMouseButton button = static_cast<ImGuiMouseButton>(luaL_checkinteger(L, 1));
+            const bool repeat = lua_toboolean(L, 2) != 0;
+            lua_pushboolean(L, ImGui::IsMouseClicked(button, repeat));
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "IsMouseClicked");
+
+    // IsMouseDown(button) -> bool
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const ImGuiMouseButton button = static_cast<ImGuiMouseButton>(luaL_checkinteger(L, 1));
+            lua_pushboolean(L, ImGui::IsMouseDown(button));
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "IsMouseDown");
+
     // SetTooltip(text)
     lua_pushcclosure(
         L,
@@ -1235,6 +1258,16 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         }
     }
     lua_setglobal(L, "ImGuiKey");
+
+    // ImGuiMouseButton constants
+    lua_newtable(L);
+    lua_pushinteger(L, ImGuiMouseButton_Left);
+    lua_setfield(L, -2, "Left");
+    lua_pushinteger(L, ImGuiMouseButton_Right);
+    lua_setfield(L, -2, "Right");
+    lua_pushinteger(L, ImGuiMouseButton_Middle);
+    lua_setfield(L, -2, "Middle");
+    lua_setglobal(L, "ImGuiMouseButton");
 
     // Texture userdata ("NST.Texture")
     // Full userdata holds a heap-allocated VulkanTexture*; __gc deletes it.
