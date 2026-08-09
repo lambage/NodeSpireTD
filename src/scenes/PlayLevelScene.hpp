@@ -90,8 +90,17 @@ class PlayLevelScene final : public GameScene {
 
     // Tower placement regions and validation
     std::vector<TowerPlacementRegion> placementRegions_;
-    std::vector<glm::vec3> forbiddenPathZones_;
     float maxTowerPlacementSlopeDegrees_ = 30.0f;
+    // Half-width (world units) of the no-build corridor auto-generated around the enemy route
+    // (Start -> Waypoint_N -> End). Replaces manually-authored "PathPoint"/"path_zone" terrain
+    // markers -- map makers only need the required waypoint markers, and the corridor bounding
+    // box that blocks tower placement is derived from them automatically. See also
+    // kPathCorridorEndExtension/kPathCorridorVerticalMargin (PlayLevelScene.cpp) to fine-tune the
+    // other two dimensions of the box.
+    float pathCorridorHalfWidth_ = 2.0f;
+    // Toggleable via Lua/debug menu: draws wireframe boxes for the auto-generated path corridor
+    // and the manually-authored water/cliff placement regions.
+    bool placementBoundsVisible_ = false;
     // Cached result of the most recent sampleTerrainAtCursor() call (refreshed once per frame in
     // updateTowerPlacementFromInput()); used by validateTowerPlacement() to check slope without
     // re-raycasting.
@@ -119,6 +128,7 @@ class PlayLevelScene final : public GameScene {
     void syncPlacedTowerModels();
     void syncTowerInstanceTransforms();
     void drawTowerPlacementOverlay() const;
+    void drawPlacementBoundsOverlay() const;
     bool loadWaveDefinitions(const std::string& scriptPath);
     bool updateRouteFromWorld();
     glm::vec3 sampleRoutePosition(float distanceAlongPath) const;

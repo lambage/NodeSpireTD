@@ -7,6 +7,7 @@
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <glm/geometric.hpp>
@@ -33,6 +34,79 @@ enum class ProjectionRejectReason {
 bool isProjectAssetPath(const std::filesystem::path& path) {
     const std::string normalized = path.generic_string();
     return normalized.rfind("assets/", 0) == 0;
+}
+
+// Vertical tolerance (world units) added above/below a route segment's endpoints when testing
+// whether a point falls inside its no-build corridor. The route can climb/descend with the
+// terrain, so a plain XZ-plane test would incorrectly ignore path segments on slopes; this
+// keeps the corridor test forgiving enough to still catch those without checking full 3D
+// distance-to-segment (which would reject valid points where the tower's ground height differs
+// slightly from the interpolated path height). Tune this down if towers too far above/below the
+// path are being incorrectly blocked, or up if sloped path segments are leaking through.
+constexpr float kPathCorridorVerticalMargin = 1.25f;
+
+// Extra length (world units) the no-build box extends past each segment's two endpoints along
+// the direction of travel. Kept independent from the lateral half-width so tightening/loosening
+// one doesn't affect the other; only needs to be large enough that consecutive segments'
+// corridors overlap at turns instead of leaving an uncovered gap in the corner.
+constexpr float kPathCorridorEndExtension = 1.25f;
+
+// Tests whether `point` falls inside the rectangular no-build corridor swept along route
+// segment [a,b] in the XZ plane, extended by `halfWidth` on both sides and by
+// kPathCorridorEndExtension at both ends (so consecutive segments' corridors overlap cleanly at
+// turns instead of leaving gaps at corners).
+bool pointInRouteSegmentCorridor(const glm::vec3& point, const glm::vec3& a, const glm::vec3& b, float halfWidth) {
+    const glm::vec2 a2(a.x, a.z);
+    const glm::vec2 b2(b.x, b.z);
+    const glm::vec2 p2(point.x, point.z);
+    const glm::vec2 ab = b2 - a2;
+    const float len = glm::length(ab);
+    const float minY = std::min(a.y, b.y) - kPathCorridorVerticalMargin;
+    const float maxY = std::max(a.y, b.y) + kPathCorridorVerticalMargin;
+    if (point.y < minY || point.y > maxY) {
+        return false;
+    }
+
+    if (len < 1e-4f) {
+        return glm::length(p2 - a2) <= halfWidth;
+    }
+
+    const glm::vec2 dir = ab / len;
+    const glm::vec2 rel = p2 - a2;
+    const float along = rel.x * dir.x + rel.y * dir.y;
+    if (along < -kPathCorridorEndExtension || along > len + kPathCorridorEndExtension) {
+        return false;
+    }
+    const float across = rel.x * (-dir.y) + rel.y * dir.x;
+    return std::abs(across) <= halfWidth;
+}
+
+// Builds the 8 world-space corners of the oriented no-build box for one route segment. Must
+// stay in sync with pointInRouteSegmentCorridor() (same half-width/end-extension/vertical
+// margin) so the debug overlay always matches the real placement rule exactly.
+void buildRouteSegmentCorridorBoxCorners(const glm::vec3& a, const glm::vec3& b, float halfWidth,
+                                         std::array<glm::vec3, 8>& outCorners) {
+    glm::vec3 forward = b - a;
+    forward.y = 0.0f;
+    const float len = glm::length(forward);
+    forward = (len > 1e-4f) ? (forward / len) : glm::vec3(0.0f, 0.0f, 1.0f);
+    const glm::vec3 right(forward.z, 0.0f, -forward.x);
+
+    const glm::vec3 extendedA = a - forward * kPathCorridorEndExtension;
+    const glm::vec3 extendedB = b + forward * kPathCorridorEndExtension;
+    const float minY = std::min(a.y, b.y) - kPathCorridorVerticalMargin;
+    const float maxY = std::max(a.y, b.y) + kPathCorridorVerticalMargin;
+
+    const glm::vec3 base[4] = {
+        extendedA - right * halfWidth,
+        extendedA + right * halfWidth,
+        extendedB + right * halfWidth,
+        extendedB - right * halfWidth,
+    };
+    for (int i = 0; i < 4; ++i) {
+        outCorners[i] = glm::vec3(base[i].x, minY, base[i].z);
+        outCorners[static_cast<std::size_t>(i) + 4] = glm::vec3(base[i].x, maxY, base[i].z);
+    }
 }
 
 PlayLevelScene* luaSceneSelf(lua_State* L) {
@@ -320,10 +394,9 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
     const bool isLoaded = worldRenderer_ && worldRenderer_->isLoaded();
 
     if (isLoaded) {
-        // Copy placement regions and path zones from WorldRenderer (one-time after load)
-        if (placementRegions_.empty() && forbiddenPathZones_.empty()) {
+        // Copy placement regions from WorldRenderer (one-time after load)
+        if (placementRegions_.empty()) {
             placementRegions_ = worldRenderer_->placementRegions();
-            forbiddenPathZones_ = worldRenderer_->forbiddenPathZones();
         }
         
         updateRouteFromWorld();
@@ -357,6 +430,7 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
 
     if (isLoaded) {
         drawTowerPlacementOverlay();
+        drawPlacementBoundsOverlay();
         pickingController_.drawPickSpheresOverlay(worldRenderer_.get(), buildViewMatrix(), lastRenderExtent_);
     }
 }
@@ -819,16 +893,20 @@ bool PlayLevelScene::isPointInPlacementRegion(const glm::vec3& worldPos, const T
 }
 
 bool PlayLevelScene::isPointOnPath(const glm::vec3& worldPos) const {
-    constexpr float kPathZoneRadius = 2.5f;  // Distance from path points to consider "on path"
-    
-    for (const glm::vec3& pathPos : forbiddenPathZones_) {
-        const glm::vec3 delta = worldPos - pathPos;
-        const float distSq = glm::dot(delta, delta);
-        if (distSq < (kPathZoneRadius * kPathZoneRadius)) {
+    // The no-build corridor is auto-generated from the required waypoint route (Start ->
+    // Waypoint_N -> End) rather than manually-placed "PathPoint"/"path_zone" terrain markers --
+    // map makers only need to define the waypoints the enemies already follow.
+    if (!worldRenderer_) {
+        return false;
+    }
+
+    const std::vector<glm::vec3>& route = worldRenderer_->routePoints();
+    for (std::size_t i = 0; i + 1 < route.size(); ++i) {
+        if (pointInRouteSegmentCorridor(worldPos, route[i], route[i + 1], pathCorridorHalfWidth_)) {
             return true;
         }
     }
-    
+
     return false;
 }
 
@@ -1150,6 +1228,72 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
         const ImU32 fill = placementState.canPlace ? IM_COL32(90, 255, 120, 85) : IM_COL32(255, 90, 90, 85);
         drawList->AddCircleFilled(centerScreen, 8.0f, fill, 24);
         drawList->AddCircle(centerScreen, 8.0f, col, 24, 2.0f);
+    }
+}
+
+void PlayLevelScene::drawPlacementBoundsOverlay() const {
+    if (!placementBoundsVisible_ || !worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return;
+    }
+
+    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
+        return;
+    }
+
+    const ImVec2 renderSize((lastRenderExtent_.width > 0) ? static_cast<float>(lastRenderExtent_.width) : displaySize.x,
+                            (lastRenderExtent_.height > 0) ? static_cast<float>(lastRenderExtent_.height)
+                                                           : displaySize.y);
+
+    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+    glm::mat4 proj = glm::perspective(kDebugOverlayFovRadians, aspect, 0.05f, 2000.0f);
+    proj[1][1] *= -1.0f;
+    const glm::mat4 view = buildViewMatrix();
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+    auto drawBoxWireframe = [&](const std::array<glm::vec3, 8>& corners, ImU32 color) {
+        ImVec2 screen[8];
+        bool valid[8];
+        for (int i = 0; i < 8; ++i) {
+            float depthAbs = 0.0f;
+            valid[i] = projectWorldToScreen(corners[i], view, proj, displaySize, renderSize, screen[i], depthAbs, nullptr);
+        }
+        constexpr int kEdges[12][2] = {
+            {0, 1}, {1, 2}, {2, 3}, {3, 0},  // bottom face
+            {4, 5}, {5, 6}, {6, 7}, {7, 4},  // top face
+            {0, 4}, {1, 5}, {2, 6}, {3, 7},  // verticals
+        };
+        for (const auto& edge : kEdges) {
+            if (valid[edge[0]] && valid[edge[1]]) {
+                drawList->AddLine(screen[edge[0]], screen[edge[1]], color, 1.5f);
+            }
+        }
+    };
+
+    // No-build corridor auto-generated from the required waypoint route.
+    const ImU32 pathColor = IM_COL32(255, 90, 90, 200);
+    const std::vector<glm::vec3>& route = worldRenderer_->routePoints();
+    for (std::size_t i = 0; i + 1 < route.size(); ++i) {
+        std::array<glm::vec3, 8> corners{};
+        buildRouteSegmentCorridorBoxCorners(route[i], route[i + 1], pathCorridorHalfWidth_, corners);
+        drawBoxWireframe(corners, pathColor);
+    }
+
+    // Manually-authored water/cliff placement regions.
+    for (const TowerPlacementRegion& region : placementRegions_) {
+        const glm::vec3& mn = region.boundsMin;
+        const glm::vec3& mx = region.boundsMax;
+        const std::array<glm::vec3, 8> corners = {
+            glm::vec3(mn.x, mn.y, mn.z), glm::vec3(mx.x, mn.y, mn.z),
+            glm::vec3(mx.x, mn.y, mx.z), glm::vec3(mn.x, mn.y, mx.z),
+            glm::vec3(mn.x, mx.y, mn.z), glm::vec3(mx.x, mx.y, mn.z),
+            glm::vec3(mx.x, mx.y, mx.z), glm::vec3(mn.x, mx.y, mx.z),
+        };
+        const ImU32 regionColor = (region.type == TowerPlacementRegionType::Water)
+                                      ? IM_COL32(80, 160, 255, 200)
+                                      : IM_COL32(255, 200, 60, 200);
+        drawBoxWireframe(corners, regionColor);
     }
 }
 
@@ -1720,6 +1864,32 @@ void PlayLevelScene::registerLuaGameplayApi() {
         L_,
         [](lua_State* L) -> int {
             auto* self = luaSceneSelf(L);
+            lua_pushnumber(L, self->pathCorridorHalfWidth_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getPathCorridorHalfWidth");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const float halfWidth = static_cast<float>(luaL_checknumber(L, 1));
+            if (halfWidth < 0.0f || halfWidth > 25.0f) {
+                return pushCommandResult(L, false, "halfWidth must be between 0 and 25");
+            }
+            self->pathCorridorHalfWidth_ = halfWidth;
+            return pushCommandResult(L, true, "updated");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "setPathCorridorHalfWidth");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
             const float amount = static_cast<float>(luaL_checknumber(L, 1));
             if (amount <= 0) {
                 return pushCommandResult(L, false, "amount must be > 0");
@@ -1890,6 +2060,29 @@ void PlayLevelScene::registerLuaGameplayApi() {
         },
         1);
     lua_setfield(L_, gameplayTable, "getDebugPickSpheresVisible");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            self->placementBoundsVisible_ = lua_toboolean(L, 1) != 0;
+            lua_pushboolean(L, self->placementBoundsVisible_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "setDebugPlacementBoundsVisible");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_pushboolean(L, self->placementBoundsVisible_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getDebugPlacementBoundsVisible");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(

@@ -478,15 +478,6 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                     assetResult.placementRegions.push_back(region);
                 }
 
-                // For path zones, check if this node is marked as a path point
-                if (captureMarkers && !node.name.empty()) {
-                    const std::string nodeName = std::string(node.name);
-                    if (nodeName.find("PathPoint") != std::string::npos || 
-                        nodeName.find("path_zone") != std::string::npos) {
-                        assetResult.forbiddenPathZones.push_back(glm::vec3(world[3]));
-                    }
-                }
-
                 if (node.meshIndex.has_value()) {
                     const int nodeSkinIndex = node.skinIndex.has_value() ? static_cast<int>(*node.skinIndex) : -1;
                     std::string label = std::string(debugLabelPrefix);

@@ -3,6 +3,7 @@ local M = {}
 local lastResult = ""
 local lastLoadoutResult = ""
 local debugPickSpheresVisible = false
+local debugPlacementBoundsVisible = false
 local debugUiVisible = false
 local towerSlotTextures = {}
 
@@ -205,6 +206,12 @@ function M.onEnter()
     end
     if Gameplay.setDebugPickSpheresVisible then
         Gameplay.setDebugPickSpheresVisible(debugPickSpheresVisible)
+    end
+    if Gameplay.getDebugPlacementBoundsVisible then
+        debugPlacementBoundsVisible = Gameplay.getDebugPlacementBoundsVisible()
+    end
+    if Gameplay.setDebugPlacementBoundsVisible then
+        Gameplay.setDebugPlacementBoundsVisible(debugPlacementBoundsVisible)
     end
 
     startMatchButton = GameButton.new("startMatch", "Start Match", 120.0, 42.0)
@@ -411,6 +418,16 @@ function M.render(state, dt, elapsed)
                 Gameplay.setDebugPickSpheresVisible(debugPickSpheresVisible)
             end
             lastResult = string.format("Pick spheres -> %s", debugPickSpheresVisible and "ON" or "OFF")
+        end
+    end
+
+    if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.B then
+        if ImGui.IsKeyPressed(ImGuiKey.B, false) then
+            debugPlacementBoundsVisible = not debugPlacementBoundsVisible
+            if Gameplay.setDebugPlacementBoundsVisible then
+                Gameplay.setDebugPlacementBoundsVisible(debugPlacementBoundsVisible)
+            end
+            lastResult = string.format("Placement bounds -> %s", debugPlacementBoundsVisible and "ON" or "OFF")
         end
     end
 
@@ -693,6 +710,15 @@ function M.render(state, dt, elapsed)
     ImGui.Text("Model Debugger (Lua-driven)")
     ImGui.Separator()
     ImGui.Text(string.format("[H] Pick Spheres: %s", debugPickSpheresVisible and "ON" or "OFF"))
+    ImGui.Text(string.format("[B] Placement Bounds: %s", debugPlacementBoundsVisible and "ON" or "OFF"))
+
+    if ImGui.SliderFloat and Gameplay.getPathCorridorHalfWidth and Gameplay.setPathCorridorHalfWidth then
+        local currentHalfWidth = Gameplay.getPathCorridorHalfWidth()
+        local changed, newHalfWidth = ImGui.SliderFloat("Path Corridor Half-Width", currentHalfWidth, 0.25, 10.0)
+        if changed then
+            Gameplay.setPathCorridorHalfWidth(newHalfWidth)
+        end
+    end
 
     if clearSelectionButton ~= nil and clearSelectionButton:render() then
         Gameplay.clearDebugSelection()

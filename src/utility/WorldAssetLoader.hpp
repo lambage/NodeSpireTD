@@ -114,7 +114,6 @@ struct WorldAssetLoadResult {
     std::vector<WorldStagedTexture> textures;
     std::vector<glm::vec3> routePoints;
     std::vector<TowerPlacementRegion> placementRegions;
-    std::vector<glm::vec3> forbiddenPathZones;
 };
 
 class WorldAssetLoader {

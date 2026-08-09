@@ -548,7 +548,6 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     stagedTextures_ = std::move(loadResult.textures);
     routePoints_ = std::move(loadResult.routePoints);
     placementRegions_ = std::move(loadResult.placementRegions);
-    forbiddenPathZones_ = std::move(loadResult.forbiddenPathZones);
 
     setActivity(0.65f, "Ready — " + std::to_string(stagedMeshes_.size()) + " meshes, " +
                        std::to_string(stagedTextures_.size()) + " textures queued for GPU upload...");

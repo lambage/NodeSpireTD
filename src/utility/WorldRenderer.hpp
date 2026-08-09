@@ -175,7 +175,6 @@ class WorldRenderer {
     const EnemyAnimationDebugInfo& templateAnimationDebugInfo() const;
     const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return templateAnimationDebugInfo(); }
     const std::vector<TowerPlacementRegion>& placementRegions() const { return placementRegions_; }
-    const std::vector<glm::vec3>& forbiddenPathZones() const { return forbiddenPathZones_; }
 
     void render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view);
     void renderTowerPreviewPanels(VkCommandBuffer cmd,
@@ -250,7 +249,6 @@ class WorldRenderer {
     int selectedInstanceIndex_ = -1;
     std::vector<glm::vec3> routePoints_;
     std::vector<TowerPlacementRegion> placementRegions_;
-    std::vector<glm::vec3> forbiddenPathZones_;
 
     static constexpr uint32_t kMaxSkinJoints = 128;
     VkBuffer      skinPaletteBuffer_ = VK_NULL_HANDLE;

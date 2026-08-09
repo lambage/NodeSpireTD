@@ -55,11 +55,15 @@ Gameplay.getCompositeAnimationMode = nil
 ---@type any
 Gameplay.getDebugPickSpheresVisible = nil
 ---@type any
+Gameplay.getDebugPlacementBoundsVisible = nil
+---@type any
 Gameplay.getDebugSelection = nil
 ---@type any
 Gameplay.getLobbyLevels = nil
 ---@type any
 Gameplay.getMaxTowerPlacementSlopeDegrees = nil
+---@type any
+Gameplay.getPathCorridorHalfWidth = nil
 ---@type any
 Gameplay.getPickEnabled = nil
 ---@type any
@@ -103,7 +107,11 @@ Gameplay.setCompositeAnimationMode = nil
 ---@type any
 Gameplay.setDebugPickSpheresVisible = nil
 ---@type any
+Gameplay.setDebugPlacementBoundsVisible = nil
+---@type any
 Gameplay.setMaxTowerPlacementSlopeDegrees = nil
+---@type any
+Gameplay.setPathCorridorHalfWidth = nil
 ---@type any
 Gameplay.setPickEnabled = nil
 ---@type any
