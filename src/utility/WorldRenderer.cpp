@@ -9,6 +9,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <chrono>
 #include <array>
+#include <cstdint>
 #include <mutex>
 #include <limits>
 #include <spdlog/spdlog.h>
@@ -75,6 +76,30 @@ float maxScaleFromMatrix(const glm::mat4& m) {
     const float sy = glm::length(glm::vec3(m[1]));
     const float sz = glm::length(glm::vec3(m[2]));
     return std::max(sx, std::max(sy, sz));
+}
+
+// Single place that maps an entity kind to its pick-radius tuning. Every instanced kind
+// still goes through identical picking/highlight logic -- only these tuning knobs vary.
+void pickRadiusParamsForKind(const WorldPickOptions& options, WorldEntityKind kind,
+                            float& outScale, float& outPadding, float& outMinRadius) {
+    switch (kind) {
+        case WorldEntityKind::Tower:
+            outScale = options.towerRadiusScale;
+            outPadding = options.towerRadiusPadding;
+            outMinRadius = options.towerMinRadius;
+            break;
+        case WorldEntityKind::Enemy:
+            outScale = options.instancedRadiusScale;
+            outPadding = options.instancedRadiusPadding;
+            outMinRadius = options.instancedMinRadius;
+            break;
+        case WorldEntityKind::None:
+        default:
+            outScale = options.staticRadiusScale;
+            outPadding = options.staticRadiusPadding;
+            outMinRadius = options.staticMinRadius;
+            break;
+    }
 }
 
 bool raySphereIntersect(const glm::vec3& rayOrigin,
@@ -402,8 +427,11 @@ bool WorldRenderer::setWorldModelTransformByDebugGroup(const std::string& debugG
     return updated;
 }
 
-void WorldRenderer::setHighlightedInstances(int hoveredInstanceIndex, int selectedInstanceIndex) {
+void WorldRenderer::setHighlightedInstances(WorldEntityKind hoveredKind, int hoveredInstanceIndex,
+                                            WorldEntityKind selectedKind, int selectedInstanceIndex) {
+    hoveredEntityKind_ = hoveredKind;
     hoveredInstanceIndex_ = hoveredInstanceIndex;
+    selectedEntityKind_ = selectedKind;
     selectedInstanceIndex_ = selectedInstanceIndex;
 }
 
@@ -688,7 +716,7 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
     float bestT = std::numeric_limits<float>::max();
     WorldPickHit best{};
 
-    struct DynamicInstanceProxyBounds {
+    struct InstanceProxyBounds {
         bool valid = false;
         glm::vec3 minBounds{0.0f};
         glm::vec3 maxBounds{0.0f};
@@ -697,25 +725,38 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         int meshIndex = -1;
         int nodeIndex = -1;
         int skinIndex = -1;
+        WorldEntityKind kind = WorldEntityKind::None;
+        int instanceIndex = -1;
     };
-    std::unordered_map<int, DynamicInstanceProxyBounds> dynamicProxyBounds;
+    // A single proxy-bounds map shared by every instanced entity kind (enemies, towers, ...).
+    // Keyed by (kind, instanceIndex) so different entity kinds can never collide even though
+    // each kind's raw instance indices start from 0 independently.
+    std::unordered_map<std::uint64_t, InstanceProxyBounds> proxyBounds;
+    auto makeProxyKey = [](WorldEntityKind kind, int instanceIndex) -> std::uint64_t {
+        return (static_cast<std::uint64_t>(kind) << 32) | static_cast<std::uint32_t>(instanceIndex);
+    };
 
+    // Tests one mesh's bounding sphere against the ray, tracking the closest hit seen so far
+    // across ALL kinds (static geometry, enemies, towers, ...) -- there is exactly one
+    // "closest hit wins" rule, shared by every entity kind.
     auto testMesh = [&](const WorldMesh& mesh,
                         const glm::mat4& world,
                         int meshIndex,
                         int instanceIndex,
+                        WorldEntityKind kind,
                         const std::string* instanceGroup,
                         const std::string* instanceLabel) {
         const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
         const float baseRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
-        const bool isDynamicInstance = instanceIndex >= 0;
-        const float radiusScale = isDynamicInstance ? options.dynamicRadiusScale : options.staticRadiusScale;
-        const float radiusPadding = isDynamicInstance ? options.dynamicRadiusPadding : options.staticRadiusPadding;
-        const float minRadius = isDynamicInstance ? options.dynamicMinRadius : options.staticMinRadius;
+        const bool isInstanced = kind != WorldEntityKind::None;
+        float radiusScale = 0.0f;
+        float radiusPadding = 0.0f;
+        float minRadius = 0.0f;
+        pickRadiusParamsForKind(options, kind, radiusScale, radiusPadding, minRadius);
         const float worldRadius = std::max(minRadius, (baseRadius * radiusScale) + radiusPadding);
 
-        if (instanceIndex >= 0) {
-            DynamicInstanceProxyBounds& proxy = dynamicProxyBounds[instanceIndex];
+        if (isInstanced) {
+            InstanceProxyBounds& proxy = proxyBounds[makeProxyKey(kind, instanceIndex)];
             const glm::vec3 extent(worldRadius);
             if (!proxy.valid) {
                 proxy.valid = true;
@@ -726,6 +767,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
                 proxy.meshIndex = meshIndex;
                 proxy.nodeIndex = mesh.sourceNodeIndex;
                 proxy.skinIndex = mesh.sourceSkinIndex;
+                proxy.kind = kind;
+                proxy.instanceIndex = instanceIndex;
             } else {
                 proxy.minBounds = glm::min(proxy.minBounds, worldCenter - extent);
                 proxy.maxBounds = glm::max(proxy.maxBounds, worldCenter + extent);
@@ -755,12 +798,13 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         best.meshIndex = meshIndex;
         best.nodeIndex = mesh.sourceNodeIndex;
         best.skinIndex = mesh.sourceSkinIndex;
+        best.entityKind = kind;
         best.instanceIndex = instanceIndex;
     };
 
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         const WorldMesh& mesh = meshes_[i];
-        testMesh(mesh, mesh.modelTransform, static_cast<int>(i), -1, nullptr, nullptr);
+        testMesh(mesh, mesh.modelTransform, static_cast<int>(i), -1, WorldEntityKind::None, nullptr, nullptr);
     }
 
     animatedEntityInstances_.forEachMeshWorldTransform(
@@ -770,7 +814,7 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
             return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
-            testMesh(mesh, world, meshIndex, instanceIndex, nullptr, nullptr);
+            testMesh(mesh, world, meshIndex, instanceIndex, WorldEntityKind::Enemy, nullptr, nullptr);
         });
 
     towerInstances_.forEachMeshWorldTransform(
@@ -784,18 +828,25 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
             const AnimatedEntityInstanceSet::Instance* instance = towerInstances_.instance(static_cast<std::size_t>(instanceIndex));
             const std::string* instanceGroup = instance ? &instance->debugGroup : nullptr;
             const std::string* instanceLabel = instance ? &instance->debugLabel : nullptr;
-            testMesh(mesh, world, meshIndex, -1, instanceGroup, instanceLabel);
+            // Towers go through the exact same "instanced entity" path as enemies --
+            // same radius options, same multi-mesh proxy bounds merge below -- so there is
+            // only one implementation of "find nearest instanced hit on the ray" for both.
+            testMesh(mesh, world, meshIndex, instanceIndex, WorldEntityKind::Tower, instanceGroup, instanceLabel);
         });
 
-    constexpr float kDynamicProxyRadiusPadding = 0.20f;
-    for (const auto& [instanceIndex, proxy] : dynamicProxyBounds) {
+    for (const auto& [key, proxy] : proxyBounds) {
+        (void)key;
         if (!proxy.valid) {
             continue;
         }
 
+        float unusedScale = 0.0f;
+        float mergePadding = 0.0f;
+        float minRadius = 0.0f;
+        pickRadiusParamsForKind(options, proxy.kind, unusedScale, mergePadding, minRadius);
+
         const glm::vec3 center = (proxy.minBounds + proxy.maxBounds) * 0.5f;
-        const float radius = std::max(options.dynamicMinRadius, glm::distance(proxy.minBounds, proxy.maxBounds) * 0.5f) +
-                             kDynamicProxyRadiusPadding;
+        const float radius = std::max(minRadius, glm::distance(proxy.minBounds, proxy.maxBounds) * 0.5f) + mergePadding;
 
         float t = 0.0f;
         if (!raySphereIntersect(rayOrigin, rayDir, center, radius, t)) {
@@ -821,7 +872,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         best.meshIndex = proxy.meshIndex;
         best.nodeIndex = proxy.nodeIndex;
         best.skinIndex = proxy.skinIndex;
-        best.instanceIndex = instanceIndex;
+        best.entityKind = proxy.kind;
+        best.instanceIndex = proxy.instanceIndex;
     }
 
     if (anyHit) {
@@ -894,35 +946,50 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
         return spheres;
     }
 
-    struct DynamicInstanceProxyBounds {
+    struct InstanceProxyBounds {
         bool valid = false;
         glm::vec3 minBounds{0.0f};
         glm::vec3 maxBounds{0.0f};
         std::string group;
         std::string label;
+        WorldEntityKind kind = WorldEntityKind::None;
+        int instanceIndex = -1;
     };
-    std::unordered_map<int, DynamicInstanceProxyBounds> dynamicProxyBounds;
+    // Single map shared by every instanced entity kind (see pickModel for why this is safe:
+    // keyed by (kind, instanceIndex), so enemy/tower raw indices can never collide).
+    std::unordered_map<std::uint64_t, InstanceProxyBounds> proxyBounds;
+    auto makeProxyKey = [](WorldEntityKind kind, int instanceIndex) -> std::uint64_t {
+        return (static_cast<std::uint64_t>(kind) << 32) | static_cast<std::uint32_t>(instanceIndex);
+    };
 
-    auto accumulateDynamicMesh = [&](const WorldMesh& mesh,
-                                     const glm::mat4& world,
-                                     int instanceIndex) {
+    auto accumulateMesh = [&](const WorldMesh& mesh,
+                              const glm::mat4& world,
+                              int instanceIndex,
+                              WorldEntityKind kind,
+                              const std::string* instanceGroup = nullptr,
+                              const std::string* instanceLabel = nullptr) {
         if (instanceIndex < 0) {
             return;
         }
 
         const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
         const float baseRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
-        const float worldRadius = std::max(options.dynamicMinRadius, (baseRadius * options.dynamicRadiusScale) +
-                                                                       options.dynamicRadiusPadding);
+        float radiusScale = 0.0f;
+        float radiusPadding = 0.0f;
+        float minRadius = 0.0f;
+        pickRadiusParamsForKind(options, kind, radiusScale, radiusPadding, minRadius);
+        const float worldRadius = std::max(minRadius, (baseRadius * radiusScale) + radiusPadding);
 
-        DynamicInstanceProxyBounds& proxy = dynamicProxyBounds[instanceIndex];
+        InstanceProxyBounds& proxy = proxyBounds[makeProxyKey(kind, instanceIndex)];
         const glm::vec3 extent(worldRadius);
         if (!proxy.valid) {
             proxy.valid = true;
             proxy.minBounds = worldCenter - extent;
             proxy.maxBounds = worldCenter + extent;
-            proxy.group = mesh.debugGroup;
-            proxy.label = mesh.debugLabel;
+            proxy.group = (instanceGroup && !instanceGroup->empty()) ? *instanceGroup : mesh.debugGroup;
+            proxy.label = (instanceLabel && !instanceLabel->empty()) ? *instanceLabel : mesh.debugLabel;
+            proxy.kind = kind;
+            proxy.instanceIndex = instanceIndex;
         } else {
             proxy.minBounds = glm::min(proxy.minBounds, worldCenter - extent);
             proxy.maxBounds = glm::max(proxy.maxBounds, worldCenter + extent);
@@ -937,27 +1004,54 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             (void)meshIndex;
-            accumulateDynamicMesh(mesh, world, instanceIndex);
+            accumulateMesh(mesh, world, instanceIndex, WorldEntityKind::Enemy);
         });
 
-    constexpr float kDynamicProxyRadiusPadding = 0.20f;
-    spheres.reserve(dynamicProxyBounds.size());
-    for (const auto& [instanceIndex, proxy] : dynamicProxyBounds) {
+    // Towers must also produce fallback pick spheres -- without this, towers have no
+    // screen-space minimum-clickable-size guarantee at all (only enemies did), so towers
+    // become unselectable at distances well before their true projected size approaches
+    // sub-pixel, since the primary exact ray-sphere test alone can't compensate for that.
+    towerInstances_.forEachMeshWorldTransform(
+        towerTemplateMeshes_,
+        [](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+            (void)instanceIndex;
+            (void)nodeIndex;
+            return fallback;
+        },
+        [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+            (void)meshIndex;
+            const AnimatedEntityInstanceSet::Instance* instance = towerInstances_.instance(static_cast<std::size_t>(instanceIndex));
+            const std::string* instanceGroup = instance ? &instance->debugGroup : nullptr;
+            const std::string* instanceLabel = instance ? &instance->debugLabel : nullptr;
+            accumulateMesh(mesh, world, instanceIndex, WorldEntityKind::Tower, instanceGroup, instanceLabel);
+        });
+
+    spheres.reserve(proxyBounds.size());
+    for (const auto& [key, proxy] : proxyBounds) {
+        (void)key;
         if (!proxy.valid) {
             continue;
         }
 
+        float unusedScale = 0.0f;
+        float mergePadding = 0.0f;
+        float minRadius = 0.0f;
+        pickRadiusParamsForKind(options, proxy.kind, unusedScale, mergePadding, minRadius);
+
         WorldPickDebugSphere sphere;
         sphere.center = (proxy.minBounds + proxy.maxBounds) * 0.5f;
-        sphere.radius = std::max(options.dynamicMinRadius, glm::distance(proxy.minBounds, proxy.maxBounds) * 0.5f) +
-                        kDynamicProxyRadiusPadding;
-        sphere.instanceIndex = instanceIndex;
+        sphere.radius = std::max(minRadius, glm::distance(proxy.minBounds, proxy.maxBounds) * 0.5f) + mergePadding;
+        sphere.entityKind = proxy.kind;
+        sphere.instanceIndex = proxy.instanceIndex;
         sphere.group = proxy.group;
         sphere.label = proxy.label;
         spheres.push_back(std::move(sphere));
     }
 
     std::sort(spheres.begin(), spheres.end(), [](const WorldPickDebugSphere& a, const WorldPickDebugSphere& b) {
+        if (a.entityKind != b.entityKind) {
+            return a.entityKind < b.entityKind;
+        }
         return a.instanceIndex < b.instanceIndex;
     });
     return spheres;
@@ -1104,80 +1198,106 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         });
 
     if (highlightPipeline_ != VK_NULL_HANDLE && highlightPipelineLayout_ != VK_NULL_HANDLE &&
-        (hoveredInstanceIndex_ >= 0 || selectedInstanceIndex_ >= 0)) {
+        (hoveredEntityKind_ != WorldEntityKind::None || selectedEntityKind_ != WorldEntityKind::None)) {
         const glm::mat4 invView = glm::inverse(view);
         const glm::vec3 cameraPos = glm::vec3(invView[3]);
 
-        auto drawHighlightInstance = [&](int targetInstanceIndex, const glm::vec4& color) {
-            if (targetInstanceIndex < 0) {
+        auto drawHighlightMesh = [&](const WorldMesh& mesh, const glm::mat4& world, const glm::vec4& color) {
+            const glm::mat4 mvp = proj * view * world;
+            const HighlightPushConstants pc{mvp, world, color, glm::vec4(cameraPos, 1.0f)};
+            vkCmdPushConstants(cmd, highlightPipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(HighlightPushConstants), &pc);
+
+            VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
+            if (ds) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        highlightPipelineLayout_, 0, 1, &ds, 0, nullptr);
+            }
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
+        };
+
+        // Shared entry point for highlighting either kind of instanced entity -- only the
+        // instance set / template meshes iterated depend on `kind`; the draw itself is common.
+        auto drawHighlightInstance = [&](WorldEntityKind kind, int targetInstanceIndex, const glm::vec4& color) {
+            if (kind == WorldEntityKind::None || targetInstanceIndex < 0) {
                 return;
             }
 
-            int highlightCurrentInstance = -1;
-            int highlightActiveSkin = -2;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, highlightPipeline_);
 
-            animatedEntityInstances_.forEachMeshWorldTransform(
-                enemyTemplateMeshes_,
-                [this, &highlightCurrentInstance, &highlightActiveSkin, baseAnimationTime, animationDuration,
-                 targetInstanceIndex](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
-                    if (instanceIndex != targetInstanceIndex) {
-                        return glm::mat4(0.0f);
-                    }
-                    if (instanceIndex != highlightCurrentInstance) {
-                        highlightCurrentInstance = instanceIndex;
-                        highlightActiveSkin = -2;
-
-                        float sampleTime = baseAnimationTime;
-                        if (animationDuration > 1e-5f && instanceIndex >= 0 &&
-                            static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
-                            sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
+            if (kind == WorldEntityKind::Enemy) {
+                int highlightCurrentInstance = -1;
+                int highlightActiveSkin = -2;
+                animatedEntityInstances_.forEachMeshWorldTransform(
+                    enemyTemplateMeshes_,
+                    [this, &highlightCurrentInstance, &highlightActiveSkin, baseAnimationTime, animationDuration,
+                     targetInstanceIndex](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+                        if (instanceIndex != targetInstanceIndex) {
+                            return glm::mat4(0.0f);
                         }
-                        templateAnimator_->setPlaybackTimeSeconds(sampleTime);
-                        templateAnimator_->update(0.0f);
-                    }
-                    return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
-                },
-                [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
-                    (void)meshIndex;
-                    if (instanceIndex != targetInstanceIndex) {
-                        return;
-                    }
+                        if (instanceIndex != highlightCurrentInstance) {
+                            highlightCurrentInstance = instanceIndex;
+                            highlightActiveSkin = -2;
 
-                    if (mesh.sourceSkinIndex != highlightActiveSkin) {
-                        highlightActiveSkin = mesh.sourceSkinIndex;
-                        const std::vector<glm::mat4>* jointPalette =
-                            templateAnimator_->skinJointMatricesForSkin(mesh.sourceSkinIndex);
-                        if (jointPalette) {
-                            uploadSkinPalette(*jointPalette);
-                        } else {
-                            uploadIdentitySkinPalette();
+                            float sampleTime = baseAnimationTime;
+                            if (animationDuration > 1e-5f && instanceIndex >= 0 &&
+                                static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
+                                sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
+                            }
+                            templateAnimator_->setPlaybackTimeSeconds(sampleTime);
+                            templateAnimator_->update(0.0f);
                         }
-                    }
+                        return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+                    },
+                    [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+                        (void)meshIndex;
+                        if (instanceIndex != targetInstanceIndex) {
+                            return;
+                        }
 
-                    const glm::mat4 mvp = proj * view * world;
-                    const HighlightPushConstants pc{mvp, world, color, glm::vec4(cameraPos, 1.0f)};
-                    vkCmdPushConstants(cmd, highlightPipelineLayout_,
-                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                                       0, sizeof(HighlightPushConstants), &pc);
+                        if (mesh.sourceSkinIndex != highlightActiveSkin) {
+                            highlightActiveSkin = mesh.sourceSkinIndex;
+                            const std::vector<glm::mat4>* jointPalette =
+                                templateAnimator_->skinJointMatricesForSkin(mesh.sourceSkinIndex);
+                            if (jointPalette) {
+                                uploadSkinPalette(*jointPalette);
+                            } else {
+                                uploadIdentitySkinPalette();
+                            }
+                        }
 
-                    VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
-                    if (ds) {
-                        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                highlightPipelineLayout_, 0, 1, &ds, 0, nullptr);
-                    }
-                    const VkDeviceSize offset = 0;
-                    vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
-                    vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
-                });
+                        drawHighlightMesh(mesh, world, color);
+                    });
+            } else { // WorldEntityKind::Tower
+                uploadIdentitySkinPalette();
+                towerInstances_.forEachMeshWorldTransform(
+                    towerTemplateMeshes_,
+                    [](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+                        (void)instanceIndex;
+                        (void)nodeIndex;
+                        return fallback;
+                    },
+                    [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
+                        (void)meshIndex;
+                        if (instanceIndex != targetInstanceIndex) {
+                            return;
+                        }
+                        drawHighlightMesh(mesh, world, color);
+                    });
+            }
         };
 
-        if (hoveredInstanceIndex_ >= 0 && hoveredInstanceIndex_ != selectedInstanceIndex_) {
-            drawHighlightInstance(hoveredInstanceIndex_, glm::vec4(1.0f, 0.85f, 0.20f, 0.75f));
+        const bool hoverEqualsSelected =
+            hoveredEntityKind_ == selectedEntityKind_ && hoveredInstanceIndex_ == selectedInstanceIndex_;
+        if (hoveredEntityKind_ != WorldEntityKind::None && !hoverEqualsSelected) {
+            drawHighlightInstance(hoveredEntityKind_, hoveredInstanceIndex_, glm::vec4(1.0f, 0.85f, 0.20f, 0.75f));
         }
-        if (selectedInstanceIndex_ >= 0) {
-            drawHighlightInstance(selectedInstanceIndex_, glm::vec4(0.20f, 0.95f, 1.0f, 0.85f));
+        if (selectedEntityKind_ != WorldEntityKind::None) {
+            drawHighlightInstance(selectedEntityKind_, selectedInstanceIndex_, glm::vec4(0.20f, 0.95f, 1.0f, 0.85f));
         }
     }
 
@@ -1436,7 +1556,9 @@ void WorldRenderer::release() {
     towerMeshImgIdx_.clear();
     animatedEntityInstances_.clear();
     towerInstances_.clear();
+    hoveredEntityKind_ = WorldEntityKind::None;
     hoveredInstanceIndex_ = -1;
+    selectedEntityKind_ = WorldEntityKind::None;
     selectedInstanceIndex_ = -1;
     routePoints_.clear();
     templateAnimator_->reset();

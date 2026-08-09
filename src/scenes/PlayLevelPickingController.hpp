@@ -1,11 +1,11 @@
 #pragma once
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include "utility/WorldRenderer.hpp"
+
 #include <glm/glm.hpp>
 #include <string>
 #include <volk.h>
-
-class WorldRenderer;
 
 class PlayLevelPickingController {
   public:
@@ -16,6 +16,10 @@ class PlayLevelPickingController {
       int meshIndex = -1;
       int nodeIndex = -1;
       int skinIndex = -1;
+      // entityKind says which instance list `instanceIndex` refers to (enemy vs tower vs
+      // none). Callers should always check kind before interpreting instanceIndex -- this
+      // is the single seam where "what kind of thing did I click" is decided.
+      WorldEntityKind entityKind = WorldEntityKind::None;
       int instanceIndex = -1;
       float distance = 0.0f;
       glm::vec3 hitPosition{0.0f};
@@ -49,6 +53,8 @@ class PlayLevelPickingController {
 
     int hoveredInstanceIndex() const;
     int selectedInstanceIndex() const;
+    WorldEntityKind hoveredEntityKind() const;
+    WorldEntityKind selectedEntityKind() const;
 
     const ModelSelection& hoverSelection() const;
     const ModelSelection& selectedSelection() const;
@@ -88,7 +94,9 @@ class PlayLevelPickingController {
     bool pickSpheresVisible_ = false;
     ModelSelection selectedSelection_{};
     ModelSelection hoverSelection_{};
+    WorldEntityKind hoveredEntityKind_ = WorldEntityKind::None;
     int hoveredInstanceIndex_ = -1;
+    WorldEntityKind selectedEntityKind_ = WorldEntityKind::None;
     int selectedInstanceIndex_ = -1;
     std::string status_ = "click in world to inspect";
     mutable OverlayStats overlayStats_{};

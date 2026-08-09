@@ -13,9 +13,17 @@ namespace {
 constexpr float kPickStaticRadiusScale = 1.0f;
 constexpr float kPickStaticRadiusPadding = 0.05f;
 constexpr float kPickStaticMinRadius = 0.10f;
-constexpr float kPickDynamicRadiusScale = 1.45f;
-constexpr float kPickDynamicRadiusPadding = 0.35f;
-constexpr float kPickDynamicMinRadius = 0.65f;
+// Enemies are small, mobile, and easy to lose track of, so they get a generous,
+// distance-forgiving pick radius.
+constexpr float kPickInstancedRadiusScale = 1.45f;
+constexpr float kPickInstancedRadiusPadding = 0.35f;
+constexpr float kPickInstancedMinRadius = 0.65f;
+// Towers are stationary and packed more tightly on the grid, so their pick radius is much
+// tighter than an enemy's -- otherwise neighboring towers' hover/click zones overlap and
+// hovering feels far too generous/imprecise.
+constexpr float kPickTowerRadiusScale = 0.55f;
+constexpr float kPickTowerRadiusPadding = 0.05f;
+constexpr float kPickTowerMinRadius = 0.30f;
 constexpr float kPickingFovRadians = glm::radians(60.0f);
 
 enum class ProjectionRejectReason {
@@ -26,10 +34,7 @@ enum class ProjectionRejectReason {
 };
 
 bool isSelectableSelection(const PlayLevelPickingController::ModelSelection& selection) {
-    if (selection.instanceIndex >= 0) {
-        return true;
-    }
-    return selection.group.rfind("tower", 0) == 0;
+    return selection.entityKind != WorldEntityKind::None;
 }
 
 bool projectWorldToScreen(const glm::vec3& worldPos,
@@ -84,9 +89,12 @@ WorldPickOptions makeDefaultPickOptions() {
     pickOptions.staticRadiusScale = kPickStaticRadiusScale;
     pickOptions.staticRadiusPadding = kPickStaticRadiusPadding;
     pickOptions.staticMinRadius = kPickStaticMinRadius;
-    pickOptions.dynamicRadiusScale = kPickDynamicRadiusScale;
-    pickOptions.dynamicRadiusPadding = kPickDynamicRadiusPadding;
-    pickOptions.dynamicMinRadius = kPickDynamicMinRadius;
+    pickOptions.instancedRadiusScale = kPickInstancedRadiusScale;
+    pickOptions.instancedRadiusPadding = kPickInstancedRadiusPadding;
+    pickOptions.instancedMinRadius = kPickInstancedMinRadius;
+    pickOptions.towerRadiusScale = kPickTowerRadiusScale;
+    pickOptions.towerRadiusPadding = kPickTowerRadiusPadding;
+    pickOptions.towerMinRadius = kPickTowerMinRadius;
     return pickOptions;
 }
 
@@ -97,7 +105,9 @@ void PlayLevelPickingController::reset() {
     pickSpheresVisible_ = false;
     selectedSelection_ = {};
     hoverSelection_ = {};
+    hoveredEntityKind_ = WorldEntityKind::None;
     hoveredInstanceIndex_ = -1;
+    selectedEntityKind_ = WorldEntityKind::None;
     selectedInstanceIndex_ = -1;
     status_ = "click in world to inspect";
     overlayStats_ = {};
@@ -127,6 +137,14 @@ int PlayLevelPickingController::selectedInstanceIndex() const {
     return selectedInstanceIndex_;
 }
 
+WorldEntityKind PlayLevelPickingController::hoveredEntityKind() const {
+    return hoveredEntityKind_;
+}
+
+WorldEntityKind PlayLevelPickingController::selectedEntityKind() const {
+    return selectedEntityKind_;
+}
+
 const PlayLevelPickingController::ModelSelection& PlayLevelPickingController::hoverSelection() const {
     return hoverSelection_;
 }
@@ -145,13 +163,14 @@ const std::string& PlayLevelPickingController::status() const {
 
 void PlayLevelPickingController::setSelectedSelection(const ModelSelection& selection, const std::string& status) {
     selectedSelection_ = selection;
+    selectedEntityKind_ = selection.entityKind;
     selectedInstanceIndex_ = selection.instanceIndex;
     status_ = status;
 }
 
 void PlayLevelPickingController::setSelectedInstanceIndex(int instanceIndex) {
     selectedInstanceIndex_ = instanceIndex;
-    if (selectedSelection_.valid && selectedSelection_.instanceIndex >= 0) {
+    if (selectedSelection_.valid && selectedSelection_.entityKind != WorldEntityKind::None) {
         selectedSelection_.instanceIndex = instanceIndex;
     }
 }
@@ -164,6 +183,7 @@ void PlayLevelPickingController::setStatus(const char* status) {
 
 void PlayLevelPickingController::clearSelection(const char* reason) {
     selectedSelection_ = {};
+    selectedEntityKind_ = WorldEntityKind::None;
     selectedInstanceIndex_ = -1;
     if (reason) {
         status_ = reason;
@@ -222,6 +242,7 @@ bool PlayLevelPickingController::pickModelAtScreen(const WorldRenderer* worldRen
     outSelection.meshIndex = hit.meshIndex;
     outSelection.nodeIndex = hit.nodeIndex;
     outSelection.skinIndex = hit.skinIndex;
+    outSelection.entityKind = hit.entityKind;
     outSelection.instanceIndex = hit.instanceIndex;
     outSelection.distance = hit.distance;
     outSelection.hitPosition = hit.worldPosition;
@@ -255,6 +276,7 @@ void PlayLevelPickingController::updateSelectionFromMouse(const WorldRenderer* w
 
     if (hoverSelection_.valid && isSelectableSelection(hoverSelection_)) {
         selectedSelection_ = hoverSelection_;
+        selectedEntityKind_ = hoverSelection_.entityKind;
         selectedInstanceIndex_ = hoverSelection_.instanceIndex;
         status_ = "picked " + hoverSelection_.group + " / " + hoverSelection_.label;
         return;
@@ -263,11 +285,13 @@ void PlayLevelPickingController::updateSelectionFromMouse(const WorldRenderer* w
     ModelSelection selection{};
     if (pickModelAtCursor(worldRenderer, view, rayOrigin, selection) && isSelectableSelection(selection)) {
         selectedSelection_ = selection;
+        selectedEntityKind_ = selection.entityKind;
         selectedInstanceIndex_ = selection.instanceIndex;
         status_ = "picked " + selection.group + " / " + selection.label;
     } else if (selection.valid) {
         clearSelection("hit non-selectable model");
     } else {
+        selectedEntityKind_ = WorldEntityKind::None;
         selectedInstanceIndex_ = -1;
         status_ = "no model hit at cursor";
     }
@@ -280,6 +304,7 @@ bool PlayLevelPickingController::updateHoverFromMouse(const WorldRenderer* world
     const int previousHoveredInstanceIndex = hoveredInstanceIndex_;
     const bool previousHoverValid = hoverSelection_.valid;
 
+    hoveredEntityKind_ = WorldEntityKind::None;
     hoveredInstanceIndex_ = -1;
     hoverSelection_ = {};
 
@@ -300,7 +325,8 @@ bool PlayLevelPickingController::updateHoverFromMouse(const WorldRenderer* world
     ModelSelection hover{};
     if (pickModelAtCursor(worldRenderer, view, rayOrigin, hover) && isSelectableSelection(hover)) {
         hoverSelection_ = hover;
-        hoveredInstanceIndex_ = (hover.instanceIndex >= 0) ? hover.instanceIndex : -1;
+        hoveredEntityKind_ = hover.entityKind;
+        hoveredInstanceIndex_ = hover.instanceIndex;
         return (previousHoveredInstanceIndex != hoveredInstanceIndex_) || (previousHoverValid != hoverSelection_.valid);
     }
 
@@ -317,6 +343,7 @@ bool PlayLevelPickingController::updateHoverFromMouse(const WorldRenderer* world
         const std::vector<WorldPickDebugSphere> spheres = worldRenderer->buildDynamicPickDebugSpheres(makeDefaultPickOptions());
         const float focalPixels = displaySize.y / (2.0f * std::tan(kPickingFovRadians * 0.5f));
 
+        WorldEntityKind bestKind = WorldEntityKind::None;
         int bestInstance = -1;
         float bestNormalizedDist2 = std::numeric_limits<float>::max();
         glm::vec3 bestCenter{0.0f};
@@ -330,10 +357,17 @@ bool PlayLevelPickingController::updateHoverFromMouse(const WorldRenderer* world
                 continue;
             }
 
-            const float radiusPixels = sphere.radius * focalPixels / std::max(0.1f, depthAbs);
-            if (!std::isfinite(radiusPixels) || radiusPixels < 1.0f) {
+            float radiusPixels = sphere.radius * focalPixels / std::max(0.1f, depthAbs);
+            if (!std::isfinite(radiusPixels)) {
                 continue;
             }
+            // Floor the clickable target size in screen space so towers/enemies remain
+            // selectable even when zoomed/flown far enough away that their true projected
+            // size drops below a pixel. Without this, radiusPixels shrinks to 0 at a distance
+            // and selection becomes impossible (not because of any world/collision bounds --
+            // purely a screen-space projection artifact).
+            constexpr float kMinPickRadiusPixels = 8.0f;
+            radiusPixels = std::max(radiusPixels, kMinPickRadiusPixels);
 
             const float dx = mousePos.x - screenPos.x;
             const float dy = mousePos.y - screenPos.y;
@@ -345,6 +379,7 @@ bool PlayLevelPickingController::updateHoverFromMouse(const WorldRenderer* world
             const float normalizedDist2 = dist2 / std::max(1.0f, radiusPixels * radiusPixels);
             if (normalizedDist2 < bestNormalizedDist2) {
                 bestNormalizedDist2 = normalizedDist2;
+                bestKind = sphere.entityKind;
                 bestInstance = sphere.instanceIndex;
                 bestCenter = sphere.center;
                 bestGroup = sphere.group;
@@ -352,12 +387,14 @@ bool PlayLevelPickingController::updateHoverFromMouse(const WorldRenderer* world
             }
         }
 
-        if (bestInstance >= 0) {
+        if (bestKind != WorldEntityKind::None) {
             hoverSelection_.valid = true;
+            hoverSelection_.entityKind = bestKind;
             hoverSelection_.instanceIndex = bestInstance;
             hoverSelection_.group = bestGroup;
             hoverSelection_.label = bestLabel;
             hoverSelection_.hitPosition = bestCenter;
+            hoveredEntityKind_ = bestKind;
             hoveredInstanceIndex_ = bestInstance;
         }
     }
@@ -421,7 +458,8 @@ void PlayLevelPickingController::drawPickSpheresOverlay(const WorldRenderer* wor
             continue;
         }
 
-        const bool hovered = (sphere.instanceIndex == hoveredInstanceIndex_);
+        const bool hovered = (sphere.entityKind == hoveredEntityKind_) && (sphere.instanceIndex == hoveredInstanceIndex_) &&
+                            (hoveredEntityKind_ != WorldEntityKind::None);
         const ImU32 col = hovered ? IM_COL32(255, 220, 64, 235) : IM_COL32(64, 200, 255, 180);
         drawList->AddCircle(screenPos, radiusPixels, col, 42, hovered ? 2.5f : 1.5f);
         ++overlayStats_.sphereDrawn;

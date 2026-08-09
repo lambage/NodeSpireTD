@@ -22,6 +22,16 @@
 struct lua_State;
 class TemplateAnimator;
 
+// Identifies what kind of instanced entity a pick/hover/selection result refers to.
+// This is the ONLY place callers should branch on "is this a tower or an enemy" --
+// the picking/highlight code itself is shared and kind-agnostic; only the index's
+// *meaning* (which list to look it up in) depends on this tag.
+enum class WorldEntityKind {
+    None = 0,
+    Enemy,
+    Tower,
+};
+
 struct WorldTexture {
     VkImage       image      = VK_NULL_HANDLE;
     VmaAllocation allocation = nullptr;
@@ -57,6 +67,10 @@ struct WorldPickHit {
     int meshIndex = -1;
     int nodeIndex = -1;
     int skinIndex = -1;
+    // entityKind says which instance list `instanceIndex` refers to (or None for static
+    // level geometry / no instance). Enemies and towers share this single index space
+    // conceptually but are never ambiguous because the kind always travels with the index.
+    WorldEntityKind entityKind = WorldEntityKind::None;
     int instanceIndex = -1;
 };
 
@@ -64,14 +78,23 @@ struct WorldPickOptions {
     float staticRadiusScale = 1.0f;
     float staticRadiusPadding = 0.0f;
     float staticMinRadius = 0.05f;
-    float dynamicRadiusScale = 1.45f;
-    float dynamicRadiusPadding = 0.35f;
-    float dynamicMinRadius = 0.65f;
+    // Used by enemies -- generous, distance-forgiving pick radius so they remain clickable
+    // no matter how far the camera moves away, unlike inert static level geometry.
+    float instancedRadiusScale = 1.45f;
+    float instancedRadiusPadding = 0.35f;
+    float instancedMinRadius = 0.65f;
+    // Towers are stationary and visually smaller/tighter than enemies, so they get their
+    // own (smaller) instanced radius tuning. Both still flow through the exact same
+    // picking/highlight code path as enemies -- only these tuning knobs differ by kind.
+    float towerRadiusScale = 1.0f;
+    float towerRadiusPadding = 0.10f;
+    float towerMinRadius = 0.35f;
 };
 
 struct WorldPickDebugSphere {
     glm::vec3 center{0.0f, 0.0f, 0.0f};
     float radius = 0.0f;
+    WorldEntityKind entityKind = WorldEntityKind::None;
     int instanceIndex = -1;
     std::string group;
     std::string label;
@@ -132,7 +155,8 @@ class WorldRenderer {
     void setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms);
     void setTowerInstanceTransforms(const std::vector<AnimatedEntityInstanceSet::Instance>& instances);
     bool setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform);
-    void setHighlightedInstances(int hoveredInstanceIndex, int selectedInstanceIndex);
+    void setHighlightedInstances(WorldEntityKind hoveredKind, int hoveredInstanceIndex,
+                                 WorldEntityKind selectedKind, int selectedInstanceIndex);
     void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) { setAnimatedEntityInstanceTransforms(transforms); }
     const std::vector<glm::vec3>& routePoints() const { return routePoints_; }
     bool hasAnimatedEntityTemplate() const { return !enemyTemplateMeshes_.empty(); }
@@ -220,7 +244,9 @@ class WorldRenderer {
     AnimatedEntityInstanceSet animatedEntityInstances_;
     AnimatedEntityInstanceSet towerInstances_;
     std::vector<float> animatedEntityPhaseOffsetsSeconds_;
+    WorldEntityKind hoveredEntityKind_ = WorldEntityKind::None;
     int hoveredInstanceIndex_ = -1;
+    WorldEntityKind selectedEntityKind_ = WorldEntityKind::None;
     int selectedInstanceIndex_ = -1;
     std::vector<glm::vec3> routePoints_;
     std::vector<TowerPlacementRegion> placementRegions_;

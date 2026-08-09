@@ -344,12 +344,13 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
                                                     cameraController_.position(),
                                                     towerPlacementController_.hasActiveSelection());
         const int selectedInstanceIndex = pickingController_.selectedInstanceIndex();
+        const bool selectedIsEnemy = pickingController_.selectedEntityKind() == WorldEntityKind::Enemy;
         selectedEnemyRuntimeId_ =
-            (selectedInstanceIndex >= 0 && selectedInstanceIndex < static_cast<int>(activeEnemies_.size()))
+            (selectedIsEnemy && selectedInstanceIndex >= 0 && selectedInstanceIndex < static_cast<int>(activeEnemies_.size()))
                 ? activeEnemies_[static_cast<std::size_t>(selectedInstanceIndex)].runtimeId
                 : 0;
-        worldRenderer_->setHighlightedInstances(pickingController_.hoveredInstanceIndex(),
-                                                pickingController_.selectedInstanceIndex());
+        worldRenderer_->setHighlightedInstances(pickingController_.hoveredEntityKind(), pickingController_.hoveredInstanceIndex(),
+                                                pickingController_.selectedEntityKind(), pickingController_.selectedInstanceIndex());
     }
 
     luaOnRender(state, scriptRef_, dt);
