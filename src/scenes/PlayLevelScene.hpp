@@ -92,6 +92,14 @@ class PlayLevelScene final : public GameScene {
     std::vector<TowerPlacementRegion> placementRegions_;
     std::vector<glm::vec3> forbiddenPathZones_;
     float maxTowerPlacementSlopeDegrees_ = 30.0f;
+    // Cached result of the most recent sampleTerrainAtCursor() call (refreshed once per frame in
+    // updateTowerPlacementFromInput()); used by validateTowerPlacement() to check slope without
+    // re-raycasting.
+    TerrainSample lastTerrainSample_{};
+    // "Bungee cord" placement snapping: while the raw cursor position is invalid, the placement
+    // preview stays pinned to the last valid position until the cursor strays far enough away.
+    glm::vec3 lastValidPlacementPos_{0.0f};
+    bool hasValidPlacementAnchor_ = false;
 
     bool requestSpendMoney(float amount);
     bool requestDamageBase(float amount);
@@ -103,6 +111,7 @@ class PlayLevelScene final : public GameScene {
     TerrainSample sampleTerrainAtCursor() const;
     bool isPointInPlacementRegion(const glm::vec3& worldPos, const TowerPlacementRegion*& outRegion) const;
     bool isPointOnPath(const glm::vec3& worldPos) const;
+    bool isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype) const;
     std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
     void clearActiveSelectionForTowerPlacement(const char* reason);
     void updateTowerPlacementFromInput();

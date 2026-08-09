@@ -688,6 +688,22 @@ std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archety
         return "cannot place towers on the path";
     }
 
+    // Check slope: reject placement on surfaces steeper than the configured maximum.
+    // lastTerrainSample_ is refreshed once per frame by updateTowerPlacementFromInput() and
+    // corresponds to the same raycast that produced worldPos.
+    constexpr float kSlopeMatchEpsilon = 0.01f;
+    if (glm::distance(lastTerrainSample_.worldPosition, worldPos) <= kSlopeMatchEpsilon &&
+        lastTerrainSample_.slope > maxTowerPlacementSlopeDegrees_) {
+        return "surface is too steep to place a tower";
+    }
+
+    // Footprint check: sample the terrain around the tower's approximate base radius (not just
+    // the single cursor point) so a tower can't be placed with part of its base clipping into a
+    // steep cliff face or hanging off an edge, even if the exact cursor point is flat ground.
+    if (worldRenderer_ && !isFootprintClearForPlacement(worldPos, archetype)) {
+        return "tower base does not fit on this surface";
+    }
+
     // Terrain defaults to ground; region markers can override to cliff/water
     // Currently allow placement on any terrain type
 
@@ -815,6 +831,46 @@ bool PlayLevelScene::isPointOnPath(const glm::vec3& worldPos) const {
     return false;
 }
 
+bool PlayLevelScene::isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype) const {
+    if (!worldRenderer_) {
+        return true;
+    }
+
+    // Approximate tower base radius. TowerArchetype has no explicit footprint radius yet, so
+    // derive one from renderScale; this can be replaced with a per-archetype value later.
+    constexpr float kTowerFootprintBaseRadius = 0.6f;
+    constexpr int kFootprintSampleCount = 8;
+    constexpr float kFootprintProbeHeight = 50.0f;   // start each probe ray well above the surface
+    constexpr float kFootprintMaxHeightDelta = 0.6f; // reject if edge height differs too much from center
+    constexpr float kTwoPi = 6.2831853071795864769f;
+
+    const float footprintRadius = kTowerFootprintBaseRadius * std::max(0.01f, archetype.renderScale);
+
+    for (int i = 0; i < kFootprintSampleCount; ++i) {
+        const float angle = (kTwoPi * static_cast<float>(i)) / static_cast<float>(kFootprintSampleCount);
+        const glm::vec3 offset(std::cos(angle) * footprintRadius, 0.0f, std::sin(angle) * footprintRadius);
+        const glm::vec3 samplePos = worldPos + offset;
+        const glm::vec3 probeOrigin = samplePos + glm::vec3(0.0f, kFootprintProbeHeight, 0.0f);
+
+        WorldPickHit hit;
+        if (!worldRenderer_->raycastStaticGeometry(probeOrigin, glm::vec3(0.0f, -1.0f, 0.0f), hit)) {
+            return false; // footprint extends past the edge of the terrain
+        }
+
+        const float dotProduct = glm::dot(hit.worldNormal, glm::vec3(0.0f, 1.0f, 0.0f));
+        const float slopeDegrees = glm::degrees(std::acos(glm::clamp(dotProduct, -1.0f, 1.0f)));
+        if (slopeDegrees > maxTowerPlacementSlopeDegrees_) {
+            return false; // footprint overlaps a steep slope
+        }
+
+        if (std::abs(hit.worldPosition.y - worldPos.y) > kFootprintMaxHeightDelta) {
+            return false; // footprint overlaps a ledge/step/cliff edge
+        }
+    }
+
+    return true;
+}
+
 void PlayLevelScene::updateTowerPlacementFromInput() {
     const bool selectedFromHotkey =
         towerPlacementController_.updateSelectionHotkeys(towerLoadController_.loadoutIds().size());
@@ -823,14 +879,35 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
     }
 
     const TowerArchetype* selected = selectedTowerArchetype();
+    if (!selected) {
+        hasValidPlacementAnchor_ = false;
+    }
     towerPlacementController_.updatePlacementFromInput(
-        selected != nullptr, [this](glm::vec3& outHit) {
+        selected != nullptr, [this, selected](glm::vec3& outHit) {
             // Use terrain-aware sampling instead of flat ground plane
-            TerrainSample sample = sampleTerrainAtCursor();
-            if (!sample.hit) {
+            lastTerrainSample_ = sampleTerrainAtCursor();
+            if (!lastTerrainSample_.hit) {
                 return false;
             }
-            outHit = sample.worldPosition;
+
+            const glm::vec3 candidatePos = lastTerrainSample_.worldPosition;
+            const bool candidateValid = selected && validateTowerPlacement(*selected, candidatePos).empty();
+
+            // "Bungee cord" snapping: once a valid spot has been found, small cursor movements into
+            // invalid terrain (e.g. a cliff face) keep the preview pinned there instead of jittering
+            // into the cliff. The anchor only releases once the cursor moves far enough away.
+            constexpr float kSnapReleaseDistance = 1.5f;
+            if (candidateValid) {
+                lastValidPlacementPos_ = candidatePos;
+                hasValidPlacementAnchor_ = true;
+                outHit = candidatePos;
+            } else if (hasValidPlacementAnchor_ &&
+                       glm::distance(candidatePos, lastValidPlacementPos_) < kSnapReleaseDistance) {
+                outHit = lastValidPlacementPos_;
+            } else {
+                hasValidPlacementAnchor_ = false;
+                outHit = candidatePos;
+            }
             return true;
         },
         [this, selected](const glm::vec3& worldPos) {
@@ -846,6 +923,7 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
                                                     selected->attackRange, attackIntervalSeconds, 0.0f,
                                                     selected->projectileSpeed, selected->cost});
                 towerPlacementController_.cancelPlacement();
+                hasValidPlacementAnchor_ = false;
             }
         });
 }
@@ -1609,6 +1687,32 @@ void PlayLevelScene::registerLuaGameplayApi() {
         },
         1);
     lua_setfield(L_, gameplayTable, "getTowerPlacementState");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_pushnumber(L, self->maxTowerPlacementSlopeDegrees_);
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getMaxTowerPlacementSlopeDegrees");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const float degrees = static_cast<float>(luaL_checknumber(L, 1));
+            if (degrees < 0.0f || degrees > 90.0f) {
+                return pushCommandResult(L, false, "degrees must be between 0 and 90");
+            }
+            self->maxTowerPlacementSlopeDegrees_ = degrees;
+            return pushCommandResult(L, true, "updated");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "setMaxTowerPlacementSlopeDegrees");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(

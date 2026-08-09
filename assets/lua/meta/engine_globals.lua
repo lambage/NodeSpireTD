@@ -59,6 +59,8 @@ Gameplay.getDebugSelection = nil
 ---@type any
 Gameplay.getLobbyLevels = nil
 ---@type any
+Gameplay.getMaxTowerPlacementSlopeDegrees = nil
+---@type any
 Gameplay.getPickEnabled = nil
 ---@type any
 Gameplay.getSelectedLobbyLevel = nil
@@ -100,6 +102,8 @@ Gameplay.setAnimationClip = nil
 Gameplay.setCompositeAnimationMode = nil
 ---@type any
 Gameplay.setDebugPickSpheresVisible = nil
+---@type any
+Gameplay.setMaxTowerPlacementSlopeDegrees = nil
 ---@type any
 Gameplay.setPickEnabled = nil
 ---@type any
