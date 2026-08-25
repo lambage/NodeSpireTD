@@ -9,6 +9,11 @@ local towerSlotTextures = {}
 local lastUpgradeResult = ""
 local towerUiArtTextures = {}
 
+local perfFpsInstant = 0.0
+local perfFpsSmoothed = 0.0
+local perfFrameMsSmoothed = 0.0
+local perfSampleFrames = 0
+
 local kSlotW = 146
 local kSlotPreviewH = 146
 local kSlotLabelH = 68
@@ -856,6 +861,22 @@ end
 function M.render(state, dt, elapsed)
     local gs = Gameplay.getState()
 
+    local frameDt = tonumber(dt or 0.0) or 0.0
+    if frameDt > 1e-6 then
+        local instantFps = 1.0 / frameDt
+        local instantMs = frameDt * 1000.0
+        perfFpsInstant = instantFps
+        if perfSampleFrames <= 0 then
+            perfFpsSmoothed = instantFps
+            perfFrameMsSmoothed = instantMs
+        else
+            local alpha = 0.10
+            perfFpsSmoothed = perfFpsSmoothed + ((instantFps - perfFpsSmoothed) * alpha)
+            perfFrameMsSmoothed = perfFrameMsSmoothed + ((instantMs - perfFrameMsSmoothed) * alpha)
+        end
+        perfSampleFrames = perfSampleFrames + 1
+    end
+
     if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.GraveAccent then
         if ImGui.IsKeyPressed(ImGuiKey.GraveAccent, false) then
             debugUiVisible = not debugUiVisible
@@ -1067,6 +1088,18 @@ function M.render(state, dt, elapsed)
         if reason ~= "" then
             UiTextWrapped(reason)
         end
+        if debugUiVisible and placement.debug then
+            local pd = placement.debug
+            ImGui.Text(string.format(
+                "Bungee active=%s anchor=%s rawValid=%s",
+                tostring(pd.bungeeActive),
+                tostring(pd.hasAnchor),
+                tostring(pd.rawCandidateValid)))
+            ImGui.Text(string.format(
+                "Anchor->Candidate %.2f  |  Resolved->Candidate %.2f",
+                tonumber(pd.anchorToCandidateDistance or 0.0),
+                tonumber(pd.resolvedToCandidateDistance or 0.0)))
+        end
     end
 
     if lastLoadoutResult ~= "" then
@@ -1087,6 +1120,8 @@ function M.render(state, dt, elapsed)
     ImGui.Begin("WorldHUD", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoTitleBar + ImGuiWindowFlags.NoScrollbar)
     ImGui.Text(state.activeLevelName or "")
     ImGui.Separator()
+    ImGui.Text(string.format("FPS %.1f (avg %.1f)  |  Frame %.2f ms", perfFpsInstant or 0.0, perfFpsSmoothed or 0.0,
+        perfFrameMsSmoothed or 0.0))
 
     if gs.worldLoaded then
         ImGui.Text(string.format("Meshes %d  |  Verts %d  |  Tris %d", gs.meshCount or 0, gs.vertexCount or 0,
@@ -1161,6 +1196,8 @@ function M.render(state, dt, elapsed)
 
     ImGui.Text("Model Debugger (Lua-driven)")
     ImGui.Separator()
+    ImGui.Text(string.format("FPS %.1f (avg %.1f)  |  Frame %.2f ms", perfFpsInstant or 0.0, perfFpsSmoothed or 0.0,
+        perfFrameMsSmoothed or 0.0))
     ImGui.Text(string.format("[H] Pick Spheres: %s", debugPickSpheresVisible and "ON" or "OFF"))
     ImGui.Text(string.format("[B] Placement Bounds: %s", debugPlacementBoundsVisible and "ON" or "OFF"))
 
@@ -1283,6 +1320,10 @@ end
 function M.onExit()
     towerSlotTextures = {}
     towerUiArtTextures = {}
+    perfFpsInstant = 0.0
+    perfFpsSmoothed = 0.0
+    perfFrameMsSmoothed = 0.0
+    perfSampleFrames = 0
     lastUpgradeResult = ""
 
     startMatchButton = nil

@@ -894,27 +894,53 @@ bool WorldRenderer::raycastStaticGeometry(const glm::vec3& rayOrigin,
 
     for (const WorldStagedMesh& mesh : stagedMeshes_) {
         const glm::mat4& world = mesh.modelTransform;
+
+        // Broad phase: quickly reject meshes whose world-space proxy sphere is not hit by the
+        // ray. This avoids expensive per-triangle transforms/intersections, which become very
+        // costly for shallow camera rays crossing many props/terrain chunks.
+        const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
+        const float worldRadius = std::max(0.05f, mesh.localBoundsRadius * std::max(0.01f, maxScaleFromMatrix(world)));
+        float sphereT = 0.0f;
+        if (!raySphereIntersect(rayOrigin, rayDir, worldCenter, worldRadius, sphereT)) {
+            continue;
+        }
+        if (sphereT >= bestT) {
+            continue;
+        }
+
+        const glm::mat4 invWorld = glm::inverse(world);
+        const glm::vec3 localRayOrigin = glm::vec3(invWorld * glm::vec4(rayOrigin, 1.0f));
+        const glm::vec3 localRayDir = glm::vec3(invWorld * glm::vec4(rayDir, 0.0f));
+        const float localRayDirLenSq = glm::dot(localRayDir, localRayDir);
+        if (localRayDirLenSq <= 1e-10f) {
+            continue;
+        }
+
         const glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(world)));
 
         for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
-            const glm::vec3 v0 = glm::vec3(world * glm::vec4(mesh.vertices[mesh.indices[i]].position, 1.0f));
-            const glm::vec3 v1 = glm::vec3(world * glm::vec4(mesh.vertices[mesh.indices[i + 1]].position, 1.0f));
-            const glm::vec3 v2 = glm::vec3(world * glm::vec4(mesh.vertices[mesh.indices[i + 2]].position, 1.0f));
+            const glm::vec3 v0 = mesh.vertices[mesh.indices[i]].position;
+            const glm::vec3 v1 = mesh.vertices[mesh.indices[i + 1]].position;
+            const glm::vec3 v2 = mesh.vertices[mesh.indices[i + 2]].position;
 
-            float t = 0.0f;
+            float tLocal = 0.0f;
             glm::vec3 bary{};
-            if (!rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2, t, bary)) {
+            if (!rayTriangleIntersect(localRayOrigin, localRayDir, v0, v1, v2, tLocal, bary)) {
                 continue;
             }
-            if (t >= bestT) {
+
+            const glm::vec3 localHit = localRayOrigin + (localRayDir * tLocal);
+            const glm::vec3 worldHit = glm::vec3(world * glm::vec4(localHit, 1.0f));
+            const float tWorld = glm::dot(worldHit - rayOrigin, rayDir);
+            if (tWorld <= 1e-4f || tWorld >= bestT) {
                 continue;
             }
 
             anyHit = true;
-            bestT = t;
+            bestT = tWorld;
             best.hit = true;
-            best.distance = t;
-            best.worldPosition = rayOrigin + rayDir * t;
+            best.distance = tWorld;
+            best.worldPosition = worldHit;
 
             const glm::vec3 n0 = normalMat * mesh.vertices[mesh.indices[i]].normal;
             const glm::vec3 n1 = normalMat * mesh.vertices[mesh.indices[i + 1]].normal;

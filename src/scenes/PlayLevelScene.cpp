@@ -964,7 +964,8 @@ bool PlayLevelScene::raycastGroundAtCursor(glm::vec3& outHit) const {
     return cameraController_.raycastGroundAtCursor(outHit);
 }
 
-std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const {
+std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
+                                                   int footprintSampleCount) const {
     if (gameplayState_.matchStatus != MatchStatus::Running) {
         return "match is not running";
     }
@@ -1002,7 +1003,7 @@ std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archety
     // Footprint check: sample the terrain around the tower's approximate base radius (not just
     // the single cursor point) so a tower can't be placed with part of its base clipping into a
     // steep cliff face or hanging off an edge, even if the exact cursor point is flat ground.
-    if (worldRenderer_ && !isFootprintClearForPlacement(worldPos, archetype)) {
+    if (worldRenderer_ && !isFootprintClearForPlacement(worldPos, archetype, footprintSampleCount)) {
         return "tower base does not fit on this surface";
     }
 
@@ -1137,7 +1138,8 @@ bool PlayLevelScene::isPointOnPath(const glm::vec3& worldPos) const {
     return false;
 }
 
-bool PlayLevelScene::isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype) const {
+bool PlayLevelScene::isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype,
+                                                  int footprintSampleCount) const {
     if (!worldRenderer_) {
         return true;
     }
@@ -1145,15 +1147,16 @@ bool PlayLevelScene::isFootprintClearForPlacement(const glm::vec3& worldPos, con
     // Approximate tower base radius. TowerArchetype has no explicit footprint radius yet, so
     // derive one from renderScale; this can be replaced with a per-archetype value later.
     constexpr float kTowerFootprintBaseRadius = 0.6f;
-    constexpr int kFootprintSampleCount = 8;
+    const int sampleCount = std::max(1, footprintSampleCount);
     constexpr float kFootprintProbeHeight = 50.0f;   // start each probe ray well above the surface
     constexpr float kFootprintMaxHeightDelta = 0.6f; // reject if edge height differs too much from center
     constexpr float kTwoPi = 6.2831853071795864769f;
+    const float minUpDot = std::cos(glm::radians(maxTowerPlacementSlopeDegrees_));
 
     const float footprintRadius = kTowerFootprintBaseRadius * std::max(0.01f, archetype.renderScale);
 
-    for (int i = 0; i < kFootprintSampleCount; ++i) {
-        const float angle = (kTwoPi * static_cast<float>(i)) / static_cast<float>(kFootprintSampleCount);
+    for (int i = 0; i < sampleCount; ++i) {
+        const float angle = (kTwoPi * static_cast<float>(i)) / static_cast<float>(sampleCount);
         const glm::vec3 offset(std::cos(angle) * footprintRadius, 0.0f, std::sin(angle) * footprintRadius);
         const glm::vec3 samplePos = worldPos + offset;
         const glm::vec3 probeOrigin = samplePos + glm::vec3(0.0f, kFootprintProbeHeight, 0.0f);
@@ -1164,8 +1167,7 @@ bool PlayLevelScene::isFootprintClearForPlacement(const glm::vec3& worldPos, con
         }
 
         const float dotProduct = glm::dot(hit.worldNormal, glm::vec3(0.0f, 1.0f, 0.0f));
-        const float slopeDegrees = glm::degrees(std::acos(glm::clamp(dotProduct, -1.0f, 1.0f)));
-        if (slopeDegrees > maxTowerPlacementSlopeDegrees_) {
+        if (dotProduct < minUpDot) {
             return false; // footprint overlaps a steep slope
         }
 
@@ -1185,44 +1187,215 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
     }
 
     const TowerArchetype* selected = selectedTowerArchetype();
+    lastPlacementValidationReason_.clear();
     if (!selected) {
         hasValidPlacementAnchor_ = false;
+        bungeeInvalidActive_ = false;
+        hasLastRawPlacementCandidate_ = false;
+        hasLastPlacementValidation_ = false;
+        lastPlacementValidationCachedReason_.clear();
     }
     towerPlacementController_.updatePlacementFromInput(
         selected != nullptr, [this, selected](glm::vec3& outHit) {
             // Use terrain-aware sampling instead of flat ground plane
             lastTerrainSample_ = sampleTerrainAtCursor();
             if (!lastTerrainSample_.hit) {
+                hasLastRawPlacementCandidate_ = false;
                 return false;
             }
 
             const glm::vec3 candidatePos = lastTerrainSample_.worldPosition;
-            const bool candidateValid = selected && validateTowerPlacement(*selected, candidatePos).empty();
+            constexpr int kPreviewFootprintSampleCount = 4;
+            bool candidateValid = false;
+            std::string candidateReason;
+            if (selected) {
+                candidateReason = validateTowerPlacement(*selected, candidatePos, kPreviewFootprintSampleCount);
+                candidateValid = candidateReason.empty();
+            }
+            hasLastRawPlacementCandidate_ = true;
+            lastRawPlacementCandidatePos_ = candidatePos;
+            lastRawPlacementCandidateValid_ = candidateValid;
 
             // "Bungee cord" snapping: once a valid spot has been found, small cursor movements into
             // invalid terrain (e.g. a cliff face) keep the preview pinned there instead of jittering
-            // into the cliff. The anchor only releases once the cursor moves far enough away.
+            // into the cliff. Instead of freezing to the last valid point, walk toward the cursor
+            // and stop at the nearest still-valid point on that segment.
             constexpr float kSnapReleaseDistance = 1.5f;
+            bool resolvedValid = candidateValid;
+            std::string resolvedReason = candidateReason;
             if (candidateValid) {
                 lastValidPlacementPos_ = candidatePos;
                 hasValidPlacementAnchor_ = true;
+                bungeeInvalidActive_ = false;
+                bungeeAnchorPos_ = candidatePos;
+                bungeeResolvedPos_ = candidatePos;
                 outHit = candidatePos;
-            } else if (hasValidPlacementAnchor_ &&
-                       glm::distance(candidatePos, lastValidPlacementPos_) < kSnapReleaseDistance) {
-                outHit = lastValidPlacementPos_;
+            } else if (hasValidPlacementAnchor_) {
+                if (!bungeeInvalidActive_) {
+                    bungeeInvalidActive_ = true;
+                    bungeeAnchorPos_ = lastValidPlacementPos_;
+                    bungeeResolvedPos_ = lastValidPlacementPos_;
+                }
+
+                if (glm::distance(candidatePos, bungeeAnchorPos_) >= kSnapReleaseDistance) {
+                    hasValidPlacementAnchor_ = false;
+                    bungeeInvalidActive_ = false;
+                    outHit = candidatePos;
+                    if (selected) {
+                        resolvedValid = false;
+                        resolvedReason = candidateReason;
+                    }
+                } else {
+                // Try lateral "edge slide" first: search both tangent directions in XZ around
+                // the cursor so placement can move along obstacle boundaries instead of pinning to
+                // the previous valid anchor point.
+                const glm::vec3 toCursor = candidatePos - bungeeResolvedPos_;
+                glm::vec3 dirXZ(toCursor.x, 0.0f, toCursor.z);
+                const float dirLen = glm::length(dirXZ);
+                if (dirLen > 1e-4f) {
+                    dirXZ /= dirLen;
+                } else {
+                    dirXZ = glm::vec3(1.0f, 0.0f, 0.0f);
+                }
+                const glm::vec3 tangent(-dirXZ.z, 0.0f, dirXZ.x);
+
+                bool foundSlide = false;
+                glm::vec3 bestSlide = lastValidPlacementPos_;
+                float bestDistSq = std::numeric_limits<float>::max();
+                constexpr float kSlideStep = 0.20f;
+                constexpr int kSlideSteps = 6; // up to 1.2 world units lateral search
+                for (int step = 1; step <= kSlideSteps; ++step) {
+                    const float d = kSlideStep * static_cast<float>(step);
+                    const glm::vec3 offsets[2] = { tangent * d, tangent * -d };
+                    for (const glm::vec3& off : offsets) {
+                        const glm::vec3 probe = candidatePos + off;
+                        const std::string probeReason =
+                            validateTowerPlacement(*selected, probe, kPreviewFootprintSampleCount);
+                        if (!probeReason.empty()) {
+                            continue;
+                        }
+
+                        const float distSq = glm::dot(probe - candidatePos, probe - candidatePos);
+                        if (distSq < bestDistSq) {
+                            bestDistSq = distSq;
+                            bestSlide = probe;
+                            foundSlide = true;
+                        }
+                    }
+                    // First radius with at least one valid side is already the nearest lateral ring.
+                    if (foundSlide) {
+                        break;
+                    }
+                }
+
+                if (foundSlide) {
+                    const float prevDistSq = glm::dot(bungeeResolvedPos_ - candidatePos, bungeeResolvedPos_ - candidatePos);
+                    const float newDistSq = glm::dot(bestSlide - candidatePos, bestSlide - candidatePos);
+                    constexpr float kSlideSwitchHysteresis = 0.08f;
+                    constexpr float kSlideSwitchHysteresisSq =
+                        kSlideSwitchHysteresis * kSlideSwitchHysteresis;
+                    const glm::vec3 chosenSlide =
+                        ((newDistSq + kSlideSwitchHysteresisSq) < prevDistSq) ? bestSlide : bungeeResolvedPos_;
+
+                    outHit = chosenSlide;
+                    lastValidPlacementPos_ = chosenSlide;
+                    bungeeResolvedPos_ = chosenSlide;
+                    hasValidPlacementAnchor_ = true;
+                    resolvedValid = true;
+                    resolvedReason.clear();
+                } else {
+                    // Fallback: bounded bisection between (invalid) cursor point and
+                    // (known-valid) anchor. This keeps behavior robust when lateral search fails.
+                    glm::vec3 lowInvalid = candidatePos;
+                    glm::vec3 highValid = bungeeResolvedPos_;
+                    for (int i = 0; i < 7; ++i) {
+                        const glm::vec3 mid = (lowInvalid + highValid) * 0.5f;
+                        const std::string midReason =
+                            validateTowerPlacement(*selected, mid, kPreviewFootprintSampleCount);
+                        if (midReason.empty()) {
+                            highValid = mid;
+                        } else {
+                            lowInvalid = mid;
+                        }
+                    }
+
+                    const float prevDistSq = glm::dot(bungeeResolvedPos_ - candidatePos, bungeeResolvedPos_ - candidatePos);
+                    const float newDistSq = glm::dot(highValid - candidatePos, highValid - candidatePos);
+                    constexpr float kFallbackSwitchHysteresis = 0.05f;
+                    constexpr float kFallbackSwitchHysteresisSq =
+                        kFallbackSwitchHysteresis * kFallbackSwitchHysteresis;
+                    const glm::vec3 chosenSlide =
+                        ((newDistSq + kFallbackSwitchHysteresisSq) < prevDistSq) ? highValid : bungeeResolvedPos_;
+
+                    outHit = chosenSlide;
+                    lastValidPlacementPos_ = chosenSlide;
+                    bungeeResolvedPos_ = chosenSlide;
+                    hasValidPlacementAnchor_ = true;
+                    resolvedValid = true;
+                    resolvedReason.clear();
+                }
+                }
             } else {
                 hasValidPlacementAnchor_ = false;
+                bungeeInvalidActive_ = false;
                 outHit = candidatePos;
+            }
+
+            if (selected) {
+                // Prime per-frame validation cache so the immediate canPlace callback can reuse
+                // this resolved point instead of re-running placement validation.
+                hasLastPlacementValidation_ = true;
+                lastPlacementValidationTowerId_ = selected->id;
+                lastPlacementValidationPos_ = outHit;
+                lastPlacementCanPlace_ = resolvedValid;
+                lastPlacementValidationCachedReason_ = resolvedReason;
+                lastPlacementValidationReason_ = resolvedReason;
             }
             return true;
         },
         [this, selected](const glm::vec3& worldPos) {
-            return selected ? validateTowerPlacement(*selected, worldPos).empty() : false;
+            if (!selected) {
+                lastPlacementValidationReason_ = "no tower selected";
+                return false;
+            }
+
+            constexpr int kPreviewFootprintSampleCount = 4;
+
+            constexpr float kValidationReuseDistance = 0.06f;
+            constexpr float kValidationReuseDistanceSq = kValidationReuseDistance * kValidationReuseDistance;
+            if (hasLastPlacementValidation_ && lastPlacementValidationTowerId_ == selected->id &&
+                glm::dot(worldPos - lastPlacementValidationPos_, worldPos - lastPlacementValidationPos_) <=
+                    kValidationReuseDistanceSq) {
+                lastPlacementValidationReason_ = lastPlacementValidationCachedReason_;
+                return lastPlacementCanPlace_;
+            }
+
+            lastPlacementValidationReason_ = validateTowerPlacement(*selected, worldPos, kPreviewFootprintSampleCount);
+            lastPlacementCanPlace_ = lastPlacementValidationReason_.empty();
+            hasLastPlacementValidation_ = true;
+            lastPlacementValidationTowerId_ = selected->id;
+            lastPlacementValidationPos_ = worldPos;
+            lastPlacementValidationCachedReason_ = lastPlacementValidationReason_;
+            return lastPlacementCanPlace_;
         },
         [this, selected](const glm::vec3& worldPos) {
             if (!selected) {
                 return;
             }
+
+            // Re-validate with full footprint precision before committing the placement.
+            constexpr int kConfirmFootprintSampleCount = 8;
+            const std::string finalReason = validateTowerPlacement(*selected, worldPos, kConfirmFootprintSampleCount);
+            if (!finalReason.empty()) {
+                lastPlacementValidationReason_ = finalReason;
+                lastPlacementValidationCachedReason_ = finalReason;
+                lastPlacementCanPlace_ = false;
+                hasLastPlacementValidation_ = true;
+                lastPlacementValidationTowerId_ = selected->id;
+                lastPlacementValidationPos_ = worldPos;
+                return;
+            }
+
             if (requestSpendMoney(static_cast<float>(selected->cost))) {
                 const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
                 const int towerPrototypeIndex = towerLoadController_.templatePrototypeIndex(selected->id);
@@ -1240,8 +1413,26 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
                                                     selected->damageType});
                 towerPlacementController_.cancelPlacement();
                 hasValidPlacementAnchor_ = false;
+                bungeeInvalidActive_ = false;
+                hasLastPlacementValidation_ = false;
+                lastPlacementValidationCachedReason_.clear();
+                lastPlacementValidationReason_.clear();
             }
         });
+
+    // Keep reason in sync even when canPlace callback was not run this frame (e.g. no hit).
+    const auto& placementState = towerPlacementController_.state();
+    if (!selected) {
+        lastPlacementValidationReason_ = "no tower selected";
+    } else if (!placementState.hasHit) {
+        lastPlacementValidationReason_ = "cursor is not over ground";
+    } else if (placementState.canPlace) {
+        lastPlacementValidationReason_.clear();
+    } else if (lastPlacementValidationReason_.empty()) {
+        constexpr int kPreviewFootprintSampleCount = 4;
+        lastPlacementValidationReason_ =
+            validateTowerPlacement(*selected, placementState.worldPos, kPreviewFootprintSampleCount);
+    }
 }
 
 glm::mat4 PlayLevelScene::buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const {
@@ -2595,6 +2786,48 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "z");
             lua_setfield(L, -2, "worldPos");
 
+            lua_newtable(L);
+            lua_pushboolean(L, self->bungeeInvalidActive_);
+            lua_setfield(L, -2, "bungeeActive");
+            lua_pushboolean(L, self->hasValidPlacementAnchor_);
+            lua_setfield(L, -2, "hasAnchor");
+
+            lua_newtable(L);
+            lua_pushnumber(L, self->bungeeAnchorPos_.x);
+            lua_setfield(L, -2, "x");
+            lua_pushnumber(L, self->bungeeAnchorPos_.y);
+            lua_setfield(L, -2, "y");
+            lua_pushnumber(L, self->bungeeAnchorPos_.z);
+            lua_setfield(L, -2, "z");
+            lua_setfield(L, -2, "anchorPos");
+
+            lua_newtable(L);
+            lua_pushnumber(L, self->bungeeResolvedPos_.x);
+            lua_setfield(L, -2, "x");
+            lua_pushnumber(L, self->bungeeResolvedPos_.y);
+            lua_setfield(L, -2, "y");
+            lua_pushnumber(L, self->bungeeResolvedPos_.z);
+            lua_setfield(L, -2, "z");
+            lua_setfield(L, -2, "resolvedPos");
+
+            lua_pushboolean(L, self->hasLastRawPlacementCandidate_);
+            lua_setfield(L, -2, "hasRawCandidate");
+            lua_pushboolean(L, self->lastRawPlacementCandidateValid_);
+            lua_setfield(L, -2, "rawCandidateValid");
+            lua_newtable(L);
+            lua_pushnumber(L, self->lastRawPlacementCandidatePos_.x);
+            lua_setfield(L, -2, "x");
+            lua_pushnumber(L, self->lastRawPlacementCandidatePos_.y);
+            lua_setfield(L, -2, "y");
+            lua_pushnumber(L, self->lastRawPlacementCandidatePos_.z);
+            lua_setfield(L, -2, "z");
+            lua_setfield(L, -2, "rawCandidatePos");
+            lua_pushnumber(L, glm::distance(self->bungeeAnchorPos_, self->lastRawPlacementCandidatePos_));
+            lua_setfield(L, -2, "anchorToCandidateDistance");
+            lua_pushnumber(L, glm::distance(self->bungeeResolvedPos_, self->lastRawPlacementCandidatePos_));
+            lua_setfield(L, -2, "resolvedToCandidateDistance");
+            lua_setfield(L, -2, "debug");
+
             if (tower) {
                 lua_pushstring(L, tower->id.c_str());
                 lua_setfield(L, -2, "towerId");
@@ -2608,8 +2841,13 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 std::string reason;
                 if (!placementState.hasHit) {
                     reason = "cursor is not over ground";
+                } else if (placementState.canPlace) {
+                    reason.clear();
                 } else {
-                    reason = self->validateTowerPlacement(*tower, placementState.worldPos);
+                    reason = self->lastPlacementValidationReason_;
+                    if (reason.empty()) {
+                        reason = self->validateTowerPlacement(*tower, placementState.worldPos);
+                    }
                 }
                 lua_pushstring(L, reason.c_str());
                 lua_setfield(L, -2, "reason");

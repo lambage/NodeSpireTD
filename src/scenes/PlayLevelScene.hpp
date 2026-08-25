@@ -105,10 +105,27 @@ class PlayLevelScene final : public GameScene {
     // updateTowerPlacementFromInput()); used by validateTowerPlacement() to check slope without
     // re-raycasting.
     TerrainSample lastTerrainSample_{};
+    // Cache the last full placement validation result so tiny per-frame mouse jitter does not
+    // rerun spacing/path/footprint checks unnecessarily.
+    bool hasLastPlacementValidation_ = false;
+    std::string lastPlacementValidationTowerId_;
+    glm::vec3 lastPlacementValidationPos_{0.0f};
+    bool lastPlacementCanPlace_ = false;
+    std::string lastPlacementValidationCachedReason_;
+    // Cached reason for the current frame's placement verdict. Filled during
+    // updateTowerPlacementFromInput() so Lua/UI can read it without re-running
+    // expensive placement validation.
+    std::string lastPlacementValidationReason_;
     // "Bungee cord" placement snapping: while the raw cursor position is invalid, the placement
     // preview stays pinned to the last valid position until the cursor strays far enough away.
     glm::vec3 lastValidPlacementPos_{0.0f};
     bool hasValidPlacementAnchor_ = false;
+    bool bungeeInvalidActive_ = false;
+    glm::vec3 bungeeAnchorPos_{0.0f};
+    glm::vec3 bungeeResolvedPos_{0.0f};
+    bool hasLastRawPlacementCandidate_ = false;
+    glm::vec3 lastRawPlacementCandidatePos_{0.0f};
+    bool lastRawPlacementCandidateValid_ = false;
 
     bool requestSpendMoney(float amount);
     bool requestDamageBase(float amount);
@@ -120,8 +137,10 @@ class PlayLevelScene final : public GameScene {
     TerrainSample sampleTerrainAtCursor() const;
     bool isPointInPlacementRegion(const glm::vec3& worldPos, const TowerPlacementRegion*& outRegion) const;
     bool isPointOnPath(const glm::vec3& worldPos) const;
-    bool isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype) const;
-    std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
+    bool isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype,
+                      int footprintSampleCount) const;
+    std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
+                       int footprintSampleCount = 8) const;
     const PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex) const;
     PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex);
     const TowerArchetype::UpgradeNode* findUpgradeNodeById(const TowerArchetype& archetype,
