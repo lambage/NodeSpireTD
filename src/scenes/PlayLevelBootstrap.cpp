@@ -34,7 +34,7 @@ void PlayLevelBootstrap::resetRuntimeState(
     worldAssetSpec = {};
 }
 
-bool PlayLevelBootstrap::configureLevel(lua_State* luaState, SceneSharedState& state,
+void PlayLevelBootstrap::configureLevel(lua_State* luaState, SceneSharedState& state,
                                         std::filesystem::path& selectedMapAssetPath,
                                         std::filesystem::path& selectedLevelScriptPath,
                                         std::string& selectedWavesScriptPath, WorldAssetSpec& worldAssetSpec,
@@ -110,7 +110,6 @@ bool PlayLevelBootstrap::configureLevel(lua_State* luaState, SceneSharedState& s
         worldAssetSpec.animatedTemplateModelPaths = std::move(templateModels);
     }
 
-    return true;
 }
 
 std::unique_ptr<WorldRenderer> PlayLevelBootstrap::beginWorldLoad(lua_State* luaState, SceneSharedState& state,

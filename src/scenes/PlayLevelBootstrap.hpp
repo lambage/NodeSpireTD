@@ -34,7 +34,7 @@ class PlayLevelBootstrap {
                            std::filesystem::path& selectedLevelScriptPath, std::string& selectedWavesScriptPath,
                            WorldAssetSpec& worldAssetSpec) const;
 
-    bool configureLevel(lua_State* luaState, SceneSharedState& state, std::filesystem::path& selectedMapAssetPath,
+    void configureLevel(lua_State* luaState, SceneSharedState& state, std::filesystem::path& selectedMapAssetPath,
                         std::filesystem::path& selectedLevelScriptPath, std::string& selectedWavesScriptPath,
                         WorldAssetSpec& worldAssetSpec, TowerLoadController& towerLoadController,
                         EnemyLoadController& enemyLoadController, PlayLevelWaveController& waveController) const;
