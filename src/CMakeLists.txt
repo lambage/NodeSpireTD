@@ -21,14 +21,21 @@ add_executable(NodeSpireTD
 
     scenes/EnemyLoadController.cpp
     scenes/GameScene.cpp
+    scenes/LuaSceneStateBridge.cpp
+    scenes/LevelDefinitionLoader.cpp
     scenes/LobbyScene.cpp
     scenes/MainMenuScene.cpp
+    scenes/EnemySpawnFactory.cpp
     scenes/OptionsScene.cpp
+    scenes/PlayLevelBootstrap.cpp
     scenes/PlayLevelCameraController.cpp
     scenes/PlayLevelCombatController.cpp
+    scenes/PlayLevelFrameCoordinator.cpp
     scenes/PlayLevelPickingController.cpp
     scenes/PlayLevelRouteController.cpp
     scenes/PlayLevelTowerPlacementController.cpp
+    scenes/TowerPlacementPreviewResolver.cpp
+    scenes/TowerPlacementRules.cpp
     scenes/PlayLevelWaveController.cpp
     scenes/PlayLevelScene.cpp
     scenes/SceneSharedState.cpp

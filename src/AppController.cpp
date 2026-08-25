@@ -12,6 +12,7 @@
 #include <SFML/Audio.hpp>
 #include <SFML/Window.hpp>
 #include <algorithm>
+#include <functional>
 #include <imgui.h>
 #include <memory>
 #include <optional>
@@ -203,146 +204,340 @@ void renderSceneLoadingOverlay(const std::string& loadingMessage, float progress
     ImGui::End();
 }
 
+struct PendingSceneTransition {
+    bool active = false;
+    SceneId targetSceneId = SceneId::MainMenu;
+    std::string loadingMessage;
+    float elapsedSeconds = 0.0f;
+    float minDurationSeconds = 0.6f;
+};
+
+struct PendingDisplayConfirmation {
+    bool active = false;
+    AppSettings previousSettings{};
+    AppSettings candidateSettings{};
+    float secondsRemaining = 0.0f;
+};
+
+class RuntimeHost {
+  public:
+    void rebuild(const AppSettings& settings) {
+        if (vulkanContext_) {
+            vulkanContext_->waitIdle();
+        }
+
+        imguiLayer_.reset();
+        vulkanContext_.reset();
+
+        applySystemDisplayMode(settings);
+        window_.create(toVideoMode(settings), "NodeSpireTD", toWindowStyle(settings), toWindowState(settings));
+        if (settings.fullscreen && !settings.exclusiveFullscreen) {
+            window_.setPosition({0, 0});
+        }
+        window_.setVerticalSyncEnabled(settings.vSyncEnabled);
+
+        vulkanContext_ = std::make_unique<VulkanContext>(window_);
+        imguiLayer_ = std::make_unique<ImGuiLayer>();
+        imguiLayer_->initializeVulkanBackend(*vulkanContext_);
+        imguiLayer_->setDisplaySize(window_.getSize().x, window_.getSize().y);
+    }
+
+    sf::Window& window() { return window_; }
+    VulkanContext& vulkanContext() { return *vulkanContext_; }
+    const VulkanContext& vulkanContext() const { return *vulkanContext_; }
+    VulkanContext* vulkanContextPtr() { return vulkanContext_.get(); }
+    ImGuiLayer& imguiLayer() { return *imguiLayer_; }
+
+    void waitIdle() {
+        if (vulkanContext_) {
+            vulkanContext_->waitIdle();
+        }
+    }
+
+  private:
+    sf::Window window_;
+    std::unique_ptr<VulkanContext> vulkanContext_;
+    std::unique_ptr<ImGuiLayer> imguiLayer_;
+};
+
+class DisplaySettingsCoordinator {
+  public:
+    explicit DisplaySettingsCoordinator(AppSettings initialSettings)
+        : activeSettings_(sanitizeSettings(std::move(initialSettings))), workingSettings_(activeSettings_),
+          displayModes_(refreshDisplayModeOptions()),
+          selectedDisplayModeIndex_(findDisplayModeIndexForSettings(displayModes_, workingSettings_)) {}
+
+    const AppSettings& activeSettings() const { return activeSettings_; }
+    AppSettings& workingSettings() { return workingSettings_; }
+    const std::vector<DisplayModeOption>& displayModes() const { return displayModes_; }
+    int& selectedDisplayModeIndex() { return selectedDisplayModeIndex_; }
+    bool confirmationActive() const { return pendingDisplayConfirmation_.active; }
+    float confirmationSecondsRemaining() const { return pendingDisplayConfirmation_.secondsRemaining; }
+
+    void tick(float dt) {
+        if (pendingDisplayConfirmation_.active) {
+            pendingDisplayConfirmation_.secondsRemaining =
+                std::max(0.0f, pendingDisplayConfirmation_.secondsRemaining - dt);
+        }
+    }
+
+    AppSettings requestedSettings() const {
+        return sanitizeSettings(workingSettings_);
+    }
+
+    void saveMergedAudioSettings(SettingsManager& settingsManager) const {
+        settingsManager.save(mergeAudioSettingsForPersistence(activeSettings_, workingSettings_));
+    }
+
+    bool handleRevertIfNeeded(const SceneRequestState& sceneRequests, RuntimeHost& runtimeHost,
+                              const std::function<void()>& reloadActiveSceneResources,
+                              SettingsManager& settingsManager, size_t& currentFrame, bool& windowResized,
+                              uint32_t& resizedWidth, uint32_t& resizedHeight) {
+        if (!sceneRequests.revertDisplayChangesRequested &&
+            (!pendingDisplayConfirmation_.active || pendingDisplayConfirmation_.secondsRemaining > 0.0f)) {
+            return false;
+        }
+
+        activeSettings_ = pendingDisplayConfirmation_.previousSettings;
+        workingSettings_ = activeSettings_;
+        selectedDisplayModeIndex_ = findDisplayModeIndexForSettings(displayModes_, workingSettings_);
+        runtimeHost.rebuild(activeSettings_);
+        reloadActiveSceneResources();
+        settingsManager.save(activeSettings_);
+
+        pendingDisplayConfirmation_ = {};
+        resetFrameState(runtimeHost, currentFrame, windowResized, resizedWidth, resizedHeight);
+        return true;
+    }
+
+    void handleAcceptIfRequested(const SceneRequestState& sceneRequests, SettingsManager& settingsManager) {
+        if (!sceneRequests.acceptDisplayChangesRequested || !pendingDisplayConfirmation_.active) {
+            return;
+        }
+
+        activeSettings_ = pendingDisplayConfirmation_.candidateSettings;
+        workingSettings_ = activeSettings_;
+        selectedDisplayModeIndex_ = findDisplayModeIndexForSettings(displayModes_, workingSettings_);
+        settingsManager.save(activeSettings_);
+        pendingDisplayConfirmation_ = {};
+    }
+
+    bool handleApplyIfRequested(const SceneRequestState& sceneRequests, RuntimeHost& runtimeHost,
+                                const std::function<void()>& reloadActiveSceneResources,
+                                SettingsManager& settingsManager, size_t& currentFrame, bool& windowResized,
+                                uint32_t& resizedWidth, uint32_t& resizedHeight) {
+        if (!sceneRequests.applySettingsRequested) {
+            return false;
+        }
+
+        const AppSettings requested = requestedSettings();
+        if (hasDisplayChanges(activeSettings_, requested)) {
+            PendingDisplayConfirmation nextConfirmation;
+            nextConfirmation.active = true;
+            nextConfirmation.previousSettings = activeSettings_;
+            nextConfirmation.candidateSettings = requested;
+            nextConfirmation.secondsRemaining = 10.0f;
+
+            activeSettings_ = requested;
+            workingSettings_ = activeSettings_;
+            selectedDisplayModeIndex_ = findDisplayModeIndexForSettings(displayModes_, workingSettings_);
+            runtimeHost.rebuild(activeSettings_);
+            reloadActiveSceneResources();
+            pendingDisplayConfirmation_ = nextConfirmation;
+
+            resetFrameState(runtimeHost, currentFrame, windowResized, resizedWidth, resizedHeight);
+            return true;
+        }
+
+        activeSettings_ = requested;
+        workingSettings_ = activeSettings_;
+        selectedDisplayModeIndex_ = findDisplayModeIndexForSettings(displayModes_, workingSettings_);
+        runtimeHost.window().setVerticalSyncEnabled(activeSettings_.vSyncEnabled);
+        settingsManager.save(activeSettings_);
+        return false;
+    }
+
+  private:
+    static void resetFrameState(RuntimeHost& runtimeHost, size_t& currentFrame, bool& windowResized,
+                                uint32_t& resizedWidth, uint32_t& resizedHeight) {
+        currentFrame = 0;
+        windowResized = false;
+        resizedWidth = runtimeHost.window().getSize().x;
+        resizedHeight = runtimeHost.window().getSize().y;
+    }
+
+    AppSettings activeSettings_;
+    AppSettings workingSettings_;
+    std::vector<DisplayModeOption> displayModes_;
+    int selectedDisplayModeIndex_ = 0;
+    PendingDisplayConfirmation pendingDisplayConfirmation_{};
+};
+
+class SceneDirector {
+  public:
+    SceneDirector() : sceneGraph_(createDefaultScenes()) {}
+
+    void enterInitialScene(DisplaySettingsCoordinator& displaySettings, RuntimeHost& runtimeHost,
+                           AudioEngine& audioEngine) {
+        if (auto initialSceneIt = sceneGraph_.find(currentSceneId_); initialSceneIt != sceneGraph_.end()) {
+            SceneSharedState initialState = makeSceneState(displaySettings, runtimeHost, audioEngine);
+            initialSceneIt->second->onEnter(initialState);
+        }
+    }
+
+    void handleEvent(const sf::Event& event, ImGuiLayer& imguiLayer) {
+        auto sceneIt = sceneGraph_.find(currentSceneId_);
+        if (sceneIt != sceneGraph_.end()) {
+            sceneIt->second->handleEvent(event, imguiLayer);
+        }
+    }
+
+    void render(DisplaySettingsCoordinator& displaySettings, RuntimeHost& runtimeHost, AudioEngine& audioEngine,
+                float dt, SceneRequestState& outSceneRequests) {
+        if (pendingSceneTransition_.active) {
+            pendingSceneTransition_.elapsedSeconds += dt;
+
+            const float progress =
+                pendingSceneTransition_.minDurationSeconds > 0.0f
+                    ? (pendingSceneTransition_.elapsedSeconds / pendingSceneTransition_.minDurationSeconds)
+                    : 1.0f;
+            renderSceneLoadingOverlay(pendingSceneTransition_.loadingMessage, progress);
+
+            if (pendingSceneTransition_.elapsedSeconds >= pendingSceneTransition_.minDurationSeconds) {
+                enterScene(pendingSceneTransition_.targetSceneId, displaySettings, runtimeHost, audioEngine);
+                pendingSceneTransition_ = {};
+            }
+            outSceneRequests = {};
+            return;
+        }
+
+        SceneSharedState sceneState = makeSceneState(displaySettings, runtimeHost, audioEngine);
+        auto sceneIt = sceneGraph_.find(currentSceneId_);
+        if (sceneIt == sceneGraph_.end()) {
+            outSceneRequests = {};
+            return;
+        }
+
+        sceneIt->second->render(sceneState, dt);
+        outSceneRequests = sceneIt->second->consumeSceneRequests();
+    }
+
+    void renderWorld(VkCommandBuffer commandBuffer, const RuntimeHost& runtimeHost) {
+        auto sceneIt = sceneGraph_.find(currentSceneId_);
+        if (sceneIt != sceneGraph_.end()) {
+            sceneIt->second->renderWorld(commandBuffer, runtimeHost.vulkanContext().extent());
+        }
+    }
+
+    void queueTransition(const SceneTransitionRequest& request) {
+        pendingSceneTransition_.active = true;
+        pendingSceneTransition_.targetSceneId = request.target;
+        pendingSceneTransition_.loadingMessage = request.message.empty() ? "Loading..." : request.message;
+        pendingSceneTransition_.elapsedSeconds = 0.0f;
+        pendingSceneTransition_.minDurationSeconds = std::max(0.0f, request.minDurationSeconds);
+
+        if (pendingSceneTransition_.minDurationSeconds > 0.0f) {
+            renderSceneLoadingOverlay(pendingSceneTransition_.loadingMessage, 0.0f);
+        }
+    }
+
+    void reloadActiveSceneResources(DisplaySettingsCoordinator& displaySettings, RuntimeHost& runtimeHost,
+                                    AudioEngine& audioEngine) {
+        auto sceneIt = sceneGraph_.find(currentSceneId_);
+        if (sceneIt == sceneGraph_.end()) {
+            return;
+        }
+
+        SceneSharedState exitState = makeSceneState(displaySettings, runtimeHost, audioEngine);
+        sceneIt->second->onExit(exitState);
+
+        SceneSharedState enterState = makeSceneState(displaySettings, runtimeHost, audioEngine);
+        sceneIt->second->onEnter(enterState);
+    }
+
+    void exitActiveScene(DisplaySettingsCoordinator& displaySettings, RuntimeHost& runtimeHost, AudioEngine& audioEngine) {
+        auto sceneIt = sceneGraph_.find(currentSceneId_);
+        if (sceneIt == sceneGraph_.end()) {
+            return;
+        }
+
+        SceneSharedState state = makeSceneState(displaySettings, runtimeHost, audioEngine);
+        sceneIt->second->onExit(state);
+    }
+
+  private:
+    SceneSharedState makeSceneState(DisplaySettingsCoordinator& displaySettings, RuntimeHost& runtimeHost,
+                                    AudioEngine& audioEngine) {
+        return SceneSharedState{displaySettings.workingSettings(),
+                                displaySettings.displayModes(),
+                                displaySettings.selectedDisplayModeIndex(),
+                                displaySettings.confirmationActive(),
+                                displaySettings.confirmationSecondsRemaining(),
+                                loadingComplete_,
+                                activeLevelName_,
+                                activeLevelAssetPath_,
+                                activeLevelScriptPath_,
+                                audioEngine.activeAssetKeys(),
+                                runtimeHost.vulkanContextPtr(),
+                                &audioEngine,
+                                runtimeHost.imguiLayer().headingFont(),
+                                runtimeHost.imguiLayer().titleFont()};
+    }
+
+    void enterScene(SceneId nextSceneId, DisplaySettingsCoordinator& displaySettings, RuntimeHost& runtimeHost,
+                    AudioEngine& audioEngine) {
+        SceneSharedState state = makeSceneState(displaySettings, runtimeHost, audioEngine);
+        auto currentSceneIt = sceneGraph_.find(currentSceneId_);
+        if (currentSceneIt != sceneGraph_.end()) {
+            currentSceneIt->second->onExit(state);
+        }
+
+        currentSceneId_ = nextSceneId;
+
+        auto nextSceneIt = sceneGraph_.find(currentSceneId_);
+        if (nextSceneIt != sceneGraph_.end()) {
+            nextSceneIt->second->onEnter(state);
+        }
+    }
+
+    SceneGraph sceneGraph_;
+    SceneId currentSceneId_ = SceneId::Splash;
+    PendingSceneTransition pendingSceneTransition_{};
+    std::string activeLevelName_ = "Forest Outskirts";
+    std::string activeLevelAssetPath_ = "assets/terrain/Terrain003_4K.obj";
+    std::string activeLevelScriptPath_;
+    bool loadingComplete_ = true;
+};
+
 } // namespace
 
 int AppController::run() {
     try {
         PlatformRuntime platformRuntime{L_};
         SettingsManager settingsManager;
-
-        AppSettings activeSettings = sanitizeSettings(settingsManager.loadOrCreateDefaults());
-        AppSettings workingSettings = activeSettings;
-
-        std::vector<DisplayModeOption> displayModes = refreshDisplayModeOptions();
-        int selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
-
-        sf::Window window;
-        std::unique_ptr<VulkanContext> vulkanContext;
-        std::unique_ptr<ImGuiLayer> imguiLayer;
-
-        auto rebuildRuntime = [&](const AppSettings& settings) {
-            if (vulkanContext) {
-                vulkanContext->waitIdle();
-            }
-
-            imguiLayer.reset();
-            vulkanContext.reset();
-
-            applySystemDisplayMode(settings);
-            window.create(toVideoMode(settings), "NodeSpireTD", toWindowStyle(settings), toWindowState(settings));
-            if (settings.fullscreen && !settings.exclusiveFullscreen) {
-                window.setPosition({0, 0});
-            }
-            window.setVerticalSyncEnabled(settings.vSyncEnabled);
-
-            vulkanContext = std::make_unique<VulkanContext>(window);
-            imguiLayer = std::make_unique<ImGuiLayer>();
-            imguiLayer->initializeVulkanBackend(*vulkanContext);
-            imguiLayer->setDisplaySize(window.getSize().x, window.getSize().y);
-        };
-
-        rebuildRuntime(activeSettings);
-
-        SceneGraph sceneGraph = createDefaultScenes();
-        SceneId currentSceneId = SceneId::Splash;
+        DisplaySettingsCoordinator displaySettings(settingsManager.loadOrCreateDefaults());
+        RuntimeHost runtimeHost;
+        runtimeHost.rebuild(displaySettings.activeSettings());
+        SceneDirector sceneDirector;
         AudioEngine audioEngine;
-
-        struct PendingSceneTransition {
-            bool active = false;
-            SceneId targetSceneId = SceneId::MainMenu;
-            std::string loadingMessage;
-            float elapsedSeconds = 0.0f;
-            float minDurationSeconds = 0.6f;
-        };
-
-        struct PendingDisplayConfirmation {
-            bool active = false;
-            AppSettings previousSettings{};
-            AppSettings candidateSettings{};
-            float secondsRemaining = 0.0f;
-        };
-
-        PendingSceneTransition pendingSceneTransition;
-        PendingDisplayConfirmation pendingDisplayConfirmation;
-
-        std::string activeLevelName = "Forest Outskirts";
-        std::string activeLevelAssetPath = "assets/terrain/Terrain003_4K.obj";
-        std::string activeLevelScriptPath = "";
-        bool loadingComplete = true;
-
-        auto makeSceneState = [&]() {
-            return SceneSharedState{workingSettings,
-                                    displayModes,
-                                    selectedDisplayModeIndex,
-                                    pendingDisplayConfirmation.active,
-                                    pendingDisplayConfirmation.secondsRemaining,
-                                    loadingComplete,
-                                    activeLevelName,
-                                    activeLevelAssetPath,
-                                    activeLevelScriptPath,
-                                    audioEngine.activeAssetKeys(),
-                                    vulkanContext.get(),
-                                    &audioEngine,
-                                    imguiLayer->headingFont(),
-                                    imguiLayer->titleFont()};
-        };
-
-        auto enterScene = [&](SceneId nextSceneId) {
-            SceneSharedState state = makeSceneState();
-            auto currentSceneIt = sceneGraph.find(currentSceneId);
-            if (currentSceneIt != sceneGraph.end()) {
-                currentSceneIt->second->onExit(state);
-            }
-
-            currentSceneId = nextSceneId;
-
-            auto nextSceneIt = sceneGraph.find(currentSceneId);
-            if (nextSceneIt != sceneGraph.end()) {
-                nextSceneIt->second->onEnter(state);
-            }
-        };
-
-        auto reloadActiveSceneResources = [&]() {
-            auto sceneIt = sceneGraph.find(currentSceneId);
-            if (sceneIt == sceneGraph.end()) {
-                return;
-            }
-
-            SceneSharedState exitState = makeSceneState();
-            sceneIt->second->onExit(exitState);
-
-            SceneSharedState enterState = makeSceneState();
-            sceneIt->second->onEnter(enterState);
-        };
-
-        if (auto initialSceneIt = sceneGraph.find(currentSceneId); initialSceneIt != sceneGraph.end()) {
-            SceneSharedState initialState = makeSceneState();
-            initialSceneIt->second->onEnter(initialState);
-        }
+        sceneDirector.enterInitialScene(displaySettings, runtimeHost, audioEngine);
 
         sf::Clock deltaClock;
         bool windowResized = false;
-        uint32_t resizedWidth = window.getSize().x;
-        uint32_t resizedHeight = window.getSize().y;
+        uint32_t resizedWidth = runtimeHost.window().getSize().x;
+        uint32_t resizedHeight = runtimeHost.window().getSize().y;
         size_t currentFrame = 0;
 
-        while (window.isOpen()) {
+        while (runtimeHost.window().isOpen()) {
             const float dt = deltaClock.restart().asSeconds();
             platformRuntime.tick();
-            imguiLayer->setDeltaTime(dt);
+            runtimeHost.imguiLayer().setDeltaTime(dt);
+            displaySettings.tick(dt);
 
-            if (pendingDisplayConfirmation.active) {
-                pendingDisplayConfirmation.secondsRemaining -= dt;
-                if (pendingDisplayConfirmation.secondsRemaining <= 0.0f) {
-                    pendingDisplayConfirmation.secondsRemaining = 0.0f;
-                }
-            }
-
-            while (const std::optional<sf::Event> event = window.pollEvent()) {
+            while (const std::optional<sf::Event> event = runtimeHost.window().pollEvent()) {
                 if (event->is<sf::Event::Closed>()) {
-                    const AppSettings persisted = mergeAudioSettingsForPersistence(activeSettings, workingSettings);
-                    settingsManager.save(persisted);
-                    window.close();
+                    displaySettings.saveMergedAudioSettings(settingsManager);
+                    runtimeHost.window().close();
                     continue;
                 }
 
@@ -350,191 +545,102 @@ int AppController::run() {
                     windowResized = true;
                     resizedWidth = resized->size.x;
                     resizedHeight = resized->size.y;
-                    imguiLayer->setDisplaySize(resizedWidth, resizedHeight);
+                    runtimeHost.imguiLayer().setDisplaySize(resizedWidth, resizedHeight);
                 }
 
-                auto sceneIt = sceneGraph.find(currentSceneId);
-                if (sceneIt != sceneGraph.end()) {
-                    sceneIt->second->handleEvent(*event, *imguiLayer);
-                }
+                sceneDirector.handleEvent(*event, runtimeHost.imguiLayer());
             }
 
-            vulkanContext->waitForFrameFence(currentFrame);
+            runtimeHost.vulkanContext().waitForFrameFence(currentFrame);
 
             if (windowResized) {
-                if (!vulkanContext->recreateSwapchain(resizedWidth, resizedHeight)) {
+                if (!runtimeHost.vulkanContext().recreateSwapchain(resizedWidth, resizedHeight)) {
                     continue;
                 }
-                imguiLayer->setDisplaySize(resizedWidth, resizedHeight);
+                runtimeHost.imguiLayer().setDisplaySize(resizedWidth, resizedHeight);
                 windowResized = false;
                 continue;
             }
 
             uint32_t imageIndex = 0;
-            if (vulkanContext->acquireNextImage(currentFrame, imageIndex) == VulkanContext::AcquireStatus::OutOfDate) {
+            if (runtimeHost.vulkanContext().acquireNextImage(currentFrame, imageIndex) ==
+                VulkanContext::AcquireStatus::OutOfDate) {
                 windowResized = true;
                 continue;
             }
 
-            imguiLayer->beginFrame();
+            runtimeHost.imguiLayer().beginFrame();
 
             {
-                const bool windowFocused = window.hasFocus();
-                audioEngine.setEffectiveSettings(effectiveAudioSettings(workingSettings, windowFocused));
+                const bool windowFocused = runtimeHost.window().hasFocus();
+                audioEngine.setEffectiveSettings(effectiveAudioSettings(displaySettings.workingSettings(), windowFocused));
             }
 
             SceneRequestState sceneRequests;
-            if (pendingSceneTransition.active) {
-                pendingSceneTransition.elapsedSeconds += dt;
+            sceneDirector.render(displaySettings, runtimeHost, audioEngine, dt, sceneRequests);
 
-                const float progress =
-                    pendingSceneTransition.minDurationSeconds > 0.0f
-                        ? (pendingSceneTransition.elapsedSeconds / pendingSceneTransition.minDurationSeconds)
-                        : 1.0f;
-                renderSceneLoadingOverlay(pendingSceneTransition.loadingMessage, progress);
+            for (const AudioReleaseRequest& request : sceneRequests.audioReleaseRequests) {
+                audioEngine.release(request.path, request.channel);
+            }
 
-                if (pendingSceneTransition.elapsedSeconds >= pendingSceneTransition.minDurationSeconds) {
-                    enterScene(pendingSceneTransition.targetSceneId);
-                    pendingSceneTransition = {};
-                }
-            } else {
-                SceneSharedState sceneState = makeSceneState();
-                auto sceneIt = sceneGraph.find(currentSceneId);
-                if (sceneIt != sceneGraph.end()) {
-                    sceneIt->second->render(sceneState, dt);
-                    sceneRequests = sceneIt->second->consumeSceneRequests();
-                }
+            for (const AudioPreloadRequest& request : sceneRequests.audioPreloadRequests) {
+                audioEngine.preload(request.path, request.channel);
+            }
 
-                for (const AudioReleaseRequest& request : sceneRequests.audioReleaseRequests) {
-                    audioEngine.release(request.path, request.channel);
-                }
+            for (const AudioPlayRequest& request : sceneRequests.audioPlayRequests) {
+                audioEngine.play(request.path, request.channel, request.loop, request.gain);
+            }
 
-                for (const AudioPreloadRequest& request : sceneRequests.audioPreloadRequests) {
-                    audioEngine.preload(request.path, request.channel);
-                }
-
-                for (const AudioPlayRequest& request : sceneRequests.audioPlayRequests) {
-                    audioEngine.play(request.path, request.channel, request.loop, request.gain);
-                }
-
-                if (sceneRequests.sceneTransitionRequested) {
-                    // Defer scene teardown/enter to a later frame so any textures used by
-                    // this frame's ImGui draw data remain valid through submission.
-                    pendingSceneTransition.active = true;
-                    pendingSceneTransition.targetSceneId = sceneRequests.sceneTransition.target;
-                    pendingSceneTransition.loadingMessage =
-                        sceneRequests.sceneTransition.message.empty() ? "Loading..." : sceneRequests.sceneTransition.message;
-                    pendingSceneTransition.elapsedSeconds = 0.0f;
-                    pendingSceneTransition.minDurationSeconds =
-                        std::max(0.0f, sceneRequests.sceneTransition.minDurationSeconds);
-
-                    if (pendingSceneTransition.minDurationSeconds > 0.0f) {
-                        renderSceneLoadingOverlay(pendingSceneTransition.loadingMessage, 0.0f);
-                    }
-                }
+            if (sceneRequests.sceneTransitionRequested) {
+                sceneDirector.queueTransition(sceneRequests.sceneTransition);
             }
 
             audioEngine.update(dt);
 
-            imguiLayer->endFrame();
+            runtimeHost.imguiLayer().endFrame();
 
-            const AppSettings requestedSettings = sanitizeSettings(workingSettings);
+            VkCommandBuffer commandBuffer = runtimeHost.vulkanContext().beginFrameRecording(currentFrame, imageIndex);
 
-            VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(currentFrame, imageIndex);
+            sceneDirector.renderWorld(commandBuffer, runtimeHost);
 
-            // 3-D world pass (before ImGui, so HUD overlays geometry)
-            {
-                auto sceneIt = sceneGraph.find(currentSceneId);
-                if (sceneIt != sceneGraph.end()) {
-                    sceneIt->second->renderWorld(commandBuffer, vulkanContext->extent());
-                }
-            }
+            runtimeHost.imguiLayer().renderDrawData(commandBuffer);
+            runtimeHost.vulkanContext().endFrameRecordingAndSubmit(currentFrame, imageIndex, commandBuffer);
 
-            imguiLayer->renderDrawData(commandBuffer);
-            vulkanContext->endFrameRecordingAndSubmit(currentFrame, imageIndex, commandBuffer);
-
-            if (vulkanContext->present(imageIndex)) {
+            if (runtimeHost.vulkanContext().present(imageIndex)) {
                 windowResized = true;
             }
 
             if (sceneRequests.quitRequested) {
-                auto sceneIt = sceneGraph.find(currentSceneId);
-                if (sceneIt != sceneGraph.end()) {
-                    SceneSharedState state = makeSceneState();
-                    sceneIt->second->onExit(state);
-                }
+                sceneDirector.exitActiveScene(displaySettings, runtimeHost, audioEngine);
+                displaySettings.saveMergedAudioSettings(settingsManager);
+                runtimeHost.window().close();
+            }
 
-                const AppSettings persisted = mergeAudioSettingsForPersistence(activeSettings, workingSettings);
-                settingsManager.save(persisted);
-                window.close();
+            if (!runtimeHost.window().isOpen()) {
+                continue;
             }
 
             currentFrame = (currentFrame + 1) % VulkanContext::kMaxFramesInFlight;
 
-            if (sceneRequests.revertDisplayChangesRequested ||
-                (pendingDisplayConfirmation.active && pendingDisplayConfirmation.secondsRemaining <= 0.0f)) {
-                activeSettings = pendingDisplayConfirmation.previousSettings;
-                workingSettings = activeSettings;
-                selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
-                rebuildRuntime(activeSettings);
-                reloadActiveSceneResources();
-                settingsManager.save(activeSettings);
-
-                pendingDisplayConfirmation = {};
-                currentFrame = 0;
-                windowResized = false;
-                resizedWidth = window.getSize().x;
-                resizedHeight = window.getSize().y;
+            const auto reloadActiveSceneResources = [&]() {
+                sceneDirector.reloadActiveSceneResources(displaySettings, runtimeHost, audioEngine);
+            };
+            if (displaySettings.handleRevertIfNeeded(sceneRequests, runtimeHost, reloadActiveSceneResources,
+                                                     settingsManager, currentFrame, windowResized, resizedWidth,
+                                                     resizedHeight)) {
                 continue;
             }
 
-            if (sceneRequests.acceptDisplayChangesRequested && pendingDisplayConfirmation.active) {
-                activeSettings = pendingDisplayConfirmation.candidateSettings;
-                workingSettings = activeSettings;
-                selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
-                settingsManager.save(activeSettings);
-                pendingDisplayConfirmation = {};
-            }
-
-            if (sceneRequests.applySettingsRequested) {
-                const bool displayChanges = hasDisplayChanges(activeSettings, requestedSettings);
-                if (displayChanges) {
-                    PendingDisplayConfirmation nextConfirmation;
-                    nextConfirmation.active = true;
-                    nextConfirmation.previousSettings = activeSettings;
-                    nextConfirmation.candidateSettings = requestedSettings;
-                    nextConfirmation.secondsRemaining = 10.0f;
-
-                    activeSettings = requestedSettings;
-                    workingSettings = activeSettings;
-                    selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
-                    rebuildRuntime(activeSettings);
-                    reloadActiveSceneResources();
-                    pendingDisplayConfirmation = nextConfirmation;
-
-                    currentFrame = 0;
-                    windowResized = false;
-                    resizedWidth = window.getSize().x;
-                    resizedHeight = window.getSize().y;
-                    continue;
-                }
-
-                activeSettings = requestedSettings;
-                workingSettings = activeSettings;
-                selectedDisplayModeIndex = findDisplayModeIndexForSettings(displayModes, workingSettings);
-                window.setVerticalSyncEnabled(activeSettings.vSyncEnabled);
-                settingsManager.save(activeSettings);
+            displaySettings.handleAcceptIfRequested(sceneRequests, settingsManager);
+            if (displaySettings.handleApplyIfRequested(sceneRequests, runtimeHost, reloadActiveSceneResources,
+                                                       settingsManager, currentFrame, windowResized, resizedWidth,
+                                                       resizedHeight)) {
+                continue;
             }
         }
 
-        if (vulkanContext) {
-            vulkanContext->waitIdle();
-        }
-
-        // Final persistence pass to keep latest audio options changed in UI,
-        // even when the session exits without an Apply action.
-        const AppSettings persistedOnShutdown = mergeAudioSettingsForPersistence(activeSettings, workingSettings);
-        settingsManager.save(persistedOnShutdown);
+        runtimeHost.waitIdle();
+        displaySettings.saveMergedAudioSettings(settingsManager);
 
 #ifdef _WIN32
         ChangeDisplaySettingsW(nullptr, 0);

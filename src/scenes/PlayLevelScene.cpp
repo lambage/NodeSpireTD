@@ -2,7 +2,10 @@
 
 #include "LuaStateBootstrap.hpp"
 #include "VulkanContext.hpp"
+#include "scenes/EnemySpawnFactory.hpp"
+#include "scenes/LevelDefinitionLoader.hpp"
 #include "scenes/SceneSharedState.hpp"
+#include "scenes/TowerPlacementRules.hpp"
 #include "utility/WorldRenderer.hpp"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -36,79 +39,6 @@ bool isProjectAssetPath(const std::filesystem::path& path) {
     return normalized.rfind("assets/", 0) == 0;
 }
 
-// Vertical tolerance (world units) added above/below a route segment's endpoints when testing
-// whether a point falls inside its no-build corridor. The route can climb/descend with the
-// terrain, so a plain XZ-plane test would incorrectly ignore path segments on slopes; this
-// keeps the corridor test forgiving enough to still catch those without checking full 3D
-// distance-to-segment (which would reject valid points where the tower's ground height differs
-// slightly from the interpolated path height). Tune this down if towers too far above/below the
-// path are being incorrectly blocked, or up if sloped path segments are leaking through.
-constexpr float kPathCorridorVerticalMargin = 1.25f;
-
-// Extra length (world units) the no-build box extends past each segment's two endpoints along
-// the direction of travel. Kept independent from the lateral half-width so tightening/loosening
-// one doesn't affect the other; only needs to be large enough that consecutive segments'
-// corridors overlap at turns instead of leaving an uncovered gap in the corner.
-constexpr float kPathCorridorEndExtension = 1.25f;
-
-// Tests whether `point` falls inside the rectangular no-build corridor swept along route
-// segment [a,b] in the XZ plane, extended by `halfWidth` on both sides and by
-// kPathCorridorEndExtension at both ends (so consecutive segments' corridors overlap cleanly at
-// turns instead of leaving gaps at corners).
-bool pointInRouteSegmentCorridor(const glm::vec3& point, const glm::vec3& a, const glm::vec3& b, float halfWidth) {
-    const glm::vec2 a2(a.x, a.z);
-    const glm::vec2 b2(b.x, b.z);
-    const glm::vec2 p2(point.x, point.z);
-    const glm::vec2 ab = b2 - a2;
-    const float len = glm::length(ab);
-    const float minY = std::min(a.y, b.y) - kPathCorridorVerticalMargin;
-    const float maxY = std::max(a.y, b.y) + kPathCorridorVerticalMargin;
-    if (point.y < minY || point.y > maxY) {
-        return false;
-    }
-
-    if (len < 1e-4f) {
-        return glm::length(p2 - a2) <= halfWidth;
-    }
-
-    const glm::vec2 dir = ab / len;
-    const glm::vec2 rel = p2 - a2;
-    const float along = rel.x * dir.x + rel.y * dir.y;
-    if (along < -kPathCorridorEndExtension || along > len + kPathCorridorEndExtension) {
-        return false;
-    }
-    const float across = rel.x * (-dir.y) + rel.y * dir.x;
-    return std::abs(across) <= halfWidth;
-}
-
-// Builds the 8 world-space corners of the oriented no-build box for one route segment. Must
-// stay in sync with pointInRouteSegmentCorridor() (same half-width/end-extension/vertical
-// margin) so the debug overlay always matches the real placement rule exactly.
-void buildRouteSegmentCorridorBoxCorners(const glm::vec3& a, const glm::vec3& b, float halfWidth,
-                                         std::array<glm::vec3, 8>& outCorners) {
-    glm::vec3 forward = b - a;
-    forward.y = 0.0f;
-    const float len = glm::length(forward);
-    forward = (len > 1e-4f) ? (forward / len) : glm::vec3(0.0f, 0.0f, 1.0f);
-    const glm::vec3 right(forward.z, 0.0f, -forward.x);
-
-    const glm::vec3 extendedA = a - forward * kPathCorridorEndExtension;
-    const glm::vec3 extendedB = b + forward * kPathCorridorEndExtension;
-    const float minY = std::min(a.y, b.y) - kPathCorridorVerticalMargin;
-    const float maxY = std::max(a.y, b.y) + kPathCorridorVerticalMargin;
-
-    const glm::vec3 base[4] = {
-        extendedA - right * halfWidth,
-        extendedA + right * halfWidth,
-        extendedB + right * halfWidth,
-        extendedB - right * halfWidth,
-    };
-    for (int i = 0; i < 4; ++i) {
-        outCorners[i] = glm::vec3(base[i].x, minY, base[i].z);
-        outCorners[static_cast<std::size_t>(i) + 4] = glm::vec3(base[i].x, maxY, base[i].z);
-    }
-}
-
 PlayLevelScene* luaSceneSelf(lua_State* L) {
     return static_cast<PlayLevelScene*>(lua_touserdata(L, lua_upvalueindex(1)));
 }
@@ -120,55 +50,6 @@ int pushCommandResult(lua_State* L, bool ok, const char* reason) {
     lua_pushstring(L, reason);
     lua_setfield(L, -2, "reason");
     return 1;
-}
-
-glm::vec3 luaReadVec3Field(lua_State* L, int tableIndex, const char* fieldName, const glm::vec3& defaultValue) {
-    lua_getfield(L, tableIndex, fieldName);
-    if (!lua_istable(L, -1)) {
-        lua_pop(L, 1);
-        return defaultValue;
-    }
-
-    glm::vec3 value = defaultValue;
-    lua_getfield(L, -1, "x");
-    if (lua_isnumber(L, -1)) {
-        value.x = static_cast<float>(lua_tonumber(L, -1));
-    }
-    lua_pop(L, 1);
-
-    lua_getfield(L, -1, "y");
-    if (lua_isnumber(L, -1)) {
-        value.y = static_cast<float>(lua_tonumber(L, -1));
-    }
-    lua_pop(L, 1);
-
-    lua_getfield(L, -1, "z");
-    if (lua_isnumber(L, -1)) {
-        value.z = static_cast<float>(lua_tonumber(L, -1));
-    }
-    lua_pop(L, 1);
-
-    lua_pop(L, 1);
-    return value;
-}
-
-void publishLevelUiTextures(lua_State* L, const WorldAssetSpec& spec) {
-    lua_newtable(L);
-    const int rootTable = lua_gettop(L);
-    for (std::size_t i = 0; i < spec.uiTextures.size(); ++i) {
-        const auto& entry = spec.uiTextures[i];
-        lua_newtable(L);
-
-        lua_pushstring(L, entry.id.c_str());
-        lua_setfield(L, -2, "id");
-
-        const std::string path = entry.texturePath.string();
-        lua_pushstring(L, path.c_str());
-        lua_setfield(L, -2, "path");
-
-        lua_seti(L, rootTable, static_cast<lua_Integer>(i + 1));
-    }
-    lua_setglobal(L, "LevelUiTextures");
 }
 
 bool projectWorldToScreen(const glm::vec3& worldPos, const glm::mat4& view, const glm::mat4& proj,
@@ -285,96 +166,22 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     LuaStateBootstrap::initializeEngineState(L_, state.vulkanContext, state.audioEngine);
     registerLuaGameplayApi();
 
-    gameplayState_.resetForNewRun();
-    towerLoadController_.reset();
-    enemyLoadController_.reset();
-    towerPlacementController_.reset();
-    placedTowers_.clear();
-    activeProjectiles_.clear();
-    nextEnemyRuntimeId_ = 1;
+    bootstrap_.resetRuntimeState(gameplayState_, towerLoadController_, enemyLoadController_, towerPlacementController_,
+                                 placedTowers_, activeProjectiles_, nextEnemyRuntimeId_, activeEnemies_,
+                                 waveController_, routeController_, selectedEnemyRuntimeId_, pickingController_,
+                                 state, selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
+                                 worldAssetSpec_);
     pendingCommands_.clear();
-    activeEnemies_.clear();
-    waveController_.clearAll();
-    routeController_.clear();
-    selectedEnemyRuntimeId_ = 0;
-    pickingController_.reset();
-    selectedMapAssetPath_ = state.activeLevelAssetPath;
-    selectedLevelScriptPath_ = state.activeLevelScriptPath;
-    selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
-    worldAssetSpec_ = {};
-
-    if (selectedLevelScriptPath_.empty()) {
-        selectedLevelScriptPath_ = "assets/scenes/PlayLevel.level.lua";
-    }
-
-    if (!loadLevelDefinition(state)) {
-        spdlog::warn("PlayLevelScene: failed to load level definition {}.", selectedLevelScriptPath_.string());
-    }
-
-    if (enemyLoadController_.empty() && !enemyLoadController_.loadEnemyArchetype("assets/models/enemy/goblin1.enemy.lua")) {
-        spdlog::warn("PlayLevelScene: using built-in enemy defaults because no archetype could be loaded.");
-        enemyLoadController_.registerArchetype(EnemyArchetype{});
-    }
-
-    if (!waveController_.hasDefinitions() && !selectedWavesScriptPath_.empty() &&
-        !loadWaveDefinitions(selectedWavesScriptPath_)) {
-        spdlog::warn("PlayLevelScene: using fallback wave definition because {} failed to load.",
-                     selectedWavesScriptPath_);
-    }
-
-    if (!waveController_.hasDefinitions()) {
-        PlayLevelWaveController::WaveDefinition fallback;
-        fallback.spawns.push_back(PlayLevelWaveController::WaveSpawnDefinition{});
-        waveController_.definitionsMutable().push_back(std::move(fallback));
-    }
-
-    towerLoadController_.discoverTowerArchetypesInDirectory("assets/models/towers");
-    towerLoadController_.populateWorldAssets(worldAssetSpec_);
-
-    publishLevelUiTextures(L_, worldAssetSpec_);
-
-    {
-        std::vector<std::filesystem::path> templateModels;
-        templateModels.reserve(enemyLoadController_.archetypes().size());
-        for (const auto& [id, archetype] : enemyLoadController_.archetypes()) {
-            (void)id;
-            if (archetype.modelPath.empty()) {
-                continue;
-            }
-            const std::filesystem::path modelPath = archetype.modelPath;
-            if (std::find(templateModels.begin(), templateModels.end(), modelPath) == templateModels.end()) {
-                templateModels.push_back(modelPath);
-            }
-        }
-        if (!templateModels.empty()) {
-            worldAssetSpec_.animatedTemplateModelPaths = std::move(templateModels);
-        }
-    }
+    placementRegions_.clear();
+    towerPlacementPreviewResolver_.reset();
+    lastPlacementValidationReason_.clear();
+    bootstrap_.configureLevel(L_, state, selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
+                              worldAssetSpec_, towerLoadController_, enemyLoadController_, waveController_);
 
     scriptRef_ = loadLuaScript(state, "assets/scenes/PlayLevel.lua");
     luaOnEnter(scriptRef_);
 
-    worldRenderer_.reset();
-    loadStatus_.clear();
-
-    std::filesystem::path assetPath = selectedMapAssetPath_;
-    if (std::filesystem::is_directory(assetPath)) {
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(assetPath)) {
-            const auto ext = entry.path().extension().string();
-            if (ext == ".glb" || ext == ".gltf") {
-                assetPath = entry.path();
-                break;
-            }
-        }
-    }
-
-    if (!state.vulkanContext) {
-        loadStatus_ = "No Vulkan context available.";
-        return;
-    }
-
-    worldRenderer_ = std::make_unique<WorldRenderer>(L_, *state.vulkanContext);
-    worldRenderer_->beginLoad(assetPath, worldAssetSpec_); // non-blocking
+    worldRenderer_ = bootstrap_.beginWorldLoad(L_, state, selectedMapAssetPath_, worldAssetSpec_, loadStatus_);
 }
 
 void PlayLevelScene::onExit(SceneSharedState& state) {
@@ -404,46 +211,18 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
 
     applyPendingGameplayCommands();
     updateWaveSimulation(dt);
-
-    // Tick GPU uploads (one step per frame while loading)
-    if (worldRenderer_ && !worldRenderer_->isLoaded() && !worldRenderer_->loadFailed()) {
-        worldRenderer_->tickLoad();
-    }
-
-    const bool isLoaded = worldRenderer_ && worldRenderer_->isLoaded();
-
-    if (isLoaded) {
-        // Copy placement regions from WorldRenderer (one-time after load)
-        if (placementRegions_.empty()) {
-            placementRegions_ = worldRenderer_->placementRegions();
-        }
-        
-        updateRouteFromWorld();
-        syncTowerInstanceTransforms();
-        syncPlacedTowerModels();
-        updateCamera(dt);
-        updateTowerPlacementFromInput();
-        syncTowerInstanceTransforms();
-        syncPlacedTowerModels();
-        const bool hoverChanged = pickingController_.updateHoverFromMouse(
-            worldRenderer_.get(), buildViewMatrix(), cameraController_.position(), lastRenderExtent_);
-        if (hoverChanged) {
-            // Re-apply instance transforms so hover visual feedback is in the same frame as hover detection.
-            syncTowerInstanceTransforms();
-            syncPlacedTowerModels();
-        }
-        pickingController_.updateSelectionFromMouse(worldRenderer_.get(), buildViewMatrix(),
-                                                    cameraController_.position(),
-                                                    towerPlacementController_.hasActiveSelection());
-        const int selectedInstanceIndex = pickingController_.selectedInstanceIndex();
-        const bool selectedIsEnemy = pickingController_.selectedEntityKind() == WorldEntityKind::Enemy;
-        selectedEnemyRuntimeId_ =
-            (selectedIsEnemy && selectedInstanceIndex >= 0 && selectedInstanceIndex < static_cast<int>(activeEnemies_.size()))
-                ? activeEnemies_[static_cast<std::size_t>(selectedInstanceIndex)].runtimeId
-                : 0;
-        worldRenderer_->setHighlightedInstances(pickingController_.hoveredEntityKind(), pickingController_.hoveredInstanceIndex(),
-                                                pickingController_.selectedEntityKind(), pickingController_.selectedInstanceIndex());
-    }
+    PlayLevelFrameCoordinator::Context frameContext{
+        worldRenderer_.get(), placementRegions_, pickingController_, cameraController_, activeEnemies_,
+        selectedEnemyRuntimeId_, towerPlacementController_.hasActiveSelection(), lastRenderExtent_};
+    const bool isLoaded = frameCoordinator_.run(
+        frameContext,
+        { [this]() { updateRouteFromWorld(); },
+          [this]() { syncTowerInstanceTransforms(); },
+          [this]() { syncPlacedTowerModels(); },
+          [this](float deltaTime) { updateCamera(deltaTime); },
+          [this]() { updateTowerPlacementFromInput(); },
+          [this]() { return buildViewMatrix(); } },
+        dt);
 
     luaOnRender(state, scriptRef_, dt);
 
@@ -491,246 +270,6 @@ bool PlayLevelScene::requestStartWave() {
         gameplayState_.matchStatus = originalStatus;
     }
     return started;
-}
-
-bool PlayLevelScene::loadLevelDefinition(SceneSharedState& state) {
-    if (!L_) {
-        return false;
-    }
-
-    const std::filesystem::path scriptPath = selectedLevelScriptPath_;
-    if (!std::filesystem::exists(scriptPath)) {
-        return false;
-    }
-
-    if (luaL_loadfile(L_, scriptPath.string().c_str()) != LUA_OK) {
-        spdlog::error("PlayLevelScene: failed to load level definition {}: {}", scriptPath.string(),
-                      lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    if (lua_pcall(L_, 0, 1, 0) != LUA_OK) {
-        spdlog::error("PlayLevelScene: level definition execution error {}: {}", scriptPath.string(),
-                      lua_tostring(L_, -1));
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    if (!lua_istable(L_, -1)) {
-        spdlog::error("PlayLevelScene: level definition must return a table: {}", scriptPath.string());
-        lua_pop(L_, 1);
-        return false;
-    }
-
-    const std::filesystem::path scriptDir = scriptPath.parent_path();
-
-    lua_getfield(L_, -1, "mapAssetPath");
-    if (lua_isstring(L_, -1)) {
-        std::filesystem::path rawPath = lua_tostring(L_, -1);
-        if (!rawPath.empty()) {
-            if (rawPath.is_relative() && !isProjectAssetPath(rawPath)) {
-                rawPath = scriptDir / rawPath;
-            }
-            selectedMapAssetPath_ = rawPath;
-        }
-    }
-    lua_pop(L_, 1);
-
-    lua_getfield(L_, -1, "wavesScriptPath");
-    if (lua_isstring(L_, -1)) {
-        std::filesystem::path rawPath = lua_tostring(L_, -1);
-        if (!rawPath.empty()) {
-            if (rawPath.is_relative() && !isProjectAssetPath(rawPath)) {
-                rawPath = scriptDir / rawPath;
-            }
-            selectedWavesScriptPath_ = rawPath.string();
-        }
-    }
-    lua_pop(L_, 1);
-
-    lua_getfield(L_, -1, "onLoad");
-    if (lua_isfunction(L_, -1)) {
-        lua_pushvalue(L_, -2);
-        if (lua_pcall(L_, 1, 0, 0) != LUA_OK) {
-            spdlog::error("PlayLevelScene: level definition onLoad() execution error {}: {}", scriptPath.string(),
-                          lua_tostring(L_, -1));
-            lua_pop(L_, 2);
-            return false;
-        }
-    } else {
-        lua_pop(L_, 1);
-    }
-
-    lua_getfield(L_, -1, "inheritActiveSelection");
-    const bool inheritActiveSelection = lua_isboolean(L_, -1) ? lua_toboolean(L_, -1) != 0 : true;
-    lua_pop(L_, 1);
-
-    worldAssetSpec_ = {};
-    lua_getfield(L_, -1, "worldAssets");
-    if (lua_istable(L_, -1)) {
-        const int worldAssetsIdx = lua_gettop(L_);
-
-        lua_getfield(L_, worldAssetsIdx, "startModelPath");
-        if (lua_isstring(L_, -1)) {
-            const std::string path = lua_tostring(L_, -1);
-            if (!path.empty()) {
-                worldAssetSpec_.startModelPath = path;
-            }
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, worldAssetsIdx, "endModelPath");
-        if (lua_isstring(L_, -1)) {
-            const std::string path = lua_tostring(L_, -1);
-            if (!path.empty()) {
-                worldAssetSpec_.endModelPath = path;
-            }
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, worldAssetsIdx, "animatedTemplateModelPaths");
-        if (lua_istable(L_, -1)) {
-            worldAssetSpec_.animatedTemplateModelPaths.clear();
-            const int templateTable = lua_gettop(L_);
-            const int templateCount = static_cast<int>(lua_rawlen(L_, templateTable));
-            for (int i = 1; i <= templateCount; ++i) {
-                lua_geti(L_, templateTable, i);
-                if (lua_isstring(L_, -1)) {
-                    const std::string path = lua_tostring(L_, -1);
-                    if (!path.empty()) {
-                        worldAssetSpec_.animatedTemplateModelPaths.emplace_back(path);
-                    }
-                }
-                lua_pop(L_, 1);
-            }
-        }
-        lua_pop(L_, 1);
-
-        if (worldAssetSpec_.animatedTemplateModelPaths.empty()) {
-            lua_getfield(L_, worldAssetsIdx, "animatedTemplateModelPath");
-            if (lua_isstring(L_, -1)) {
-                const std::string path = lua_tostring(L_, -1);
-                if (!path.empty()) {
-                    worldAssetSpec_.animatedTemplateModelPaths.emplace_back(path);
-                }
-            }
-            lua_pop(L_, 1);
-        }
-
-        lua_getfield(L_, worldAssetsIdx, "extraWorldModels");
-        if (lua_istable(L_, -1)) {
-            const int modelsIdx = lua_gettop(L_);
-            const int modelCount = static_cast<int>(lua_rawlen(L_, modelsIdx));
-            for (int i = 1; i <= modelCount; ++i) {
-                lua_geti(L_, modelsIdx, i);
-                if (!lua_istable(L_, -1)) {
-                    lua_pop(L_, 1);
-                    continue;
-                }
-
-                WorldModelPlacementSpec placement;
-
-                lua_getfield(L_, -1, "modelPath");
-                if (lua_isstring(L_, -1)) {
-                    placement.modelPath = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "debugGroup");
-                if (lua_isstring(L_, -1)) {
-                    placement.debugGroup = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "debugLabel");
-                if (lua_isstring(L_, -1)) {
-                    placement.debugLabel = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "anchor");
-                if (lua_isstring(L_, -1)) {
-                    const std::string anchor = lua_tostring(L_, -1);
-                    if (anchor == "Start") {
-                        placement.anchor = WorldMarkerAnchor::Start;
-                    } else if (anchor == "End") {
-                        placement.anchor = WorldMarkerAnchor::End;
-                    }
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "facePath");
-                if (lua_isboolean(L_, -1)) {
-                    placement.facePath = lua_toboolean(L_, -1) != 0;
-                }
-                lua_pop(L_, 1);
-
-                placement.positionOffset = luaReadVec3Field(L_, -1, "positionOffset", placement.positionOffset);
-                placement.eulerDegrees = luaReadVec3Field(L_, -1, "eulerDegrees", placement.eulerDegrees);
-                placement.scale = luaReadVec3Field(L_, -1, "scale", placement.scale);
-
-                if (!placement.modelPath.empty()) {
-                    if (placement.debugLabel.empty()) {
-                        placement.debugLabel = placement.modelPath.filename().string();
-                    }
-                    worldAssetSpec_.extraWorldModels.push_back(std::move(placement));
-                }
-                lua_pop(L_, 1);
-            }
-        }
-        lua_pop(L_, 1);
-
-        lua_getfield(L_, worldAssetsIdx, "uiTextures");
-        if (lua_istable(L_, -1)) {
-            const int texturesIdx = lua_gettop(L_);
-            const int textureCount = static_cast<int>(lua_rawlen(L_, texturesIdx));
-            for (int i = 1; i <= textureCount; ++i) {
-                lua_geti(L_, texturesIdx, i);
-
-                WorldUiTextureSpec texSpec;
-                if (lua_isstring(L_, -1)) {
-                    texSpec.texturePath = lua_tostring(L_, -1);
-                } else if (lua_istable(L_, -1)) {
-                    lua_getfield(L_, -1, "id");
-                    if (lua_isstring(L_, -1)) {
-                        texSpec.id = lua_tostring(L_, -1);
-                    }
-                    lua_pop(L_, 1);
-
-                    lua_getfield(L_, -1, "path");
-                    if (lua_isstring(L_, -1)) {
-                        texSpec.texturePath = lua_tostring(L_, -1);
-                    }
-                    lua_pop(L_, 1);
-                }
-
-                if (!texSpec.texturePath.empty()) {
-                    if (texSpec.id.empty()) {
-                        texSpec.id = texSpec.texturePath.stem().string();
-                    }
-                    worldAssetSpec_.uiTextures.push_back(std::move(texSpec));
-                }
-
-                lua_pop(L_, 1);
-            }
-        }
-        lua_pop(L_, 1);
-    }
-    lua_pop(L_, 1);
-
-    if (inheritActiveSelection) {
-        selectedMapAssetPath_ = state.activeLevelAssetPath;
-    }
-
-    if (!waveController_.hasDefinitions() && !selectedWavesScriptPath_.empty()) {
-        loadWaveDefinitions(selectedWavesScriptPath_);
-    }
-
-    publishLevelUiTextures(L_, worldAssetSpec_);
-
-    lua_pop(L_, 1);
-    return true;
 }
 
 bool PlayLevelScene::loadWaveDefinitions(const std::string& scriptPath) {
@@ -960,142 +499,13 @@ bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::str
     return true;
 }
 
-bool PlayLevelScene::raycastGroundAtCursor(glm::vec3& outHit) const {
-    return cameraController_.raycastGroundAtCursor(outHit);
-}
-
 std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
                                                    int footprintSampleCount) const {
-    if (gameplayState_.matchStatus != MatchStatus::Running) {
-        return "match is not running";
-    }
-    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
-        return "world is still loading";
-    }
-    if (gameplayState_.playerMoney < static_cast<float>(archetype.cost)) {
-        return "insufficient funds";
-    }
-
-    // Check tower spacing
-    constexpr float kMinTowerSpacing = 1.7f;
-    for (const PlacedTower& tower : placedTowers_) {
-        const glm::vec3 delta = worldPos - tower.position;
-        const float dist2 = glm::dot(delta, delta);
-        if (dist2 < (kMinTowerSpacing * kMinTowerSpacing)) {
-            return "too close to another tower";
-        }
-    }
-
-    // Check if placement is on the path
-    if (isPointOnPath(worldPos)) {
-        return "cannot place towers on the path";
-    }
-
-    // Check slope: reject placement on surfaces steeper than the configured maximum.
-    // lastTerrainSample_ is refreshed once per frame by updateTowerPlacementFromInput() and
-    // corresponds to the same raycast that produced worldPos.
-    constexpr float kSlopeMatchEpsilon = 0.01f;
-    if (glm::distance(lastTerrainSample_.worldPosition, worldPos) <= kSlopeMatchEpsilon &&
-        lastTerrainSample_.slope > maxTowerPlacementSlopeDegrees_) {
-        return "surface is too steep to place a tower";
-    }
-
-    // Footprint check: sample the terrain around the tower's approximate base radius (not just
-    // the single cursor point) so a tower can't be placed with part of its base clipping into a
-    // steep cliff face or hanging off an edge, even if the exact cursor point is flat ground.
-    if (worldRenderer_ && !isFootprintClearForPlacement(worldPos, archetype, footprintSampleCount)) {
-        return "tower base does not fit on this surface";
-    }
-
-    // Terrain defaults to ground; region markers can override to cliff/water
-    // Currently allow placement on any terrain type
-
-    return {};
-}
-
-PlayLevelScene::TerrainSample PlayLevelScene::sampleTerrainAtCursor() const {
-    TerrainSample sample;
-    
-    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
-        return sample;
-    }
-
-    const ImGuiIO& io = ImGui::GetIO();
-    const ImVec2 displaySize = io.DisplaySize;
-    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
-        return sample;
-    }
-
-    const ImVec2 mousePos = io.MousePos;
-    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
-        return sample;
-    }
-
-    // Mirrors PlayLevelPickingController::pickModelAtScreen, which is the proven-correct
-    // screen-to-world raycasting logic used for tower/enemy picking.
-    const float ndcX = (2.0f * mousePos.x) / displaySize.x - 1.0f;
-    const float ndcY = (2.0f * mousePos.y) / displaySize.y - 1.0f;
-
-    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
-    constexpr float kFovYRadians = glm::radians(60.0f);
-    glm::mat4 proj = glm::perspective(kFovYRadians, aspect, 0.05f, 2000.0f);
-    proj[1][1] *= -1.0f;
-
-    const glm::mat4 view = buildViewMatrix();
-    const glm::mat4 invVP = glm::inverse(proj * view);
-
-    const glm::vec4 nearClip(ndcX, ndcY, 0.0f, 1.0f);
-    const glm::vec4 farClip(ndcX, ndcY, 1.0f, 1.0f);
-    glm::vec4 nearWorld = invVP * nearClip;
-    glm::vec4 farWorld = invVP * farClip;
-    if (std::abs(nearWorld.w) < 1e-6f || std::abs(farWorld.w) < 1e-6f) {
-        return sample;
-    }
-    nearWorld /= nearWorld.w;
-    farWorld /= farWorld.w;
-
-    glm::vec3 rayDir = glm::vec3(farWorld - nearWorld);
-    const float dirLen2 = glm::dot(rayDir, rayDir);
-    if (dirLen2 <= 1e-8f) {
-        return sample;
-    }
-    rayDir = glm::normalize(rayDir);
-
-    const glm::vec3 camPos = cameraController_.position();
-
-    // Use precise triangle-level raycast against static world geometry (terrain/cliffs),
-    // NOT pickModel() which only uses bounding-sphere approximations for tower/enemy selection.
-    WorldPickHit pickHit;
-    if (!worldRenderer_->raycastStaticGeometry(camPos, rayDir, pickHit)) {
-        return sample;
-    }
-
-    sample.hit = true;
-    sample.worldPosition = pickHit.worldPosition;
-    sample.surfaceNormal = pickHit.worldNormal;
-
-    // Calculate slope: angle between surface normal and up vector
-    // A perfectly horizontal surface has normal pointing up (0, 1, 0)
-    const float dotProduct = glm::dot(sample.surfaceNormal, glm::vec3(0.0f, 1.0f, 0.0f));
-    const float slopeClamped = glm::clamp(dotProduct, -1.0f, 1.0f);
-    const float slopeRadians = std::acos(slopeClamped);
-    sample.slope = glm::degrees(slopeRadians);
-
-    // Check if point is on path
-    sample.onPath = isPointOnPath(sample.worldPosition);
-
-    // Default all terrain to ground; check for cliff/water region overrides
-    sample.towerPlacementType = TowerPlacementRegionType::Ground;
-    for (const TowerPlacementRegion& region : placementRegions_) {
-        if (sample.worldPosition.x >= region.boundsMin.x && sample.worldPosition.x <= region.boundsMax.x &&
-            sample.worldPosition.y >= region.boundsMin.y && sample.worldPosition.y <= region.boundsMax.y &&
-            sample.worldPosition.z >= region.boundsMin.z && sample.worldPosition.z <= region.boundsMax.z) {
-            sample.towerPlacementType = region.type;
-            break;  // Found the region, no need to check others
-        }
-    }
-
-    return sample;
+    const TowerPlacementRules::Context placementContext{gameplayState_, placedTowers_, worldRenderer_.get(),
+                                                        placementRegions_, maxTowerPlacementSlopeDegrees_,
+                                                        pathCorridorHalfWidth_};
+    return TowerPlacementRules::validatePlacement(placementContext, archetype, worldPos, footprintSampleCount,
+                                                  towerPlacementPreviewResolver_.lastTerrainSample());
 }
 
 void PlayLevelScene::clearActiveSelectionForTowerPlacement(const char* reason) {
@@ -1103,80 +513,6 @@ void PlayLevelScene::clearActiveSelectionForTowerPlacement(const char* reason) {
     if (pickingController_.selectedSelection().valid || pickingController_.selectedInstanceIndex() >= 0) {
         pickingController_.clearSelection(reason);
     }
-}
-
-bool PlayLevelScene::isPointInPlacementRegion(const glm::vec3& worldPos, const TowerPlacementRegion*& outRegion) const {
-    outRegion = nullptr;
-    
-    for (const TowerPlacementRegion& region : placementRegions_) {
-        if (worldPos.x >= region.boundsMin.x && worldPos.x <= region.boundsMax.x &&
-            worldPos.y >= region.boundsMin.y && worldPos.y <= region.boundsMax.y &&
-            worldPos.z >= region.boundsMin.z && worldPos.z <= region.boundsMax.z) {
-            outRegion = &region;
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-bool PlayLevelScene::isPointOnPath(const glm::vec3& worldPos) const {
-    // The no-build corridor is auto-generated from the required waypoint route (Start ->
-    // Waypoint_N -> End) rather than manually-placed "PathPoint"/"path_zone" terrain markers --
-    // map makers only need to define the waypoints the enemies already follow.
-    if (!worldRenderer_) {
-        return false;
-    }
-
-    const std::vector<glm::vec3>& route = worldRenderer_->routePoints();
-    for (std::size_t i = 0; i + 1 < route.size(); ++i) {
-        if (pointInRouteSegmentCorridor(worldPos, route[i], route[i + 1], pathCorridorHalfWidth_)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool PlayLevelScene::isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype,
-                                                  int footprintSampleCount) const {
-    if (!worldRenderer_) {
-        return true;
-    }
-
-    // Approximate tower base radius. TowerArchetype has no explicit footprint radius yet, so
-    // derive one from renderScale; this can be replaced with a per-archetype value later.
-    constexpr float kTowerFootprintBaseRadius = 0.6f;
-    const int sampleCount = std::max(1, footprintSampleCount);
-    constexpr float kFootprintProbeHeight = 50.0f;   // start each probe ray well above the surface
-    constexpr float kFootprintMaxHeightDelta = 0.6f; // reject if edge height differs too much from center
-    constexpr float kTwoPi = 6.2831853071795864769f;
-    const float minUpDot = std::cos(glm::radians(maxTowerPlacementSlopeDegrees_));
-
-    const float footprintRadius = kTowerFootprintBaseRadius * std::max(0.01f, archetype.renderScale);
-
-    for (int i = 0; i < sampleCount; ++i) {
-        const float angle = (kTwoPi * static_cast<float>(i)) / static_cast<float>(sampleCount);
-        const glm::vec3 offset(std::cos(angle) * footprintRadius, 0.0f, std::sin(angle) * footprintRadius);
-        const glm::vec3 samplePos = worldPos + offset;
-        const glm::vec3 probeOrigin = samplePos + glm::vec3(0.0f, kFootprintProbeHeight, 0.0f);
-
-        WorldPickHit hit;
-        if (!worldRenderer_->raycastStaticGeometry(probeOrigin, glm::vec3(0.0f, -1.0f, 0.0f), hit)) {
-            return false; // footprint extends past the edge of the terrain
-        }
-
-        const float dotProduct = glm::dot(hit.worldNormal, glm::vec3(0.0f, 1.0f, 0.0f));
-        if (dotProduct < minUpDot) {
-            return false; // footprint overlaps a steep slope
-        }
-
-        if (std::abs(hit.worldPosition.y - worldPos.y) > kFootprintMaxHeightDelta) {
-            return false; // footprint overlaps a ledge/step/cliff edge
-        }
-    }
-
-    return true;
 }
 
 void PlayLevelScene::updateTowerPlacementFromInput() {
@@ -1189,194 +525,40 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
     const TowerArchetype* selected = selectedTowerArchetype();
     lastPlacementValidationReason_.clear();
     if (!selected) {
-        hasValidPlacementAnchor_ = false;
-        bungeeInvalidActive_ = false;
-        hasLastRawPlacementCandidate_ = false;
-        hasLastPlacementValidation_ = false;
-        lastPlacementValidationCachedReason_.clear();
+        towerPlacementPreviewResolver_.reset();
     }
+    const TowerPlacementRules::Context placementContext{gameplayState_, placedTowers_, worldRenderer_.get(),
+                                                        placementRegions_, maxTowerPlacementSlopeDegrees_,
+                                                        pathCorridorHalfWidth_};
+    const auto validatePlacement = [this, selected, &placementContext](const glm::vec3& worldPos,
+                                                                       int footprintSampleCount,
+                                                                       const PlacementTerrainSample& terrainSample) {
+        if (!selected) {
+            return std::string("no tower selected");
+        }
+        return TowerPlacementRules::validatePlacement(placementContext, *selected, worldPos, footprintSampleCount,
+                                                      terrainSample);
+    };
     towerPlacementController_.updatePlacementFromInput(
-        selected != nullptr, [this, selected](glm::vec3& outHit) {
-            // Use terrain-aware sampling instead of flat ground plane
-            lastTerrainSample_ = sampleTerrainAtCursor();
-            if (!lastTerrainSample_.hit) {
-                hasLastRawPlacementCandidate_ = false;
+        selected != nullptr, [this, selected, &placementContext, &validatePlacement](glm::vec3& outHit) {
+            const auto result = towerPlacementPreviewResolver_.resolve(
+                selected,
+                [this, &placementContext]() {
+                    return TowerPlacementRules::sampleTerrainAtCursor(placementContext, buildViewMatrix(),
+                                                                      cameraController_.position());
+                },
+                validatePlacement);
+            if (!result.hasHit) {
+                lastPlacementValidationReason_ = result.reason;
                 return false;
             }
-
-            const glm::vec3 candidatePos = lastTerrainSample_.worldPosition;
-            constexpr int kPreviewFootprintSampleCount = 4;
-            bool candidateValid = false;
-            std::string candidateReason;
-            if (selected) {
-                candidateReason = validateTowerPlacement(*selected, candidatePos, kPreviewFootprintSampleCount);
-                candidateValid = candidateReason.empty();
-            }
-            hasLastRawPlacementCandidate_ = true;
-            lastRawPlacementCandidatePos_ = candidatePos;
-            lastRawPlacementCandidateValid_ = candidateValid;
-
-            // "Bungee cord" snapping: once a valid spot has been found, small cursor movements into
-            // invalid terrain (e.g. a cliff face) keep the preview pinned there instead of jittering
-            // into the cliff. Instead of freezing to the last valid point, walk toward the cursor
-            // and stop at the nearest still-valid point on that segment.
-            constexpr float kSnapReleaseDistance = 1.5f;
-            bool resolvedValid = candidateValid;
-            std::string resolvedReason = candidateReason;
-            if (candidateValid) {
-                lastValidPlacementPos_ = candidatePos;
-                hasValidPlacementAnchor_ = true;
-                bungeeInvalidActive_ = false;
-                bungeeAnchorPos_ = candidatePos;
-                bungeeResolvedPos_ = candidatePos;
-                outHit = candidatePos;
-            } else if (hasValidPlacementAnchor_) {
-                if (!bungeeInvalidActive_) {
-                    bungeeInvalidActive_ = true;
-                    bungeeAnchorPos_ = lastValidPlacementPos_;
-                    bungeeResolvedPos_ = lastValidPlacementPos_;
-                }
-
-                if (glm::distance(candidatePos, bungeeAnchorPos_) >= kSnapReleaseDistance) {
-                    hasValidPlacementAnchor_ = false;
-                    bungeeInvalidActive_ = false;
-                    outHit = candidatePos;
-                    if (selected) {
-                        resolvedValid = false;
-                        resolvedReason = candidateReason;
-                    }
-                } else {
-                // Try lateral "edge slide" first: search both tangent directions in XZ around
-                // the cursor so placement can move along obstacle boundaries instead of pinning to
-                // the previous valid anchor point.
-                const glm::vec3 toCursor = candidatePos - bungeeResolvedPos_;
-                glm::vec3 dirXZ(toCursor.x, 0.0f, toCursor.z);
-                const float dirLen = glm::length(dirXZ);
-                if (dirLen > 1e-4f) {
-                    dirXZ /= dirLen;
-                } else {
-                    dirXZ = glm::vec3(1.0f, 0.0f, 0.0f);
-                }
-                const glm::vec3 tangent(-dirXZ.z, 0.0f, dirXZ.x);
-
-                bool foundSlide = false;
-                glm::vec3 bestSlide = lastValidPlacementPos_;
-                float bestDistSq = std::numeric_limits<float>::max();
-                constexpr float kSlideStep = 0.20f;
-                constexpr int kSlideSteps = 6; // up to 1.2 world units lateral search
-                for (int step = 1; step <= kSlideSteps; ++step) {
-                    const float d = kSlideStep * static_cast<float>(step);
-                    const glm::vec3 offsets[2] = { tangent * d, tangent * -d };
-                    for (const glm::vec3& off : offsets) {
-                        const glm::vec3 probe = candidatePos + off;
-                        const std::string probeReason =
-                            validateTowerPlacement(*selected, probe, kPreviewFootprintSampleCount);
-                        if (!probeReason.empty()) {
-                            continue;
-                        }
-
-                        const float distSq = glm::dot(probe - candidatePos, probe - candidatePos);
-                        if (distSq < bestDistSq) {
-                            bestDistSq = distSq;
-                            bestSlide = probe;
-                            foundSlide = true;
-                        }
-                    }
-                    // First radius with at least one valid side is already the nearest lateral ring.
-                    if (foundSlide) {
-                        break;
-                    }
-                }
-
-                if (foundSlide) {
-                    const float prevDistSq = glm::dot(bungeeResolvedPos_ - candidatePos, bungeeResolvedPos_ - candidatePos);
-                    const float newDistSq = glm::dot(bestSlide - candidatePos, bestSlide - candidatePos);
-                    constexpr float kSlideSwitchHysteresis = 0.08f;
-                    constexpr float kSlideSwitchHysteresisSq =
-                        kSlideSwitchHysteresis * kSlideSwitchHysteresis;
-                    const glm::vec3 chosenSlide =
-                        ((newDistSq + kSlideSwitchHysteresisSq) < prevDistSq) ? bestSlide : bungeeResolvedPos_;
-
-                    outHit = chosenSlide;
-                    lastValidPlacementPos_ = chosenSlide;
-                    bungeeResolvedPos_ = chosenSlide;
-                    hasValidPlacementAnchor_ = true;
-                    resolvedValid = true;
-                    resolvedReason.clear();
-                } else {
-                    // Fallback: bounded bisection between (invalid) cursor point and
-                    // (known-valid) anchor. This keeps behavior robust when lateral search fails.
-                    glm::vec3 lowInvalid = candidatePos;
-                    glm::vec3 highValid = bungeeResolvedPos_;
-                    for (int i = 0; i < 7; ++i) {
-                        const glm::vec3 mid = (lowInvalid + highValid) * 0.5f;
-                        const std::string midReason =
-                            validateTowerPlacement(*selected, mid, kPreviewFootprintSampleCount);
-                        if (midReason.empty()) {
-                            highValid = mid;
-                        } else {
-                            lowInvalid = mid;
-                        }
-                    }
-
-                    const float prevDistSq = glm::dot(bungeeResolvedPos_ - candidatePos, bungeeResolvedPos_ - candidatePos);
-                    const float newDistSq = glm::dot(highValid - candidatePos, highValid - candidatePos);
-                    constexpr float kFallbackSwitchHysteresis = 0.05f;
-                    constexpr float kFallbackSwitchHysteresisSq =
-                        kFallbackSwitchHysteresis * kFallbackSwitchHysteresis;
-                    const glm::vec3 chosenSlide =
-                        ((newDistSq + kFallbackSwitchHysteresisSq) < prevDistSq) ? highValid : bungeeResolvedPos_;
-
-                    outHit = chosenSlide;
-                    lastValidPlacementPos_ = chosenSlide;
-                    bungeeResolvedPos_ = chosenSlide;
-                    hasValidPlacementAnchor_ = true;
-                    resolvedValid = true;
-                    resolvedReason.clear();
-                }
-                }
-            } else {
-                hasValidPlacementAnchor_ = false;
-                bungeeInvalidActive_ = false;
-                outHit = candidatePos;
-            }
-
-            if (selected) {
-                // Prime per-frame validation cache so the immediate canPlace callback can reuse
-                // this resolved point instead of re-running placement validation.
-                hasLastPlacementValidation_ = true;
-                lastPlacementValidationTowerId_ = selected->id;
-                lastPlacementValidationPos_ = outHit;
-                lastPlacementCanPlace_ = resolvedValid;
-                lastPlacementValidationCachedReason_ = resolvedReason;
-                lastPlacementValidationReason_ = resolvedReason;
-            }
+            outHit = result.worldPos;
+            lastPlacementValidationReason_ = result.reason;
             return true;
         },
-        [this, selected](const glm::vec3& worldPos) {
-            if (!selected) {
-                lastPlacementValidationReason_ = "no tower selected";
-                return false;
-            }
-
-            constexpr int kPreviewFootprintSampleCount = 4;
-
-            constexpr float kValidationReuseDistance = 0.06f;
-            constexpr float kValidationReuseDistanceSq = kValidationReuseDistance * kValidationReuseDistance;
-            if (hasLastPlacementValidation_ && lastPlacementValidationTowerId_ == selected->id &&
-                glm::dot(worldPos - lastPlacementValidationPos_, worldPos - lastPlacementValidationPos_) <=
-                    kValidationReuseDistanceSq) {
-                lastPlacementValidationReason_ = lastPlacementValidationCachedReason_;
-                return lastPlacementCanPlace_;
-            }
-
-            lastPlacementValidationReason_ = validateTowerPlacement(*selected, worldPos, kPreviewFootprintSampleCount);
-            lastPlacementCanPlace_ = lastPlacementValidationReason_.empty();
-            hasLastPlacementValidation_ = true;
-            lastPlacementValidationTowerId_ = selected->id;
-            lastPlacementValidationPos_ = worldPos;
-            lastPlacementValidationCachedReason_ = lastPlacementValidationReason_;
-            return lastPlacementCanPlace_;
+        [this, selected, &validatePlacement](const glm::vec3& worldPos) {
+            return towerPlacementPreviewResolver_.canPlaceAt(selected, worldPos, validatePlacement,
+                                                             lastPlacementValidationReason_);
         },
         [this, selected](const glm::vec3& worldPos) {
             if (!selected) {
@@ -1388,11 +570,7 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
             const std::string finalReason = validateTowerPlacement(*selected, worldPos, kConfirmFootprintSampleCount);
             if (!finalReason.empty()) {
                 lastPlacementValidationReason_ = finalReason;
-                lastPlacementValidationCachedReason_ = finalReason;
-                lastPlacementCanPlace_ = false;
-                hasLastPlacementValidation_ = true;
-                lastPlacementValidationTowerId_ = selected->id;
-                lastPlacementValidationPos_ = worldPos;
+                towerPlacementPreviewResolver_.cacheValidationResult(selected->id, worldPos, false, finalReason);
                 return;
             }
 
@@ -1412,10 +590,7 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
                                                     std::max(0, selected->ricochetCount), selected->cost,
                                                     selected->damageType});
                 towerPlacementController_.cancelPlacement();
-                hasValidPlacementAnchor_ = false;
-                bungeeInvalidActive_ = false;
-                hasLastPlacementValidation_ = false;
-                lastPlacementValidationCachedReason_.clear();
+                towerPlacementPreviewResolver_.reset();
                 lastPlacementValidationReason_.clear();
             }
         });
@@ -1708,7 +883,8 @@ void PlayLevelScene::drawPlacementBoundsOverlay() const {
     const std::vector<glm::vec3>& route = worldRenderer_->routePoints();
     for (std::size_t i = 0; i + 1 < route.size(); ++i) {
         std::array<glm::vec3, 8> corners{};
-        buildRouteSegmentCorridorBoxCorners(route[i], route[i + 1], pathCorridorHalfWidth_, corners);
+        TowerPlacementRules::buildRouteSegmentCorridorBoxCorners(route[i], route[i + 1], pathCorridorHalfWidth_,
+                                                                 corners);
         drawBoxWireframe(corners, pathColor);
     }
 
@@ -2787,44 +1963,46 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "worldPos");
 
             lua_newtable(L);
-            lua_pushboolean(L, self->bungeeInvalidActive_);
+            lua_pushboolean(L, self->towerPlacementPreviewResolver_.bungeeInvalidActive());
             lua_setfield(L, -2, "bungeeActive");
-            lua_pushboolean(L, self->hasValidPlacementAnchor_);
+            lua_pushboolean(L, self->towerPlacementPreviewResolver_.hasValidPlacementAnchor());
             lua_setfield(L, -2, "hasAnchor");
 
             lua_newtable(L);
-            lua_pushnumber(L, self->bungeeAnchorPos_.x);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.bungeeAnchorPos().x);
             lua_setfield(L, -2, "x");
-            lua_pushnumber(L, self->bungeeAnchorPos_.y);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.bungeeAnchorPos().y);
             lua_setfield(L, -2, "y");
-            lua_pushnumber(L, self->bungeeAnchorPos_.z);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.bungeeAnchorPos().z);
             lua_setfield(L, -2, "z");
             lua_setfield(L, -2, "anchorPos");
 
             lua_newtable(L);
-            lua_pushnumber(L, self->bungeeResolvedPos_.x);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.bungeeResolvedPos().x);
             lua_setfield(L, -2, "x");
-            lua_pushnumber(L, self->bungeeResolvedPos_.y);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.bungeeResolvedPos().y);
             lua_setfield(L, -2, "y");
-            lua_pushnumber(L, self->bungeeResolvedPos_.z);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.bungeeResolvedPos().z);
             lua_setfield(L, -2, "z");
             lua_setfield(L, -2, "resolvedPos");
 
-            lua_pushboolean(L, self->hasLastRawPlacementCandidate_);
+            lua_pushboolean(L, self->towerPlacementPreviewResolver_.hasLastRawPlacementCandidate());
             lua_setfield(L, -2, "hasRawCandidate");
-            lua_pushboolean(L, self->lastRawPlacementCandidateValid_);
+            lua_pushboolean(L, self->towerPlacementPreviewResolver_.lastRawPlacementCandidateValid());
             lua_setfield(L, -2, "rawCandidateValid");
             lua_newtable(L);
-            lua_pushnumber(L, self->lastRawPlacementCandidatePos_.x);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.lastRawPlacementCandidatePos().x);
             lua_setfield(L, -2, "x");
-            lua_pushnumber(L, self->lastRawPlacementCandidatePos_.y);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.lastRawPlacementCandidatePos().y);
             lua_setfield(L, -2, "y");
-            lua_pushnumber(L, self->lastRawPlacementCandidatePos_.z);
+            lua_pushnumber(L, self->towerPlacementPreviewResolver_.lastRawPlacementCandidatePos().z);
             lua_setfield(L, -2, "z");
             lua_setfield(L, -2, "rawCandidatePos");
-            lua_pushnumber(L, glm::distance(self->bungeeAnchorPos_, self->lastRawPlacementCandidatePos_));
+            lua_pushnumber(L, glm::distance(self->towerPlacementPreviewResolver_.bungeeAnchorPos(),
+                                            self->towerPlacementPreviewResolver_.lastRawPlacementCandidatePos()));
             lua_setfield(L, -2, "anchorToCandidateDistance");
-            lua_pushnumber(L, glm::distance(self->bungeeResolvedPos_, self->lastRawPlacementCandidatePos_));
+            lua_pushnumber(L, glm::distance(self->towerPlacementPreviewResolver_.bungeeResolvedPos(),
+                                            self->towerPlacementPreviewResolver_.lastRawPlacementCandidatePos()));
             lua_setfield(L, -2, "resolvedToCandidateDistance");
             lua_setfield(L, -2, "debug");
 
