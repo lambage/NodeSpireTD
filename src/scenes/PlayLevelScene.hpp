@@ -122,6 +122,18 @@ class PlayLevelScene final : public GameScene {
     bool isPointOnPath(const glm::vec3& worldPos) const;
     bool isFootprintClearForPlacement(const glm::vec3& worldPos, const TowerArchetype& archetype) const;
     std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
+    const PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex) const;
+    PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex);
+    const TowerArchetype::UpgradeNode* findUpgradeNodeById(const TowerArchetype& archetype,
+                                 const std::string& nodeId) const;
+    void applyTowerUpgradeEffects(const TowerArchetype& archetype, const PlacedTower& placedTower,
+                                  float& outAttackDamage, float& outAttackRange, float& outAttackSpeed,
+                                  float& outProjectileSpeed, float& outSplashRadius, float& outChainRange,
+                                  float& outRicochetRange, int& outProjectileCount, int& outChainTargetCount,
+                                  int& outRicochetCount) const;
+    std::string validateTowerUpgradeUnlock(const TowerArchetype& archetype, const PlacedTower& placedTower,
+                         const std::string& nodeId) const;
+    bool unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId, std::string& outReason);
     void clearActiveSelectionForTowerPlacement(const char* reason);
     void updateTowerPlacementFromInput();
     glm::mat4 buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const;

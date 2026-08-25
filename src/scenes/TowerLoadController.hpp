@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scenes/DamageTypes.hpp"
+
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -9,18 +11,85 @@ struct lua_State;
 struct WorldAssetSpec;
 
 struct TowerArchetype {
+  struct UpgradeUiStyle {
+    std::string panelTitle = "Tower Talent Tree";
+    std::string artPath;
+    std::string defaultNodeIconPath = "assets/images/question.png";
+    float accentR = 0.62f;
+    float accentG = 0.42f;
+    float accentB = 0.08f;
+    float unlockedR = 0.15f;
+    float unlockedG = 0.52f;
+    float unlockedB = 0.27f;
+    float lockedR = 0.22f;
+    float lockedG = 0.23f;
+    float lockedB = 0.26f;
+  };
+
+  struct UpgradeEffects {
+    float attackDamageAdd = 0.0f;
+    float attackDamageMul = 1.0f;
+    float attackRangeAdd = 0.0f;
+    float attackRangeMul = 1.0f;
+    float attackSpeedAdd = 0.0f;
+    float attackSpeedMul = 1.0f;
+    float projectileSpeedAdd = 0.0f;
+    float projectileSpeedMul = 1.0f;
+    float splashRadiusAdd = 0.0f;
+    float splashRadiusMul = 1.0f;
+    float chainRangeAdd = 0.0f;
+    float chainRangeMul = 1.0f;
+    float ricochetRangeAdd = 0.0f;
+    float ricochetRangeMul = 1.0f;
+    int projectileCountAdd = 0;
+    int chainTargetCountAdd = 0;
+    int ricochetCountAdd = 0;
+  };
+
+  struct UpgradeNode {
+    std::string id;
+    std::string displayName;
+    std::string description;
+    std::string iconPath;
+    std::string parentId;
+    std::vector<std::string> childrenOrder;
+    std::string towerModelPathOverride;
+    std::string projectileModelPathOverride;
+    std::string branch;
+    int cost = 0;
+    int tier = 0;
+    int column = 0;
+    int maxLevel = 1;
+    int minUpgradesRequired = 0;
+    int towerPrototypeOverrideIndex = -1;
+    int projectilePrototypeOverrideIndex = -1;
+    std::vector<std::string> requiredNodeIds;
+    std::vector<std::string> excludes;
+    UpgradeEffects effects{};
+  };
+
     std::string id = "tower";
     std::string displayName = "Tower";
     std::string modelPath;
     std::string projectileModelPath;
     std::string previewImagePath;
     int cost = 100;
+    playlevel::DamageType damageType = playlevel::DamageType::Physical;
     float attackDamage = 1.0f;
+    float armorPiercing = 0.0f;
     float attackRange = 5.0f;
     float attackSpeed = 1.0f;
     float projectileSpeed = 16.0f;
+    float splashRadius = 0.0f;
+    float chainRange = 3.5f;
+    float ricochetRange = 3.5f;
+    int projectileCount = 1;
+    int chainTargetCount = 1;
+    int ricochetCount = 0;
     float renderScale = 1.0f;
     float facingYawOffsetDegrees = 0.0f;
+    UpgradeUiStyle upgradeUi;
+    std::vector<UpgradeNode> upgradeNodes;
 };
 
 // Owns discovery/parsing/storage of tower archetypes loaded from Lua scripts, along with the

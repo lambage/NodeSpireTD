@@ -43,6 +43,8 @@ GameImageButton.new = nil
 ---@class NS.Gameplay
 Gameplay = {}
 ---@type any
+Gameplay.DamageType = nil
+---@type any
 Gameplay.Scene = nil
 ---@type any
 Gameplay.cancelTowerPlacement = nil
@@ -67,13 +69,19 @@ Gameplay.getPathCorridorHalfWidth = nil
 ---@type any
 Gameplay.getPickEnabled = nil
 ---@type any
+Gameplay.getSelectedEnemyInfo = nil
+---@type any
 Gameplay.getSelectedLobbyLevel = nil
+---@type any
+Gameplay.getSelectedTowerUpgradeState = nil
 ---@type any
 Gameplay.getState = nil
 ---@type any
 Gameplay.getTowerLoadout = nil
 ---@type any
 Gameplay.getTowerPlacementState = nil
+---@type any
+Gameplay.getTowerUpgradeTree = nil
 ---@type any
 Gameplay.playMusic = nil
 ---@type any
@@ -92,6 +100,8 @@ Gameplay.requestQuit = nil
 Gameplay.requestRevertDisplayChanges = nil
 ---@type any
 Gameplay.requestScene = nil
+---@type any
+Gameplay.requestSelectedTowerUpgrade = nil
 ---@type any
 Gameplay.requestSpendMoney = nil
 ---@type any
@@ -160,6 +170,8 @@ ImGui.Combo = nil
 ImGui.DragFloat = nil
 ---@type any
 ImGui.DragInt = nil
+---@type any
+ImGui.DrawLine = nil
 ---@type any
 ImGui.Dummy = nil
 ---@type any

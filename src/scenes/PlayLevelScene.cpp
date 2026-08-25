@@ -245,6 +245,25 @@ bool parseTowerPoolGroup(const std::string& group, std::string& outTowerId, int&
     return true;
 }
 
+const playlevel::PlacedTower* findPlacedTowerByPoolKeyImpl(const std::vector<playlevel::PlacedTower>& placedTowers,
+                                                            const std::string& towerId, int poolIndex) {
+    if (towerId.empty() || poolIndex < 0) {
+        return nullptr;
+    }
+
+    int perTypeIndex = 0;
+    for (const playlevel::PlacedTower& tower : placedTowers) {
+        if (tower.towerId != towerId) {
+            continue;
+        }
+        if (perTypeIndex == poolIndex) {
+            return &tower;
+        }
+        ++perTypeIndex;
+    }
+    return nullptr;
+}
+
 } // namespace
 
 // ─── camera helpers ───────────────────────────────────────────────────────────
@@ -733,6 +752,214 @@ const TowerArchetype* PlayLevelScene::selectedTowerArchetype() const {
     return towerLoadController_.archetypeAtLoadoutSlot(selectedSlot);
 }
 
+const PlayLevelScene::PlacedTower* PlayLevelScene::findPlacedTowerByPoolKey(const std::string& towerId,
+                                                                             int poolIndex) const {
+    return findPlacedTowerByPoolKeyImpl(placedTowers_, towerId, poolIndex);
+}
+
+PlayLevelScene::PlacedTower* PlayLevelScene::findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex) {
+    return const_cast<PlacedTower*>(findPlacedTowerByPoolKeyImpl(placedTowers_, towerId, poolIndex));
+}
+
+const TowerArchetype::UpgradeNode* PlayLevelScene::findUpgradeNodeById(const TowerArchetype& archetype,
+                                                                        const std::string& nodeId) const {
+    auto it = std::find_if(archetype.upgradeNodes.begin(), archetype.upgradeNodes.end(),
+                           [&nodeId](const TowerArchetype::UpgradeNode& node) { return node.id == nodeId; });
+    return (it != archetype.upgradeNodes.end()) ? &(*it) : nullptr;
+}
+
+void PlayLevelScene::applyTowerUpgradeEffects(const TowerArchetype& archetype, const PlacedTower& placedTower,
+                                              float& outAttackDamage, float& outAttackRange, float& outAttackSpeed,
+                                              float& outProjectileSpeed, float& outSplashRadius, float& outChainRange,
+                                              float& outRicochetRange, int& outProjectileCount,
+                                              int& outChainTargetCount, int& outRicochetCount) const {
+    float attackDamage = archetype.attackDamage;
+    float attackRange = archetype.attackRange;
+    float attackSpeed = archetype.attackSpeed;
+    float projectileSpeed = archetype.projectileSpeed;
+    float splashRadius = archetype.splashRadius;
+    float chainRange = archetype.chainRange;
+    float ricochetRange = archetype.ricochetRange;
+    int projectileCount = archetype.projectileCount;
+    int chainTargetCount = archetype.chainTargetCount;
+    int ricochetCount = archetype.ricochetCount;
+
+    std::unordered_map<std::string, int> levelByNodeId;
+    for (const std::string& unlockedId : placedTower.unlockedUpgradeNodeIds) {
+        levelByNodeId[unlockedId] += 1;
+    }
+
+    for (const TowerArchetype::UpgradeNode& node : archetype.upgradeNodes) {
+        const auto it = levelByNodeId.find(node.id);
+        const int level = (it != levelByNodeId.end()) ? it->second : 0;
+        if (level <= 0) {
+            continue;
+        }
+
+        for (int lvl = 0; lvl < level; ++lvl) {
+            attackDamage = (attackDamage + node.effects.attackDamageAdd) * node.effects.attackDamageMul;
+            attackRange = (attackRange + node.effects.attackRangeAdd) * node.effects.attackRangeMul;
+            attackSpeed = (attackSpeed + node.effects.attackSpeedAdd) * node.effects.attackSpeedMul;
+            projectileSpeed = (projectileSpeed + node.effects.projectileSpeedAdd) * node.effects.projectileSpeedMul;
+            splashRadius = (splashRadius + node.effects.splashRadiusAdd) * node.effects.splashRadiusMul;
+            chainRange = (chainRange + node.effects.chainRangeAdd) * node.effects.chainRangeMul;
+            ricochetRange = (ricochetRange + node.effects.ricochetRangeAdd) * node.effects.ricochetRangeMul;
+            projectileCount += node.effects.projectileCountAdd;
+            chainTargetCount += node.effects.chainTargetCountAdd;
+            ricochetCount += node.effects.ricochetCountAdd;
+        }
+    }
+
+    outAttackDamage = std::max(0.01f, attackDamage);
+    outAttackRange = std::max(0.1f, attackRange);
+    outAttackSpeed = std::max(0.01f, attackSpeed);
+    outProjectileSpeed = std::max(0.1f, projectileSpeed);
+    outSplashRadius = std::max(0.0f, splashRadius);
+    outChainRange = std::max(0.1f, chainRange);
+    outRicochetRange = std::max(0.1f, ricochetRange);
+    outProjectileCount = std::max(1, projectileCount);
+    outChainTargetCount = std::max(1, chainTargetCount);
+    outRicochetCount = std::max(0, ricochetCount);
+}
+
+std::string PlayLevelScene::validateTowerUpgradeUnlock(const TowerArchetype& archetype, const PlacedTower& placedTower,
+                                                       const std::string& nodeId) const {
+    if (gameplayState_.matchStatus != MatchStatus::Running) {
+        return "match is not running";
+    }
+
+    const TowerArchetype::UpgradeNode* node = findUpgradeNodeById(archetype, nodeId);
+    if (!node) {
+        return "upgrade node does not exist";
+    }
+
+    auto levelForNode = [&placedTower](const std::string& id) {
+        return static_cast<int>(std::count(placedTower.unlockedUpgradeNodeIds.begin(),
+                                           placedTower.unlockedUpgradeNodeIds.end(), id));
+    };
+    auto hasUnlocked = [&levelForNode](const std::string& id) { return levelForNode(id) > 0; };
+
+    const int currentLevel = levelForNode(node->id);
+    if (currentLevel >= std::max(1, node->maxLevel)) {
+        return "upgrade is at max level";
+    }
+
+    if (!node->parentId.empty()) {
+        const TowerArchetype::UpgradeNode* parent = findUpgradeNodeById(archetype, node->parentId);
+        if (!parent) {
+            return "configured parent node does not exist";
+        }
+        if (!hasUnlocked(parent->id)) {
+            return "parent node is not unlocked";
+        }
+    }
+
+    const int totalUpgradesPurchased = static_cast<int>(placedTower.unlockedUpgradeNodeIds.size());
+    if (totalUpgradesPurchased < std::max(0, node->minUpgradesRequired)) {
+        return "not enough total upgrades unlocked";
+    }
+
+    for (const std::string& req : node->requiredNodeIds) {
+        if (!hasUnlocked(req)) {
+            return "missing required prerequisite";
+        }
+    }
+
+    for (const std::string& blockedId : node->excludes) {
+        if (hasUnlocked(blockedId)) {
+            return "blocked by an already unlocked upgrade";
+        }
+    }
+
+    for (const TowerArchetype::UpgradeNode& existingNode : archetype.upgradeNodes) {
+        if (!hasUnlocked(existingNode.id)) {
+            continue;
+        }
+        if (std::find(existingNode.excludes.begin(), existingNode.excludes.end(), node->id) !=
+            existingNode.excludes.end()) {
+            return "blocked by an already unlocked upgrade";
+        }
+    }
+
+    if (node->cost > 0 && gameplayState_.playerMoney < static_cast<float>(node->cost)) {
+        return "insufficient funds";
+    }
+
+    return {};
+}
+
+bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId, std::string& outReason) {
+    const TowerArchetype* archetype = towerLoadController_.findArchetype(placedTower.towerId);
+    if (!archetype) {
+        outReason = "tower archetype not found";
+        return false;
+    }
+
+    const std::string reason = validateTowerUpgradeUnlock(*archetype, placedTower, nodeId);
+    if (!reason.empty()) {
+        outReason = reason;
+        return false;
+    }
+
+    const TowerArchetype::UpgradeNode* node = findUpgradeNodeById(*archetype, nodeId);
+    if (!node) {
+        outReason = "upgrade node does not exist";
+        return false;
+    }
+
+    if (node->cost > 0 && !requestSpendMoney(static_cast<float>(node->cost))) {
+        outReason = "insufficient funds";
+        return false;
+    }
+
+    placedTower.unlockedUpgradeNodeIds.push_back(node->id);
+
+    float attackDamage = placedTower.attackDamage;
+    float attackRange = placedTower.attackRange;
+    float attackSpeed = 1.0f / std::max(0.01f, placedTower.attackIntervalSeconds);
+    float projectileSpeed = placedTower.projectileSpeed;
+    float splashRadius = placedTower.splashRadius;
+    float chainRange = placedTower.chainRange;
+    float ricochetRange = placedTower.ricochetRange;
+    int projectileCount = placedTower.projectileCount;
+    int chainTargetCount = placedTower.chainTargetCount;
+    int ricochetCount = placedTower.ricochetCount;
+    applyTowerUpgradeEffects(*archetype, placedTower, attackDamage, attackRange, attackSpeed, projectileSpeed,
+                             splashRadius, chainRange, ricochetRange, projectileCount, chainTargetCount,
+                             ricochetCount);
+
+    placedTower.attackDamage = attackDamage;
+    placedTower.attackRange = attackRange;
+    placedTower.attackIntervalSeconds = 1.0f / std::max(0.01f, attackSpeed);
+    placedTower.projectileSpeed = projectileSpeed;
+    placedTower.splashRadius = splashRadius;
+    placedTower.chainRange = chainRange;
+    placedTower.ricochetRange = ricochetRange;
+    placedTower.projectileCount = projectileCount;
+    placedTower.chainTargetCount = chainTargetCount;
+    placedTower.ricochetCount = ricochetCount;
+
+    int activeTowerPrototype = towerLoadController_.templatePrototypeIndex(placedTower.towerId);
+    int activeProjectilePrototype = towerLoadController_.projectileTemplatePrototypeIndex(placedTower.towerId);
+    for (const std::string& unlockedId : placedTower.unlockedUpgradeNodeIds) {
+        const TowerArchetype::UpgradeNode* unlockedNode = findUpgradeNodeById(*archetype, unlockedId);
+        if (!unlockedNode) {
+            continue;
+        }
+        if (unlockedNode->towerPrototypeOverrideIndex >= 0) {
+            activeTowerPrototype = unlockedNode->towerPrototypeOverrideIndex;
+        }
+        if (unlockedNode->projectilePrototypeOverrideIndex >= 0) {
+            activeProjectilePrototype = unlockedNode->projectilePrototypeOverrideIndex;
+        }
+    }
+    placedTower.towerPrototypeIndex = activeTowerPrototype;
+    placedTower.projectilePrototypeIndex = activeProjectilePrototype;
+
+    outReason = "unlocked";
+    return true;
+}
+
 bool PlayLevelScene::raycastGroundAtCursor(glm::vec3& outHit) const {
     return cameraController_.raycastGroundAtCursor(outHit);
 }
@@ -998,9 +1225,19 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
             }
             if (requestSpendMoney(static_cast<float>(selected->cost))) {
                 const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
-                placedTowers_.push_back(PlacedTower{selected->id, worldPos, selected->attackDamage,
+                const int towerPrototypeIndex = towerLoadController_.templatePrototypeIndex(selected->id);
+                const int projectilePrototypeIndex = towerLoadController_.projectileTemplatePrototypeIndex(selected->id);
+                placedTowers_.push_back(PlacedTower{selected->id, worldPos,
+                                                    towerPrototypeIndex, projectilePrototypeIndex,
+                                                    selected->attackDamage,
+                                                    selected->armorPiercing,
                                                     selected->attackRange, attackIntervalSeconds, 0.0f,
-                                                    selected->projectileSpeed, selected->cost});
+                                                    selected->projectileSpeed, selected->splashRadius,
+                                                    selected->chainRange, selected->ricochetRange,
+                                                    std::max(1, selected->projectileCount),
+                                                    std::max(1, selected->chainTargetCount),
+                                                    std::max(0, selected->ricochetCount), selected->cost,
+                                                    selected->damageType});
                 towerPlacementController_.cancelPlacement();
                 hasValidPlacementAnchor_ = false;
             }
@@ -1040,7 +1277,9 @@ void PlayLevelScene::syncPlacedTowerModels() {
             continue;
         }
 
-        const int prototypeIndex = towerLoadController_.templatePrototypeIndex(placed.towerId);
+        const int prototypeIndex = (placed.towerPrototypeIndex >= 0)
+            ? placed.towerPrototypeIndex
+            : towerLoadController_.templatePrototypeIndex(placed.towerId);
         if (prototypeIndex < 0) {
             continue;
         }
@@ -1098,7 +1337,9 @@ void PlayLevelScene::syncPlacedTowerModels() {
 
     for (std::size_t i = 0; i < activeProjectiles_.size(); ++i) {
         const ActiveProjectile& projectile = activeProjectiles_[i];
-        const int prototypeIndex = towerLoadController_.projectileTemplatePrototypeIndex(projectile.towerId);
+        const int prototypeIndex = (projectile.prototypeIndex >= 0)
+            ? projectile.prototypeIndex
+            : towerLoadController_.projectileTemplatePrototypeIndex(projectile.towerId);
         if (prototypeIndex < 0) {
             continue;
         }
@@ -1374,15 +1615,32 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         gameplayState_, dt, static_cast<int>(activeEnemies_.size()), [this](const std::string& enemyId) {
             const EnemyArchetype* archetype = enemyLoadController_.findArchetype(enemyId);
             const float health = archetype ? archetype->health : 1.0f;
+            const float shield = archetype ? archetype->shield : 0.0f;
+            const float armor = archetype ? archetype->armor : 0.0f;
             const float moveSpeed = archetype ? archetype->moveSpeed : 1.0f;
             const float rewardMoney = archetype ? archetype->rewardMoney : 0.0f;
             const float renderScale = archetype ? archetype->renderScale : 1.0f;
             const float baseDamage = archetype ? archetype->baseDamage : 5.0f;
             const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
+            const auto resistances = archetype
+                ? archetype->resistances
+                : std::unordered_map<playlevel::DamageType, float, playlevel::DamageTypeHash>{};
 
-            activeEnemies_.push_back(ActiveEnemy{enemyId, nextEnemyRuntimeId_++, 0.0f, std::max(1.0f, health),
-                                                 std::max(0.05f, moveSpeed), std::max(0.0f, rewardMoney),
-                                                 std::max(1.0f, baseDamage), std::max(0.01f, renderScale),
+            const float clampedHealth = std::max(1.0f, health);
+            const float clampedShield = std::max(0.0f, shield);
+            activeEnemies_.push_back(ActiveEnemy{enemyId,
+                                                 nextEnemyRuntimeId_++,
+                                                 0.0f,
+                                                 clampedHealth,
+                                                 clampedHealth,
+                                                 clampedShield,
+                                                 clampedShield,
+                                                 std::max(0.0f, armor),
+                                                 resistances,
+                                                 std::max(0.05f, moveSpeed),
+                                                 std::max(0.0f, rewardMoney),
+                                                 std::max(1.0f, baseDamage),
+                                                 std::max(0.01f, renderScale),
                                                  facingYawOffsetDegrees});
         });
 
@@ -1522,6 +1780,23 @@ void PlayLevelScene::registerLuaGameplayApi() {
     lua_newtable(L_);
     const int gameplayTable = lua_gettop(L_);
 
+    lua_newtable(L_);
+    lua_pushstring(L_, playlevel::damageTypeToString(playlevel::DamageType::Physical));
+    lua_setfield(L_, -2, "Physical");
+    lua_pushstring(L_, playlevel::damageTypeToString(playlevel::DamageType::Fire));
+    lua_setfield(L_, -2, "Fire");
+    lua_pushstring(L_, playlevel::damageTypeToString(playlevel::DamageType::Poison));
+    lua_setfield(L_, -2, "Poison");
+    lua_pushstring(L_, playlevel::damageTypeToString(playlevel::DamageType::Arcane));
+    lua_setfield(L_, -2, "Arcane");
+    lua_pushstring(L_, playlevel::damageTypeToString(playlevel::DamageType::Electric));
+    lua_setfield(L_, -2, "Electric");
+    lua_pushstring(L_, playlevel::damageTypeToString(playlevel::DamageType::Holy));
+    lua_setfield(L_, -2, "Holy");
+    lua_pushstring(L_, playlevel::damageTypeToString(playlevel::DamageType::Necrotic));
+    lua_setfield(L_, -2, "Necrotic");
+    lua_setfield(L_, gameplayTable, "DamageType");
+
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(
         L_,
@@ -1659,12 +1934,28 @@ void PlayLevelScene::registerLuaGameplayApi() {
                     lua_setfield(L, -2, "displayName");
                     lua_pushinteger(L, archetype->cost);
                     lua_setfield(L, -2, "cost");
+                    lua_pushstring(L, playlevel::damageTypeToString(archetype->damageType));
+                    lua_setfield(L, -2, "damageType");
                     lua_pushnumber(L, archetype->attackDamage);
                     lua_setfield(L, -2, "attackDamage");
+                    lua_pushnumber(L, archetype->armorPiercing);
+                    lua_setfield(L, -2, "armorPiercing");
                     lua_pushnumber(L, archetype->attackRange);
                     lua_setfield(L, -2, "attackRange");
                     lua_pushnumber(L, archetype->attackSpeed);
                     lua_setfield(L, -2, "attackSpeed");
+                    lua_pushnumber(L, archetype->splashRadius);
+                    lua_setfield(L, -2, "splashRadius");
+                    lua_pushnumber(L, archetype->chainRange);
+                    lua_setfield(L, -2, "chainRange");
+                    lua_pushnumber(L, archetype->ricochetRange);
+                    lua_setfield(L, -2, "ricochetRange");
+                    lua_pushinteger(L, archetype->projectileCount);
+                    lua_setfield(L, -2, "projectileCount");
+                    lua_pushinteger(L, archetype->chainTargetCount);
+                    lua_setfield(L, -2, "chainTargetCount");
+                    lua_pushinteger(L, archetype->ricochetCount);
+                    lua_setfield(L, -2, "ricochetCount");
                     lua_pushstring(L, archetype->modelPath.c_str());
                     lua_setfield(L, -2, "modelPath");
                     lua_pushstring(L, archetype->projectileModelPath.c_str());
@@ -1682,6 +1973,502 @@ void PlayLevelScene::registerLuaGameplayApi() {
         },
         1);
     lua_setfield(L_, gameplayTable, "getTowerLoadout");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const char* towerIdRaw = luaL_checkstring(L, 1);
+            const std::string towerId = towerIdRaw ? towerIdRaw : "";
+
+            const TowerArchetype* archetype = self->towerLoadController_.findArchetype(towerId);
+            if (!archetype) {
+                lua_pushnil(L);
+                lua_pushstring(L, "tower not found");
+                return 2;
+            }
+
+            lua_newtable(L);
+            lua_pushstring(L, archetype->id.c_str());
+            lua_setfield(L, -2, "towerId");
+            lua_pushstring(L, archetype->displayName.c_str());
+            lua_setfield(L, -2, "displayName");
+            lua_newtable(L);
+            lua_pushstring(L, archetype->upgradeUi.defaultNodeIconPath.c_str());
+            lua_setfield(L, -2, "defaultNodeIcon");
+            lua_setfield(L, -2, "ui");
+
+            lua_newtable(L);
+            for (std::size_t i = 0; i < archetype->upgradeNodes.size(); ++i) {
+                const TowerArchetype::UpgradeNode& node = archetype->upgradeNodes[i];
+                lua_newtable(L);
+
+                lua_pushstring(L, node.id.c_str());
+                lua_setfield(L, -2, "id");
+                lua_pushstring(L, node.displayName.c_str());
+                lua_setfield(L, -2, "displayName");
+                lua_pushstring(L, node.description.c_str());
+                lua_setfield(L, -2, "description");
+                lua_pushstring(L, node.iconPath.c_str());
+                lua_setfield(L, -2, "icon");
+                lua_pushstring(L, node.parentId.c_str());
+                lua_setfield(L, -2, "parent");
+                lua_pushstring(L, node.towerModelPathOverride.c_str());
+                lua_setfield(L, -2, "towerModel");
+                lua_pushstring(L, node.projectileModelPathOverride.c_str());
+                lua_setfield(L, -2, "projectileModel");
+                lua_pushstring(L, node.branch.c_str());
+                lua_setfield(L, -2, "branch");
+                lua_pushinteger(L, node.cost);
+                lua_setfield(L, -2, "cost");
+                lua_pushinteger(L, node.tier);
+                lua_setfield(L, -2, "tier");
+                lua_pushinteger(L, node.column);
+                lua_setfield(L, -2, "column");
+                lua_pushinteger(L, std::max(1, node.maxLevel));
+                lua_setfield(L, -2, "maxLevel");
+                lua_pushinteger(L, std::max(0, node.minUpgradesRequired));
+                lua_setfield(L, -2, "minUpgradesRequired");
+
+                lua_newtable(L);
+                for (std::size_t orderIdx = 0; orderIdx < node.childrenOrder.size(); ++orderIdx) {
+                    lua_pushstring(L, node.childrenOrder[orderIdx].c_str());
+                    lua_seti(L, -2, static_cast<lua_Integer>(orderIdx + 1));
+                }
+                lua_setfield(L, -2, "childrenOrder");
+
+                lua_newtable(L);
+                for (std::size_t reqIdx = 0; reqIdx < node.requiredNodeIds.size(); ++reqIdx) {
+                    lua_pushstring(L, node.requiredNodeIds[reqIdx].c_str());
+                    lua_seti(L, -2, static_cast<lua_Integer>(reqIdx + 1));
+                }
+                lua_setfield(L, -2, "requires");
+
+                lua_newtable(L);
+                for (std::size_t exIdx = 0; exIdx < node.excludes.size(); ++exIdx) {
+                    lua_pushstring(L, node.excludes[exIdx].c_str());
+                    lua_seti(L, -2, static_cast<lua_Integer>(exIdx + 1));
+                }
+                lua_setfield(L, -2, "excludes");
+
+                lua_newtable(L);
+                lua_pushnumber(L, node.effects.attackDamageAdd);
+                lua_setfield(L, -2, "attackDamageAdd");
+                lua_pushnumber(L, node.effects.attackDamageMul);
+                lua_setfield(L, -2, "attackDamageMul");
+                lua_pushnumber(L, node.effects.attackRangeAdd);
+                lua_setfield(L, -2, "attackRangeAdd");
+                lua_pushnumber(L, node.effects.attackRangeMul);
+                lua_setfield(L, -2, "attackRangeMul");
+                lua_pushnumber(L, node.effects.attackSpeedAdd);
+                lua_setfield(L, -2, "attackSpeedAdd");
+                lua_pushnumber(L, node.effects.attackSpeedMul);
+                lua_setfield(L, -2, "attackSpeedMul");
+                lua_pushnumber(L, node.effects.projectileSpeedAdd);
+                lua_setfield(L, -2, "projectileSpeedAdd");
+                lua_pushnumber(L, node.effects.projectileSpeedMul);
+                lua_setfield(L, -2, "projectileSpeedMul");
+                lua_pushnumber(L, node.effects.splashRadiusAdd);
+                lua_setfield(L, -2, "splashRadiusAdd");
+                lua_pushnumber(L, node.effects.splashRadiusMul);
+                lua_setfield(L, -2, "splashRadiusMul");
+                lua_pushnumber(L, node.effects.chainRangeAdd);
+                lua_setfield(L, -2, "chainRangeAdd");
+                lua_pushnumber(L, node.effects.chainRangeMul);
+                lua_setfield(L, -2, "chainRangeMul");
+                lua_pushnumber(L, node.effects.ricochetRangeAdd);
+                lua_setfield(L, -2, "ricochetRangeAdd");
+                lua_pushnumber(L, node.effects.ricochetRangeMul);
+                lua_setfield(L, -2, "ricochetRangeMul");
+                lua_pushinteger(L, node.effects.projectileCountAdd);
+                lua_setfield(L, -2, "projectileCountAdd");
+                lua_pushinteger(L, node.effects.chainTargetCountAdd);
+                lua_setfield(L, -2, "chainTargetCountAdd");
+                lua_pushinteger(L, node.effects.ricochetCountAdd);
+                lua_setfield(L, -2, "ricochetCountAdd");
+                lua_setfield(L, -2, "effects");
+
+                lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+            }
+            lua_setfield(L, -2, "nodes");
+
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getTowerUpgradeTree");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_newtable(L);
+
+            std::string selectedTowerId;
+            int selectedPoolIndex = -1;
+            const bool hasTowerSelection =
+                self->pickingController_.selectedSelection().valid &&
+                parseTowerPoolGroup(self->pickingController_.selectedSelection().group, selectedTowerId, selectedPoolIndex);
+
+            if (!hasTowerSelection) {
+                lua_pushboolean(L, 0);
+                lua_setfield(L, -2, "valid");
+                lua_pushstring(L, "select a placed tower");
+                lua_setfield(L, -2, "reason");
+                return 1;
+            }
+
+            const PlacedTower* placedTower = self->findPlacedTowerByPoolKey(selectedTowerId, selectedPoolIndex);
+            const TowerArchetype* archetype = self->towerLoadController_.findArchetype(selectedTowerId);
+            if (!placedTower || !archetype) {
+                lua_pushboolean(L, 0);
+                lua_setfield(L, -2, "valid");
+                lua_pushstring(L, "tower state not found");
+                lua_setfield(L, -2, "reason");
+                return 1;
+            }
+
+            float effectiveAttackDamage = placedTower->attackDamage;
+            float effectiveAttackRange = placedTower->attackRange;
+            float effectiveAttackSpeed = 1.0f / std::max(0.01f, placedTower->attackIntervalSeconds);
+            float effectiveProjectileSpeed = placedTower->projectileSpeed;
+            float effectiveSplashRadius = placedTower->splashRadius;
+            float effectiveChainRange = placedTower->chainRange;
+            float effectiveRicochetRange = placedTower->ricochetRange;
+            int effectiveProjectileCount = placedTower->projectileCount;
+            int effectiveChainTargetCount = placedTower->chainTargetCount;
+            int effectiveRicochetCount = placedTower->ricochetCount;
+
+            self->applyTowerUpgradeEffects(*archetype, *placedTower, effectiveAttackDamage, effectiveAttackRange,
+                                           effectiveAttackSpeed, effectiveProjectileSpeed, effectiveSplashRadius,
+                                           effectiveChainRange, effectiveRicochetRange, effectiveProjectileCount,
+                                           effectiveChainTargetCount, effectiveRicochetCount);
+
+            lua_pushboolean(L, 1);
+            lua_setfield(L, -2, "valid");
+            lua_pushstring(L, archetype->id.c_str());
+            lua_setfield(L, -2, "towerId");
+            lua_pushstring(L, archetype->displayName.c_str());
+            lua_setfield(L, -2, "displayName");
+            lua_pushinteger(L, selectedPoolIndex + 1);
+            lua_setfield(L, -2, "towerInstanceOrdinal");
+
+            lua_pushinteger(L, archetype->cost);
+            lua_setfield(L, -2, "baseCost");
+            lua_pushstring(L, playlevel::damageTypeToString(archetype->damageType));
+            lua_setfield(L, -2, "damageType");
+            lua_pushnumber(L, archetype->attackDamage);
+            lua_setfield(L, -2, "baseAttackDamage");
+            lua_pushnumber(L, archetype->armorPiercing);
+            lua_setfield(L, -2, "baseArmorPiercing");
+            lua_pushnumber(L, archetype->attackRange);
+            lua_setfield(L, -2, "baseAttackRange");
+            lua_pushnumber(L, archetype->attackSpeed);
+            lua_setfield(L, -2, "baseAttackSpeed");
+            lua_pushnumber(L, archetype->projectileSpeed);
+            lua_setfield(L, -2, "baseProjectileSpeed");
+            lua_pushnumber(L, archetype->splashRadius);
+            lua_setfield(L, -2, "baseSplashRadius");
+            lua_pushnumber(L, archetype->chainRange);
+            lua_setfield(L, -2, "baseChainRange");
+            lua_pushnumber(L, archetype->ricochetRange);
+            lua_setfield(L, -2, "baseRicochetRange");
+            lua_pushinteger(L, archetype->projectileCount);
+            lua_setfield(L, -2, "baseProjectileCount");
+            lua_pushinteger(L, archetype->chainTargetCount);
+            lua_setfield(L, -2, "baseChainTargetCount");
+            lua_pushinteger(L, archetype->ricochetCount);
+            lua_setfield(L, -2, "baseRicochetCount");
+
+            lua_pushnumber(L, effectiveAttackDamage);
+            lua_setfield(L, -2, "attackDamage");
+            lua_pushnumber(L, std::max(0.0f, placedTower->armorPiercing));
+            lua_setfield(L, -2, "armorPiercing");
+            lua_pushnumber(L, effectiveAttackRange);
+            lua_setfield(L, -2, "attackRange");
+            lua_pushnumber(L, effectiveAttackSpeed);
+            lua_setfield(L, -2, "attackSpeed");
+            lua_pushnumber(L, effectiveProjectileSpeed);
+            lua_setfield(L, -2, "projectileSpeed");
+            lua_pushnumber(L, effectiveSplashRadius);
+            lua_setfield(L, -2, "splashRadius");
+            lua_pushnumber(L, effectiveChainRange);
+            lua_setfield(L, -2, "chainRange");
+            lua_pushnumber(L, effectiveRicochetRange);
+            lua_setfield(L, -2, "ricochetRange");
+            lua_pushinteger(L, effectiveProjectileCount);
+            lua_setfield(L, -2, "projectileCount");
+            lua_pushinteger(L, effectiveChainTargetCount);
+            lua_setfield(L, -2, "chainTargetCount");
+            lua_pushinteger(L, effectiveRicochetCount);
+            lua_setfield(L, -2, "ricochetCount");
+
+            lua_newtable(L);
+            lua_pushstring(L, archetype->upgradeUi.panelTitle.c_str());
+            lua_setfield(L, -2, "panelTitle");
+            lua_pushstring(L, archetype->upgradeUi.artPath.c_str());
+            lua_setfield(L, -2, "artPath");
+            lua_pushstring(L, archetype->upgradeUi.defaultNodeIconPath.c_str());
+            lua_setfield(L, -2, "defaultNodeIcon");
+
+            lua_newtable(L);
+            lua_pushnumber(L, archetype->upgradeUi.accentR);
+            lua_seti(L, -2, 1);
+            lua_pushnumber(L, archetype->upgradeUi.accentG);
+            lua_seti(L, -2, 2);
+            lua_pushnumber(L, archetype->upgradeUi.accentB);
+            lua_seti(L, -2, 3);
+            lua_setfield(L, -2, "accent");
+
+            lua_newtable(L);
+            lua_pushnumber(L, archetype->upgradeUi.unlockedR);
+            lua_seti(L, -2, 1);
+            lua_pushnumber(L, archetype->upgradeUi.unlockedG);
+            lua_seti(L, -2, 2);
+            lua_pushnumber(L, archetype->upgradeUi.unlockedB);
+            lua_seti(L, -2, 3);
+            lua_setfield(L, -2, "unlocked");
+
+            lua_newtable(L);
+            lua_pushnumber(L, archetype->upgradeUi.lockedR);
+            lua_seti(L, -2, 1);
+            lua_pushnumber(L, archetype->upgradeUi.lockedG);
+            lua_seti(L, -2, 2);
+            lua_pushnumber(L, archetype->upgradeUi.lockedB);
+            lua_seti(L, -2, 3);
+            lua_setfield(L, -2, "locked");
+            lua_setfield(L, -2, "ui");
+
+            lua_newtable(L);
+            for (std::size_t i = 0; i < placedTower->unlockedUpgradeNodeIds.size(); ++i) {
+                lua_pushstring(L, placedTower->unlockedUpgradeNodeIds[i].c_str());
+                lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+            }
+            lua_setfield(L, -2, "unlockedNodes");
+
+            lua_newtable(L);
+            for (std::size_t i = 0; i < archetype->upgradeNodes.size(); ++i) {
+                const TowerArchetype::UpgradeNode& node = archetype->upgradeNodes[i];
+                lua_newtable(L);
+
+                const int currentLevel = static_cast<int>(std::count(placedTower->unlockedUpgradeNodeIds.begin(),
+                                                                      placedTower->unlockedUpgradeNodeIds.end(),
+                                                                      node.id));
+                const bool unlocked = currentLevel > 0;
+                const int maxLevel = std::max(1, node.maxLevel);
+                const bool canLevelUp = currentLevel < maxLevel;
+                const std::string reason = canLevelUp
+                    ? self->validateTowerUpgradeUnlock(*archetype, *placedTower, node.id)
+                    : std::string("upgrade is at max level");
+                const bool canUnlock = canLevelUp && reason.empty();
+
+                lua_pushstring(L, node.id.c_str());
+                lua_setfield(L, -2, "id");
+                lua_pushstring(L, node.displayName.c_str());
+                lua_setfield(L, -2, "displayName");
+                lua_pushstring(L, node.description.c_str());
+                lua_setfield(L, -2, "description");
+                lua_pushstring(L, node.iconPath.c_str());
+                lua_setfield(L, -2, "icon");
+                lua_pushstring(L, node.parentId.c_str());
+                lua_setfield(L, -2, "parent");
+                lua_pushstring(L, node.towerModelPathOverride.c_str());
+                lua_setfield(L, -2, "towerModel");
+                lua_pushstring(L, node.projectileModelPathOverride.c_str());
+                lua_setfield(L, -2, "projectileModel");
+                lua_pushstring(L, node.branch.c_str());
+                lua_setfield(L, -2, "branch");
+                lua_pushinteger(L, node.cost);
+                lua_setfield(L, -2, "cost");
+                lua_pushinteger(L, node.tier);
+                lua_setfield(L, -2, "tier");
+                lua_pushinteger(L, node.column);
+                lua_setfield(L, -2, "column");
+                lua_pushinteger(L, maxLevel);
+                lua_setfield(L, -2, "maxLevel");
+                lua_pushinteger(L, currentLevel);
+                lua_setfield(L, -2, "currentLevel");
+                lua_pushinteger(L, std::max(0, node.minUpgradesRequired));
+                lua_setfield(L, -2, "minUpgradesRequired");
+                lua_pushboolean(L, unlocked ? 1 : 0);
+                lua_setfield(L, -2, "unlocked");
+                lua_pushboolean(L, canUnlock ? 1 : 0);
+                lua_setfield(L, -2, "canUnlock");
+                lua_pushstring(L, reason.c_str());
+                lua_setfield(L, -2, "reason");
+
+                lua_newtable(L);
+                for (std::size_t orderIdx = 0; orderIdx < node.childrenOrder.size(); ++orderIdx) {
+                    lua_pushstring(L, node.childrenOrder[orderIdx].c_str());
+                    lua_seti(L, -2, static_cast<lua_Integer>(orderIdx + 1));
+                }
+                lua_setfield(L, -2, "childrenOrder");
+
+                lua_newtable(L);
+                for (std::size_t reqIdx = 0; reqIdx < node.requiredNodeIds.size(); ++reqIdx) {
+                    lua_pushstring(L, node.requiredNodeIds[reqIdx].c_str());
+                    lua_seti(L, -2, static_cast<lua_Integer>(reqIdx + 1));
+                }
+                lua_setfield(L, -2, "requires");
+
+                lua_newtable(L);
+                for (std::size_t exIdx = 0; exIdx < node.excludes.size(); ++exIdx) {
+                    lua_pushstring(L, node.excludes[exIdx].c_str());
+                    lua_seti(L, -2, static_cast<lua_Integer>(exIdx + 1));
+                }
+                lua_setfield(L, -2, "excludes");
+
+                lua_newtable(L);
+                lua_pushnumber(L, node.effects.attackDamageAdd);
+                lua_setfield(L, -2, "attackDamageAdd");
+                lua_pushnumber(L, node.effects.attackDamageMul);
+                lua_setfield(L, -2, "attackDamageMul");
+                lua_pushnumber(L, node.effects.attackRangeAdd);
+                lua_setfield(L, -2, "attackRangeAdd");
+                lua_pushnumber(L, node.effects.attackRangeMul);
+                lua_setfield(L, -2, "attackRangeMul");
+                lua_pushnumber(L, node.effects.attackSpeedAdd);
+                lua_setfield(L, -2, "attackSpeedAdd");
+                lua_pushnumber(L, node.effects.attackSpeedMul);
+                lua_setfield(L, -2, "attackSpeedMul");
+                lua_pushnumber(L, node.effects.projectileSpeedAdd);
+                lua_setfield(L, -2, "projectileSpeedAdd");
+                lua_pushnumber(L, node.effects.projectileSpeedMul);
+                lua_setfield(L, -2, "projectileSpeedMul");
+                lua_pushnumber(L, node.effects.splashRadiusAdd);
+                lua_setfield(L, -2, "splashRadiusAdd");
+                lua_pushnumber(L, node.effects.splashRadiusMul);
+                lua_setfield(L, -2, "splashRadiusMul");
+                lua_pushnumber(L, node.effects.chainRangeAdd);
+                lua_setfield(L, -2, "chainRangeAdd");
+                lua_pushnumber(L, node.effects.chainRangeMul);
+                lua_setfield(L, -2, "chainRangeMul");
+                lua_pushnumber(L, node.effects.ricochetRangeAdd);
+                lua_setfield(L, -2, "ricochetRangeAdd");
+                lua_pushnumber(L, node.effects.ricochetRangeMul);
+                lua_setfield(L, -2, "ricochetRangeMul");
+                lua_pushinteger(L, node.effects.projectileCountAdd);
+                lua_setfield(L, -2, "projectileCountAdd");
+                lua_pushinteger(L, node.effects.chainTargetCountAdd);
+                lua_setfield(L, -2, "chainTargetCountAdd");
+                lua_pushinteger(L, node.effects.ricochetCountAdd);
+                lua_setfield(L, -2, "ricochetCountAdd");
+                lua_setfield(L, -2, "effects");
+
+                lua_seti(L, -2, static_cast<lua_Integer>(i + 1));
+            }
+            lua_setfield(L, -2, "nodes");
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getSelectedTowerUpgradeState");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_newtable(L);
+
+            const auto& selected = self->pickingController_.selectedSelection();
+            if (!selected.valid || selected.instanceIndex < 0 ||
+                selected.instanceIndex >= static_cast<int>(self->activeEnemies_.size())) {
+                lua_pushboolean(L, 0);
+                lua_setfield(L, -2, "valid");
+                lua_pushstring(L, "select an enemy");
+                lua_setfield(L, -2, "reason");
+                return 1;
+            }
+
+            const ActiveEnemy& enemy = self->activeEnemies_[static_cast<std::size_t>(selected.instanceIndex)];
+            const EnemyArchetype* archetype = self->enemyLoadController_.findArchetype(enemy.enemyId);
+
+            lua_pushboolean(L, 1);
+            lua_setfield(L, -2, "valid");
+            lua_pushstring(L, enemy.enemyId.c_str());
+            lua_setfield(L, -2, "enemyId");
+            lua_pushinteger(L, static_cast<lua_Integer>(selected.instanceIndex + 1));
+            lua_setfield(L, -2, "instanceOrdinal");
+            lua_pushinteger(L, static_cast<lua_Integer>(enemy.runtimeId));
+            lua_setfield(L, -2, "runtimeId");
+
+            const std::string displayName = archetype ? archetype->displayName : enemy.enemyId;
+            const std::string description = archetype ? archetype->description : std::string();
+            lua_pushstring(L, displayName.c_str());
+            lua_setfield(L, -2, "displayName");
+            lua_pushstring(L, description.c_str());
+            lua_setfield(L, -2, "description");
+
+            lua_pushnumber(L, enemy.health);
+            lua_setfield(L, -2, "health");
+            lua_pushnumber(L, enemy.maxHealth);
+            lua_setfield(L, -2, "maxHealth");
+            lua_pushnumber(L, enemy.shield);
+            lua_setfield(L, -2, "shield");
+            lua_pushnumber(L, enemy.maxShield);
+            lua_setfield(L, -2, "maxShield");
+            lua_pushnumber(L, enemy.moveSpeed);
+            lua_setfield(L, -2, "moveSpeed");
+            lua_pushnumber(L, enemy.baseDamage);
+            lua_setfield(L, -2, "baseDamage");
+            lua_pushnumber(L, enemy.armor);
+            lua_setfield(L, -2, "armor");
+            lua_pushnumber(L, enemy.rewardMoney);
+            lua_setfield(L, -2, "rewardMoney");
+
+            lua_newtable(L);
+            int resistanceIndex = 1;
+            for (const auto& [damageType, percent] : enemy.resistances) {
+                lua_newtable(L);
+                lua_pushstring(L, playlevel::damageTypeToString(damageType));
+                lua_setfield(L, -2, "damageType");
+                lua_pushnumber(L, percent);
+                lua_setfield(L, -2, "percent");
+                lua_seti(L, -2, resistanceIndex++);
+            }
+            lua_setfield(L, -2, "resistances");
+
+            if (selected.distance > 0.0f) {
+                lua_pushnumber(L, selected.distance);
+                lua_setfield(L, -2, "selectionDistance");
+            }
+
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getSelectedEnemyInfo");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            const std::string nodeId = luaL_checkstring(L, 1);
+            if (nodeId.empty()) {
+                return pushCommandResult(L, false, "node id is required");
+            }
+
+            std::string selectedTowerId;
+            int selectedPoolIndex = -1;
+            const bool hasTowerSelection =
+                self->pickingController_.selectedSelection().valid &&
+                parseTowerPoolGroup(self->pickingController_.selectedSelection().group, selectedTowerId, selectedPoolIndex);
+            if (!hasTowerSelection) {
+                return pushCommandResult(L, false, "select a placed tower");
+            }
+
+            PlacedTower* placedTower = self->findPlacedTowerByPoolKey(selectedTowerId, selectedPoolIndex);
+            if (!placedTower) {
+                return pushCommandResult(L, false, "tower state not found");
+            }
+
+            std::string reason;
+            const bool unlocked = self->unlockTowerUpgrade(*placedTower, nodeId, reason);
+            return pushCommandResult(L, unlocked, reason.c_str());
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "requestSelectedTowerUpgrade");
 
     lua_pushlightuserdata(L_, this);
     lua_pushcclosure(

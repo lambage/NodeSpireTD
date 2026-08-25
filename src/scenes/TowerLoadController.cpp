@@ -89,6 +89,20 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
         }
         lua_pop(L_, 1);
 
+        lua_getfield(L_, -1, "damageType");
+        if (lua_isstring(L_, -1)) {
+            const std::string damageTypeRaw = lua_tostring(L_, -1);
+            playlevel::DamageType parsedType{};
+            if (playlevel::tryParseDamageType(damageTypeRaw, parsedType)) {
+                outArchetype.damageType = parsedType;
+            } else {
+                spdlog::warn("TowerLoadController: invalid damageType '{}' in {}. Falling back to 'physical'.", damageTypeRaw,
+                             scriptPath);
+                outArchetype.damageType = playlevel::DamageType::Physical;
+            }
+        }
+        lua_pop(L_, 1);
+
         lua_getfield(L_, -1, "attackRange");
         if (lua_isnumber(L_, -1)) {
             outArchetype.attackRange = static_cast<float>(lua_tonumber(L_, -1));
@@ -101,6 +115,12 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
         }
         lua_pop(L_, 1);
 
+        lua_getfield(L_, -1, "armorPiercing");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.armorPiercing = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
         lua_getfield(L_, -1, "attackSpeed");
         if (lua_isnumber(L_, -1)) {
             outArchetype.attackSpeed = static_cast<float>(lua_tonumber(L_, -1));
@@ -110,6 +130,42 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
         lua_getfield(L_, -1, "projectileSpeed");
         if (lua_isnumber(L_, -1)) {
             outArchetype.projectileSpeed = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "splashRadius");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.splashRadius = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "chainRange");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.chainRange = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "ricochetRange");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.ricochetRange = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "projectileCount");
+        if (lua_isinteger(L_, -1)) {
+            outArchetype.projectileCount = static_cast<int>(lua_tointeger(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "chainTargetCount");
+        if (lua_isinteger(L_, -1)) {
+            outArchetype.chainTargetCount = static_cast<int>(lua_tointeger(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "ricochetCount");
+        if (lua_isinteger(L_, -1)) {
+            outArchetype.ricochetCount = static_cast<int>(lua_tointeger(L_, -1));
         }
         lua_pop(L_, 1);
     }
@@ -126,6 +182,287 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
         lua_getfield(L_, -1, "facingYawOffsetDegrees");
         if (lua_isnumber(L_, -1)) {
             outArchetype.facingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+    }
+    lua_pop(L_, 1);
+
+    lua_getfield(L_, -1, "upgradeTree");
+    if (lua_istable(L_, -1)) {
+        lua_getfield(L_, -1, "ui");
+        if (lua_istable(L_, -1)) {
+            lua_getfield(L_, -1, "panelTitle");
+            if (lua_isstring(L_, -1)) {
+                outArchetype.upgradeUi.panelTitle = lua_tostring(L_, -1);
+            }
+            lua_pop(L_, 1);
+
+            lua_getfield(L_, -1, "artPath");
+            if (lua_isstring(L_, -1)) {
+                outArchetype.upgradeUi.artPath = lua_tostring(L_, -1);
+            }
+            lua_pop(L_, 1);
+
+            lua_getfield(L_, -1, "defaultNodeIcon");
+            if (lua_isstring(L_, -1)) {
+                outArchetype.upgradeUi.defaultNodeIconPath = lua_tostring(L_, -1);
+            }
+            lua_pop(L_, 1);
+
+            auto readColorField = [&](const char* key, float& r, float& g, float& b) {
+                lua_getfield(L_, -1, key);
+                if (lua_istable(L_, -1)) {
+                    lua_geti(L_, -1, 1);
+                    if (lua_isnumber(L_, -1)) {
+                        r = static_cast<float>(lua_tonumber(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+
+                    lua_geti(L_, -1, 2);
+                    if (lua_isnumber(L_, -1)) {
+                        g = static_cast<float>(lua_tonumber(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+
+                    lua_geti(L_, -1, 3);
+                    if (lua_isnumber(L_, -1)) {
+                        b = static_cast<float>(lua_tonumber(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+                }
+                lua_pop(L_, 1);
+            };
+
+            readColorField("accent", outArchetype.upgradeUi.accentR, outArchetype.upgradeUi.accentG,
+                           outArchetype.upgradeUi.accentB);
+            readColorField("unlocked", outArchetype.upgradeUi.unlockedR, outArchetype.upgradeUi.unlockedG,
+                           outArchetype.upgradeUi.unlockedB);
+            readColorField("locked", outArchetype.upgradeUi.lockedR, outArchetype.upgradeUi.lockedG,
+                           outArchetype.upgradeUi.lockedB);
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "nodes");
+        if (lua_istable(L_, -1)) {
+            const int nodeCount = static_cast<int>(lua_rawlen(L_, -1));
+            outArchetype.upgradeNodes.clear();
+            outArchetype.upgradeNodes.reserve(static_cast<std::size_t>(nodeCount));
+
+            for (int i = 1; i <= nodeCount; ++i) {
+                lua_geti(L_, -1, i);
+                if (!lua_istable(L_, -1)) {
+                    lua_pop(L_, 1);
+                    continue;
+                }
+
+                TowerArchetype::UpgradeNode node;
+
+                lua_getfield(L_, -1, "id");
+                if (lua_isstring(L_, -1)) {
+                    node.id = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "displayName");
+                if (lua_isstring(L_, -1)) {
+                    node.displayName = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "description");
+                if (lua_isstring(L_, -1)) {
+                    node.description = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "icon");
+                if (lua_isstring(L_, -1)) {
+                    node.iconPath = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "parent");
+                if (lua_isstring(L_, -1)) {
+                    node.parentId = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "childrenOrder");
+                if (lua_istable(L_, -1)) {
+                    const int count = static_cast<int>(lua_rawlen(L_, -1));
+                    node.childrenOrder.reserve(static_cast<std::size_t>(count));
+                    for (int idx = 1; idx <= count; ++idx) {
+                        lua_geti(L_, -1, idx);
+                        if (lua_isstring(L_, -1)) {
+                            node.childrenOrder.emplace_back(lua_tostring(L_, -1));
+                        }
+                        lua_pop(L_, 1);
+                    }
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "towerModel");
+                if (lua_isstring(L_, -1)) {
+                    node.towerModelPathOverride = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "projectileModel");
+                if (lua_isstring(L_, -1)) {
+                    node.projectileModelPathOverride = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "branch");
+                if (lua_isstring(L_, -1)) {
+                    node.branch = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "cost");
+                if (lua_isinteger(L_, -1)) {
+                    node.cost = static_cast<int>(lua_tointeger(L_, -1));
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "tier");
+                if (lua_isinteger(L_, -1)) {
+                    node.tier = static_cast<int>(lua_tointeger(L_, -1));
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "column");
+                if (lua_isinteger(L_, -1)) {
+                    node.column = static_cast<int>(lua_tointeger(L_, -1));
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "maxLevel");
+                if (lua_isinteger(L_, -1)) {
+                    node.maxLevel = static_cast<int>(lua_tointeger(L_, -1));
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "minUpgradesRequired");
+                if (lua_isinteger(L_, -1)) {
+                    node.minUpgradesRequired = static_cast<int>(lua_tointeger(L_, -1));
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "requires");
+                if (lua_istable(L_, -1)) {
+                    const int count = static_cast<int>(lua_rawlen(L_, -1));
+                    node.requiredNodeIds.reserve(static_cast<std::size_t>(count));
+                    for (int idx = 1; idx <= count; ++idx) {
+                        lua_geti(L_, -1, idx);
+                        if (lua_isstring(L_, -1)) {
+                            node.requiredNodeIds.emplace_back(lua_tostring(L_, -1));
+                        }
+                        lua_pop(L_, 1);
+                    }
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "excludes");
+                if (lua_istable(L_, -1)) {
+                    const int count = static_cast<int>(lua_rawlen(L_, -1));
+                    node.excludes.reserve(static_cast<std::size_t>(count));
+                    for (int idx = 1; idx <= count; ++idx) {
+                        lua_geti(L_, -1, idx);
+                        if (lua_isstring(L_, -1)) {
+                            node.excludes.emplace_back(lua_tostring(L_, -1));
+                        }
+                        lua_pop(L_, 1);
+                    }
+                }
+                lua_pop(L_, 1);
+
+                lua_getfield(L_, -1, "effects");
+                if (lua_istable(L_, -1)) {
+                    auto readEffect = [&](const char* key, float& outValue) {
+                        lua_getfield(L_, -1, key);
+                        if (lua_isnumber(L_, -1)) {
+                            outValue = static_cast<float>(lua_tonumber(L_, -1));
+                        }
+                        lua_pop(L_, 1);
+                    };
+
+                    readEffect("attackDamageAdd", node.effects.attackDamageAdd);
+                    readEffect("attackDamageMul", node.effects.attackDamageMul);
+                    readEffect("attackRangeAdd", node.effects.attackRangeAdd);
+                    readEffect("attackRangeMul", node.effects.attackRangeMul);
+                    readEffect("attackSpeedAdd", node.effects.attackSpeedAdd);
+                    readEffect("attackSpeedMul", node.effects.attackSpeedMul);
+                    readEffect("projectileSpeedAdd", node.effects.projectileSpeedAdd);
+                    readEffect("projectileSpeedMul", node.effects.projectileSpeedMul);
+                    readEffect("splashRadiusAdd", node.effects.splashRadiusAdd);
+                    readEffect("splashRadiusMul", node.effects.splashRadiusMul);
+                    readEffect("chainRangeAdd", node.effects.chainRangeAdd);
+                    readEffect("chainRangeMul", node.effects.chainRangeMul);
+                    readEffect("ricochetRangeAdd", node.effects.ricochetRangeAdd);
+                    readEffect("ricochetRangeMul", node.effects.ricochetRangeMul);
+
+                    lua_getfield(L_, -1, "projectileCountAdd");
+                    if (lua_isinteger(L_, -1)) {
+                        node.effects.projectileCountAdd = static_cast<int>(lua_tointeger(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+
+                    lua_getfield(L_, -1, "chainTargetCountAdd");
+                    if (lua_isinteger(L_, -1)) {
+                        node.effects.chainTargetCountAdd = static_cast<int>(lua_tointeger(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+
+                    lua_getfield(L_, -1, "ricochetCountAdd");
+                    if (lua_isinteger(L_, -1)) {
+                        node.effects.ricochetCountAdd = static_cast<int>(lua_tointeger(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+                }
+                lua_pop(L_, 1);
+
+                if (node.id.empty()) {
+                    lua_pop(L_, 1);
+                    continue;
+                }
+                if (node.displayName.empty()) {
+                    node.displayName = node.id;
+                }
+                if (node.cost < 0) {
+                    node.cost = 0;
+                }
+                if (node.maxLevel < 1) {
+                    node.maxLevel = 1;
+                }
+                if (node.minUpgradesRequired < 0) {
+                    node.minUpgradesRequired = 0;
+                }
+                if (node.effects.attackDamageMul <= 0.0f) {
+                    node.effects.attackDamageMul = 1.0f;
+                }
+                if (node.effects.attackRangeMul <= 0.0f) {
+                    node.effects.attackRangeMul = 1.0f;
+                }
+                if (node.effects.attackSpeedMul <= 0.0f) {
+                    node.effects.attackSpeedMul = 1.0f;
+                }
+                if (node.effects.projectileSpeedMul <= 0.0f) {
+                    node.effects.projectileSpeedMul = 1.0f;
+                }
+                if (node.effects.splashRadiusMul <= 0.0f) {
+                    node.effects.splashRadiusMul = 1.0f;
+                }
+                if (node.effects.chainRangeMul <= 0.0f) {
+                    node.effects.chainRangeMul = 1.0f;
+                }
+                if (node.effects.ricochetRangeMul <= 0.0f) {
+                    node.effects.ricochetRangeMul = 1.0f;
+                }
+
+                outArchetype.upgradeNodes.push_back(std::move(node));
+                lua_pop(L_, 1);
+            }
         }
         lua_pop(L_, 1);
     }
@@ -148,15 +485,59 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     if (outArchetype.attackDamage <= 0.01f) {
         outArchetype.attackDamage = 1.0f;
     }
+    if (outArchetype.armorPiercing < 0.0f) {
+        outArchetype.armorPiercing = 0.0f;
+    }
     if (outArchetype.attackSpeed <= 0.01f) {
         outArchetype.attackSpeed = 1.0f;
     }
     if (outArchetype.projectileSpeed <= 0.1f) {
         outArchetype.projectileSpeed = 16.0f;
     }
+    if (outArchetype.splashRadius < 0.0f) {
+        outArchetype.splashRadius = 0.0f;
+    }
+    if (outArchetype.chainRange <= 0.1f) {
+        outArchetype.chainRange = 3.5f;
+    }
+    if (outArchetype.ricochetRange <= 0.1f) {
+        outArchetype.ricochetRange = 3.5f;
+    }
+    if (outArchetype.projectileCount < 1) {
+        outArchetype.projectileCount = 1;
+    }
+    if (outArchetype.chainTargetCount < 1) {
+        outArchetype.chainTargetCount = 1;
+    }
+    if (outArchetype.ricochetCount < 0) {
+        outArchetype.ricochetCount = 0;
+    }
     if (outArchetype.renderScale <= 0.01f) {
         outArchetype.renderScale = 1.0f;
     }
+
+    constexpr int kMaxChildrenPerNode = 4;
+    std::unordered_map<std::string, int> childCountByParent;
+    std::vector<TowerArchetype::UpgradeNode> filteredNodes;
+    filteredNodes.reserve(outArchetype.upgradeNodes.size());
+    for (const auto& node : outArchetype.upgradeNodes) {
+        if (node.parentId.empty()) {
+            filteredNodes.push_back(node);
+            continue;
+        }
+
+        int& childCount = childCountByParent[node.parentId];
+        if (childCount >= kMaxChildrenPerNode) {
+            spdlog::warn(
+                "TowerLoadController: node '{}' in '{}' exceeds max {} children for parent '{}'. Node ignored.",
+                node.id, scriptPath, kMaxChildrenPerNode, node.parentId);
+            continue;
+        }
+
+        ++childCount;
+        filteredNodes.push_back(node);
+    }
+    outArchetype.upgradeNodes = std::move(filteredNodes);
 
     return true;
 }
@@ -182,7 +563,46 @@ bool TowerLoadController::loadTowerArchetype(const std::string& scriptPath) {
 }
 
 void TowerLoadController::populateWorldAssets(WorldAssetSpec& spec) {
-    for (const auto& [towerId, tower] : archetypes_) {
+    std::unordered_map<std::string, int> towerTemplateByPath;
+    std::unordered_map<std::string, int> projectileTemplateByPath;
+
+    auto ensureTowerTemplate = [&](const std::string& templateId, const std::string& modelPath) {
+        if (modelPath.empty()) {
+            return -1;
+        }
+        auto it = towerTemplateByPath.find(modelPath);
+        if (it != towerTemplateByPath.end()) {
+            return it->second;
+        }
+
+        WorldTemplateModelSpec towerTemplate;
+        towerTemplate.id = templateId;
+        towerTemplate.modelPath = modelPath;
+        const int idx = static_cast<int>(spec.towerTemplateModels.size());
+        spec.towerTemplateModels.push_back(std::move(towerTemplate));
+        towerTemplateByPath[modelPath] = idx;
+        return idx;
+    };
+
+    auto ensureProjectileTemplate = [&](const std::string& templateId, const std::string& modelPath) {
+        if (modelPath.empty()) {
+            return -1;
+        }
+        auto it = projectileTemplateByPath.find(modelPath);
+        if (it != projectileTemplateByPath.end()) {
+            return it->second;
+        }
+
+        WorldTemplateModelSpec projectileTemplate;
+        projectileTemplate.id = templateId;
+        projectileTemplate.modelPath = modelPath;
+        const int idx = static_cast<int>(spec.towerTemplateModels.size());
+        spec.towerTemplateModels.push_back(std::move(projectileTemplate));
+        projectileTemplateByPath[modelPath] = idx;
+        return idx;
+    };
+
+    for (auto& [towerId, tower] : archetypes_) {
         if (tower.modelPath.empty()) {
             continue;
         }
@@ -204,18 +624,18 @@ void TowerLoadController::populateWorldAssets(WorldAssetSpec& spec) {
             poolGroups.push_back(poolGroup);
         }
 
-        WorldTemplateModelSpec towerTemplate;
-        towerTemplate.id = towerId;
-        towerTemplate.modelPath = tower.modelPath;
-        templatePrototypeById_[towerId] = static_cast<int>(spec.towerTemplateModels.size());
-        spec.towerTemplateModels.push_back(std::move(towerTemplate));
+        templatePrototypeById_[towerId] = ensureTowerTemplate(towerId, tower.modelPath);
 
         if (!tower.projectileModelPath.empty()) {
-            WorldTemplateModelSpec projectileTemplate;
-            projectileTemplate.id = "projectile:" + towerId;
-            projectileTemplate.modelPath = tower.projectileModelPath;
-            projectileTemplatePrototypeById_[towerId] = static_cast<int>(spec.towerTemplateModels.size());
-            spec.towerTemplateModels.push_back(std::move(projectileTemplate));
+            projectileTemplatePrototypeById_[towerId] =
+                ensureProjectileTemplate("projectile:" + towerId, tower.projectileModelPath);
+        }
+
+        for (auto& node : tower.upgradeNodes) {
+            node.towerPrototypeOverrideIndex =
+                ensureTowerTemplate("upgrade_tower:" + towerId + ":" + node.id, node.towerModelPathOverride);
+            node.projectilePrototypeOverrideIndex = ensureProjectileTemplate(
+                "upgrade_projectile:" + towerId + ":" + node.id, node.projectileModelPathOverride);
         }
     }
 }

@@ -7,6 +7,7 @@
 #include "utility/GameImageButton.hpp"
 #include "utility/VulkanTexture.hpp"
 
+#include <algorithm>
 #include <imgui.h>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -1027,6 +1028,30 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         },
         0);
     lua_setfield(L, t, "SetTooltip");
+
+    // DrawLine(x1, y1, x2, y2, r, g, b, [a], [thickness])
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const float x1 = static_cast<float>(luaL_checknumber(L, 1));
+            const float y1 = static_cast<float>(luaL_checknumber(L, 2));
+            const float x2 = static_cast<float>(luaL_checknumber(L, 3));
+            const float y2 = static_cast<float>(luaL_checknumber(L, 4));
+            const float r = static_cast<float>(luaL_checknumber(L, 5));
+            const float g = static_cast<float>(luaL_checknumber(L, 6));
+            const float b = static_cast<float>(luaL_checknumber(L, 7));
+            const float a = static_cast<float>(luaL_optnumber(L, 8, 1.0));
+            const float thickness = static_cast<float>(luaL_optnumber(L, 9, 1.0));
+
+            ImU32 col = IM_COL32(static_cast<int>(std::clamp(r, 0.0f, 1.0f) * 255.0f),
+                                 static_cast<int>(std::clamp(g, 0.0f, 1.0f) * 255.0f),
+                                 static_cast<int>(std::clamp(b, 0.0f, 1.0f) * 255.0f),
+                                 static_cast<int>(std::clamp(a, 0.0f, 1.0f) * 255.0f));
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), col, thickness);
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "DrawLine");
 
     // Image(texture, w, h)
     lua_pushcclosure(

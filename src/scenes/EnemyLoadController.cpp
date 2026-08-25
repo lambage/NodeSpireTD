@@ -48,6 +48,7 @@ bool EnemyLoadController::parseEnemyArchetypeScript(const std::string& scriptPat
 
     readStringField("id", outArchetype.id);
     readStringField("displayName", outArchetype.displayName);
+    readStringField("description", outArchetype.description);
     readStringField("model", outArchetype.modelPath);
 
     lua_getfield(L_, -1, "stats");
@@ -55,6 +56,39 @@ bool EnemyLoadController::parseEnemyArchetypeScript(const std::string& scriptPat
         lua_getfield(L_, -1, "health");
         if (lua_isinteger(L_, -1)) {
             outArchetype.health = static_cast<int>(lua_tointeger(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "shield");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.shield = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "armor");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.armor = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "resistances");
+        if (lua_istable(L_, -1)) {
+            outArchetype.resistances.clear();
+            lua_pushnil(L_);
+            while (lua_next(L_, -2) != 0) {
+                if (lua_isstring(L_, -2) && lua_isnumber(L_, -1)) {
+                    const std::string damageTypeRaw = lua_tostring(L_, -2);
+                    playlevel::DamageType parsedType{};
+                    if (playlevel::tryParseDamageType(damageTypeRaw, parsedType)) {
+                        outArchetype.resistances[parsedType] = static_cast<float>(lua_tonumber(L_, -1));
+                    } else {
+                        spdlog::warn(
+                            "EnemyLoadController: invalid resistance type '{}' in {}. Entry ignored.", damageTypeRaw,
+                            scriptPath);
+                    }
+                }
+                lua_pop(L_, 1);
+            }
         }
         lua_pop(L_, 1);
 
@@ -105,6 +139,12 @@ bool EnemyLoadController::parseEnemyArchetypeScript(const std::string& scriptPat
     }
     if (outArchetype.moveSpeed <= 0.0f) {
         outArchetype.moveSpeed = 0.1f;
+    }
+    if (outArchetype.shield < 0.0f) {
+        outArchetype.shield = 0.0f;
+    }
+    if (outArchetype.armor < 0.0f) {
+        outArchetype.armor = 0.0f;
     }
     if (outArchetype.spawnIntervalSeconds <= 0.05f) {
         outArchetype.spawnIntervalSeconds = 0.05f;

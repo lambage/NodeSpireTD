@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scenes/DamageTypes.hpp"
+
 #include <string>
 #include <unordered_map>
 
@@ -8,8 +10,12 @@ struct lua_State;
 struct EnemyArchetype {
     std::string id = "goblin1";
     std::string displayName = "Goblin";
+  std::string description;
     std::string modelPath = "assets/models/enemy/goblin1.glb";
     float health = 35.0f;
+  float shield = 0.0f;
+  float armor = 0.0f;
+    std::unordered_map<playlevel::DamageType, float, playlevel::DamageTypeHash> resistances;
     float moveSpeed = 2.8f;
     float rewardMoney = 8.0f;
     float spawnIntervalSeconds = 0.9f;

@@ -24,6 +24,16 @@ function M.onLoad()
         { entity = goblin1, count = 12, spawnIntervalSeconds = 0.72 },
         -- { entity = goblin2, count = 10, spawnIntervalSeconds = 1.0 },
     }, 40)
+
+    Wave.Register({
+        { entity = goblin1, count = 20, spawnIntervalSeconds = 0.72 },
+    }, 40)
+
+    Wave.Register({
+        { entity = goblin1, count = 40, spawnIntervalSeconds = 0.5 },
+    }, 40)
+    
+
 end
 
 return M

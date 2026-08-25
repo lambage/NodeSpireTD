@@ -6,6 +6,8 @@ local debugPickSpheresVisible = false
 local debugPlacementBoundsVisible = false
 local debugUiVisible = false
 local towerSlotTextures = {}
+local lastUpgradeResult = ""
+local towerUiArtTextures = {}
 
 local kSlotW = 146
 local kSlotPreviewH = 146
@@ -201,6 +203,7 @@ end
 
 function M.onEnter()
     lastResult = "PlayLevel script loaded"
+    lastUpgradeResult = ""
     if Gameplay.getDebugPickSpheresVisible then
         debugPickSpheresVisible = Gameplay.getDebugPickSpheresVisible()
     end
@@ -402,6 +405,454 @@ local function moneyWindow(gs)
     ImGui.End()
 end
 
+local function drawTowerUpgradeWindow(gs)
+    local getSelectedTowerUpgradeState = Gameplay and Gameplay["getSelectedTowerUpgradeState"]
+    local getSelectedEnemyInfo = Gameplay and Gameplay["getSelectedEnemyInfo"]
+    local requestSelectedTowerUpgrade = Gameplay and Gameplay["requestSelectedTowerUpgrade"]
+
+    local function getTowerUiConfig(state)
+        local ui = state and state.ui or nil
+        return {
+            accent = { 0.62, 0.42, 0.08 },
+            unlocked = { 0.15, 0.52, 0.27 },
+            locked = { 0.22, 0.23, 0.26 },
+            panelTitle = tostring(ui and ui.panelTitle or "Tower Talent Tree"),
+            talentTreeArtPath = tostring(ui and ui.artPath or ""),
+        }
+    end
+
+    local function applyUiColorOverride(rgb, fallback)
+        if not rgb then
+            return fallback
+        end
+        local r = tonumber(rgb[1] or fallback[1]) or fallback[1]
+        local g = tonumber(rgb[2] or fallback[2]) or fallback[2]
+        local b = tonumber(rgb[3] or fallback[3]) or fallback[3]
+        return { r, g, b }
+    end
+
+    local function getTowerUiArtTexture(path)
+        local key = tostring(path or "")
+        if key == "" then
+            return nil
+        end
+        if towerUiArtTextures[key] ~= nil then
+            return towerUiArtTextures[key] or nil
+        end
+        if not Texture or not Texture.load then
+            towerUiArtTextures[key] = false
+            return nil
+        end
+
+        local tex = Texture.load(VulkanContext, key)
+        if tex and tex.isValid and tex:isValid() then
+            towerUiArtTextures[key] = tex
+            return tex
+        end
+
+        towerUiArtTextures[key] = false
+        return nil
+    end
+
+    local function getNodeIconTexture(node, defaultPath)
+        local nodePath = tostring(node and node.icon or "")
+        if nodePath ~= "" then
+            local nodeTex = getTowerUiArtTexture(nodePath)
+            if nodeTex then
+                return nodeTex
+            end
+        end
+        local fallbackPath = tostring(defaultPath or "")
+        if fallbackPath ~= "" then
+            return getTowerUiArtTexture(fallbackPath)
+        end
+        return getTowerUiArtTexture("assets/images/question.png")
+    end
+
+    local function appendEffectLine(lines, label, value, fmt)
+        local numeric = tonumber(value or 0) or 0
+        if math.abs(numeric) <= 0.0001 then
+            return
+        end
+        table.insert(lines, string.format("%s: " .. fmt, label, numeric))
+    end
+
+    local function buildNodeTooltip(node)
+        local lines = {}
+        table.insert(lines, tostring(node.displayName or node.id or "Talent"))
+        local currentLevel = tonumber(node.currentLevel or 0) or 0
+        local maxLevel = tonumber(node.maxLevel or 1) or 1
+        table.insert(lines, string.format("Level %d/%d", currentLevel, maxLevel))
+        table.insert(lines, string.format("Cost: %d", math.floor(tonumber(node.cost or 0) or 0)))
+        if node.parent and node.parent ~= "" then
+            table.insert(lines, "Parent: " .. tostring(node.parent))
+        end
+        if tonumber(node.minUpgradesRequired or 0) > 0 then
+            table.insert(lines, string.format("Needs total upgrades: %d", tonumber(node.minUpgradesRequired or 0)))
+        end
+        if node.description and node.description ~= "" then
+            table.insert(lines, tostring(node.description))
+        end
+
+        local fx = node.effects or {}
+        appendEffectLine(lines, "Damage Add", fx.attackDamageAdd, "%+.2f")
+        appendEffectLine(lines, "Damage Mult", fx.attackDamageMul and (fx.attackDamageMul - 1.0), "%+.2f")
+        appendEffectLine(lines, "Range Add", fx.attackRangeAdd, "%+.2f")
+        appendEffectLine(lines, "Range Mult", fx.attackRangeMul and (fx.attackRangeMul - 1.0), "%+.2f")
+        appendEffectLine(lines, "Speed Add", fx.attackSpeedAdd, "%+.2f")
+        appendEffectLine(lines, "Speed Mult", fx.attackSpeedMul and (fx.attackSpeedMul - 1.0), "%+.2f")
+        appendEffectLine(lines, "Projectile Speed Add", fx.projectileSpeedAdd, "%+.2f")
+        appendEffectLine(lines, "Projectile Speed Mult", fx.projectileSpeedMul and (fx.projectileSpeedMul - 1.0), "%+.2f")
+        appendEffectLine(lines, "Splash Add", fx.splashRadiusAdd, "%+.2f")
+        appendEffectLine(lines, "Splash Mult", fx.splashRadiusMul and (fx.splashRadiusMul - 1.0), "%+.2f")
+        appendEffectLine(lines, "Chain Count Add", fx.chainTargetCountAdd, "%+d")
+        appendEffectLine(lines, "Chain Range Add", fx.chainRangeAdd, "%+.2f")
+        appendEffectLine(lines, "Chain Range Mult", fx.chainRangeMul and (fx.chainRangeMul - 1.0), "%+.2f")
+        appendEffectLine(lines, "Ricochet Count Add", fx.ricochetCountAdd, "%+d")
+        appendEffectLine(lines, "Ricochet Range Add", fx.ricochetRangeAdd, "%+.2f")
+        appendEffectLine(lines, "Ricochet Range Mult", fx.ricochetRangeMul and (fx.ricochetRangeMul - 1.0), "%+.2f")
+
+        if node.reason and node.reason ~= "" then
+            table.insert(lines, "")
+            table.insert(lines, "Locked: " .. tostring(node.reason))
+        end
+
+        return table.concat(lines, "\n")
+    end
+
+    if getSelectedTowerUpgradeState then
+        local state = getSelectedTowerUpgradeState()
+        if state and state.valid then
+            local uiConfig = getTowerUiConfig(state)
+            uiConfig.accent = applyUiColorOverride(state and state.ui and state.ui.accent, uiConfig.accent)
+            uiConfig.unlocked = applyUiColorOverride(state and state.ui and state.ui.unlocked, uiConfig.unlocked)
+            uiConfig.locked = applyUiColorOverride(state and state.ui and state.ui.locked, uiConfig.locked)
+            local displayW, _ = ImGui.GetDisplaySize()
+            local panelW, panelH = 960, 500
+            ImGui.SetNextWindowPos(displayW - panelW - 20, 90, ImGuiCond.FirstUseEver)
+            ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.FirstUseEver)
+            ImGui.SetNextWindowBgAlpha(0.84)
+            ImGui.Begin("TowerUpgrades", ImGuiWindowFlags.NoCollapse)
+
+            ImGui.Text(tostring(uiConfig.panelTitle or "Tower Talent Tree"))
+            local artPath = tostring(uiConfig.talentTreeArtPath or "")
+            if artPath ~= "" then
+                local artTex = getTowerUiArtTexture(artPath)
+                if artTex then
+                    ImGui.Image(artTex, panelW - 36, 90)
+                end
+            end
+            ImGui.Separator()
+
+            ImGui.Text(string.format("%s  #%d", tostring(state.displayName or state.towerId or "Tower"),
+                tonumber(state.towerInstanceOrdinal or 1) or 1))
+            ImGui.Text(string.format("Type: %s   Money: %d", tostring(state.damageType or "physical"),
+                math.floor(tonumber(gs.playerMoney or 0) or 0)))
+            ImGui.Separator()
+            ImGui.Text("Talent Graph")
+
+            local nodes = state.nodes or {}
+            local nodesById = {}
+            for i = 1, #nodes do
+                local node = nodes[i]
+                local nodeId = tostring(node.id or "")
+                if nodeId ~= "" then
+                    nodesById[nodeId] = node
+                end
+            end
+
+            local depthById = {}
+            local function resolveDepth(nodeId, visiting)
+                if depthById[nodeId] ~= nil then
+                    return depthById[nodeId]
+                end
+                local node = nodesById[nodeId]
+                if not node then
+                    depthById[nodeId] = 0
+                    return 0
+                end
+
+                if visiting[nodeId] then
+                    depthById[nodeId] = 0
+                    return 0
+                end
+
+                visiting[nodeId] = true
+                local parentId = tostring(node.parent or "")
+                local depth = 0
+                if parentId ~= "" and nodesById[parentId] then
+                    depth = resolveDepth(parentId, visiting) + 1
+                end
+                visiting[nodeId] = nil
+                depthById[nodeId] = depth
+                return depth
+            end
+
+            local rows = {}
+            local maxDepth = 0
+            for i = 1, #nodes do
+                local node = nodes[i]
+                local nodeId = tostring(node.id or "")
+                local depth = resolveDepth(nodeId, {})
+                if not rows[depth] then
+                    rows[depth] = {}
+                end
+                table.insert(rows[depth], node)
+                maxDepth = math.max(maxDepth, depth)
+            end
+
+            local childrenOrderRankByParent = {}
+            for nodeId, node in pairs(nodesById) do
+                local order = node.childrenOrder
+                if type(order) == "table" then
+                    local rankById = {}
+                    for orderIdx = 1, #order do
+                        local childId = tostring(order[orderIdx] or "")
+                        if childId ~= "" and rankById[childId] == nil then
+                            rankById[childId] = orderIdx
+                        end
+                    end
+                    childrenOrderRankByParent[nodeId] = rankById
+                end
+            end
+
+            -- First pass: order each row using parent-flow ranking to minimize crossed connectors.
+            local rowSorted = {}
+            local orderRankByNodeId = {}
+            for depth = 0, maxDepth do
+                local row = rows[depth] or {}
+                table.sort(row, function(a, b)
+                    local aId = tostring(a.id or "")
+                    local bId = tostring(b.id or "")
+                    local aParent = tostring(a.parent or "")
+                    local bParent = tostring(b.parent or "")
+
+                    local aParentRank = orderRankByNodeId[aParent] or 1000000
+                    local bParentRank = orderRankByNodeId[bParent] or 1000000
+                    if aParentRank ~= bParentRank then
+                        return aParentRank < bParentRank
+                    end
+
+                    if aParent ~= "" and aParent == bParent then
+                        local rankMap = childrenOrderRankByParent[aParent]
+                        if rankMap then
+                            local ar = rankMap[aId]
+                            local br = rankMap[bId]
+                            if ar ~= nil and br ~= nil and ar ~= br then
+                                return ar < br
+                            end
+                            if ar ~= nil and br == nil then
+                                return true
+                            end
+                            if ar == nil and br ~= nil then
+                                return false
+                            end
+                        end
+                    end
+
+                    local ac = tonumber(a.column or 0) or 0
+                    local bc = tonumber(b.column or 0) or 0
+                    if ac ~= bc then
+                        return ac < bc
+                    end
+                    return aId < bId
+                end)
+
+                rowSorted[depth] = row
+                for idx = 1, #row do
+                    local id = tostring(row[idx].id or "")
+                    if id ~= "" then
+                        orderRankByNodeId[id] = idx
+                    end
+                end
+            end
+
+            local defaultNodeIconPath = "assets/images/question.png"
+            if state.ui and state.ui.defaultNodeIcon and state.ui.defaultNodeIcon ~= "" then
+                defaultNodeIconPath = tostring(state.ui.defaultNodeIcon)
+            end
+
+            local nodeIconSize = 32
+            local nodeStepXBase = 74
+            local nodeStepXMin = 56
+            local nodeStepXMax = 112
+            local rowGapY = 42
+            local nodeCenters = {}
+
+            for depth = 0, maxDepth do
+                local row = rowSorted[depth] or {}
+
+                if #row == 0 then
+                    ImGui.Dummy(1, rowGapY)
+                end
+
+                local availW, _ = ImGui.GetContentRegionAvail()
+                local rowStepX = nodeStepXBase
+                if #row > 1 then
+                    local fitStep = (availW - nodeIconSize) / (#row - 1)
+                    rowStepX = math.max(nodeStepXMin, math.min(nodeStepXMax, fitStep))
+                end
+                local rowWidth = ((#row - 1) * rowStepX) + nodeIconSize
+                if #row > 0 then
+                    ImGui.SetCursorPosX(math.max(6, (availW - rowWidth) * 0.5))
+                end
+
+                for i = 1, #row do
+                    local node = row[i]
+                    if i > 1 then
+                        ImGui.SameLine(0, rowStepX - nodeIconSize)
+                    end
+
+                    local unlocked = node.unlocked == true
+                    local canUnlock = node.canUnlock == true
+                    if unlocked then
+                        ImGui.PushStyleColor(ImGuiCol.Button, uiConfig.unlocked[1], uiConfig.unlocked[2], uiConfig.unlocked[3], 0.95)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, uiConfig.unlocked[1] + 0.03, uiConfig.unlocked[2] + 0.08,
+                            uiConfig.unlocked[3] + 0.04, 0.98)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, uiConfig.unlocked[1] - 0.03, uiConfig.unlocked[2] - 0.07,
+                            uiConfig.unlocked[3] - 0.03, 0.98)
+                    elseif canUnlock then
+                        ImGui.PushStyleColor(ImGuiCol.Button, uiConfig.accent[1], uiConfig.accent[2], uiConfig.accent[3], 0.95)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, uiConfig.accent[1] + 0.10, uiConfig.accent[2] + 0.10,
+                            uiConfig.accent[3] + 0.05, 0.98)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, uiConfig.accent[1] - 0.08, uiConfig.accent[2] - 0.07,
+                            uiConfig.accent[3] - 0.03, 0.98)
+                    else
+                        ImGui.PushStyleColor(ImGuiCol.Button, uiConfig.locked[1], uiConfig.locked[2], uiConfig.locked[3], 0.88)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, uiConfig.locked[1] + 0.04, uiConfig.locked[2] + 0.04,
+                            uiConfig.locked[3] + 0.04, 0.90)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, uiConfig.locked[1] - 0.04, uiConfig.locked[2] - 0.03,
+                            uiConfig.locked[3] - 0.03, 0.92)
+                    end
+
+                    local iconTex = getNodeIconTexture(node, defaultNodeIconPath)
+                    local clicked = false
+                    local iconX, iconY = ImGui.GetCursorScreenPos()
+                    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 0.0, 0.0)
+                    if iconTex and ImGui.ImageButton then
+                        clicked = ImGui.ImageButton(string.format("node_icon_%s", tostring(node.id or "node")),
+                            iconTex, nodeIconSize, nodeIconSize)
+                    else
+                        clicked = ImGui.Button("?##" .. tostring(node.id or "node"), nodeIconSize, nodeIconSize)
+                    end
+                    ImGui.PopStyleVar()
+
+                    local nodeTopCenterX = iconX + nodeIconSize * 0.5
+                    local nodeTopY = iconY
+                    local nodeBottomY = iconY + nodeIconSize
+
+                    local nodeId = tostring(node.id or "")
+                    if nodeId ~= "" then
+                        nodeCenters[nodeId] = { x = nodeTopCenterX, yTop = nodeTopY, yBottom = nodeBottomY }
+                    end
+
+                    local parentId = tostring(node.parent or "")
+                    if parentId ~= "" and nodeCenters[parentId] and ImGui.DrawLine then
+                        local p = nodeCenters[parentId]
+                        ImGui.DrawLine(p.x, p.yBottom, nodeTopCenterX,
+                            nodeTopY,
+                            uiConfig.accent[1], uiConfig.accent[2], uiConfig.accent[3], 0.78, 1.6)
+                    end
+
+                    if clicked then
+                        if requestSelectedTowerUpgrade then
+                            local r = requestSelectedTowerUpgrade(tostring(node.id or ""))
+                            lastUpgradeResult = string.format("Upgrade %s -> ok=%s reason=%s", tostring(node.id), tostring(r.ok),
+                                tostring(r.reason))
+                        end
+                    end
+                    if ImGui.IsItemHovered and ImGui.SetTooltip and ImGui.IsItemHovered() then
+                        ImGui.SetTooltip(buildNodeTooltip(node))
+                    end
+                    ImGui.PopStyleColor(3)
+                end
+
+                if #row > 0 then
+                    ImGui.Dummy(1, rowGapY)
+                end
+            end
+
+            ImGui.Separator()
+            ImGui.Text("Tower Stats")
+            ImGui.Text(string.format("DMG %.1f -> %.1f   AP %.1f -> %.1f   RNG %.1f -> %.1f",
+                tonumber(state.baseAttackDamage or 0), tonumber(state.attackDamage or 0),
+                tonumber(state.baseArmorPiercing or 0), tonumber(state.armorPiercing or 0),
+                tonumber(state.baseAttackRange or 0), tonumber(state.attackRange or 0)))
+            ImGui.Text(string.format("SPD %.2f -> %.2f   PROJ %.1f -> %.1f   SPL %.1f -> %.1f",
+                tonumber(state.baseAttackSpeed or 0), tonumber(state.attackSpeed or 0),
+                tonumber(state.baseProjectileSpeed or 0), tonumber(state.projectileSpeed or 0),
+                tonumber(state.baseSplashRadius or 0), tonumber(state.splashRadius or 0)))
+            ImGui.Text(string.format("SHOT %d -> %d   CHAIN %d -> %d @ %.1f -> %.1f   BOUNCE %d -> %d @ %.1f -> %.1f",
+                tonumber(state.baseProjectileCount or 1), tonumber(state.projectileCount or 1),
+                tonumber(state.baseChainTargetCount or 1), tonumber(state.chainTargetCount or 1),
+                tonumber(state.baseChainRange or 0), tonumber(state.chainRange or 0),
+                tonumber(state.baseRicochetCount or 0), tonumber(state.ricochetCount or 0),
+                tonumber(state.baseRicochetRange or 0), tonumber(state.ricochetRange or 0)))
+
+            if lastUpgradeResult ~= "" then
+                UiTextWrapped(lastUpgradeResult)
+            end
+
+            ImGui.End()
+            return
+        end
+    end
+
+    if getSelectedEnemyInfo then
+        local enemy = getSelectedEnemyInfo()
+        if enemy and enemy.valid then
+            local displayW, _ = ImGui.GetDisplaySize()
+            local panelW, panelH = 460, 280
+            ImGui.SetNextWindowPos(displayW - panelW - 20, 90, ImGuiCond.Always)
+            ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.Always)
+            ImGui.SetNextWindowBgAlpha(0.88)
+            ImGui.Begin("EnemyDetails", ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoResize)
+
+            ImGui.Text(string.format("%s  #%d", tostring(enemy.displayName or enemy.enemyId or "Enemy"),
+                tonumber(enemy.instanceOrdinal or 1) or 1))
+            ImGui.Separator()
+            if enemy.description and enemy.description ~= "" then
+                UiTextWrapped(enemy.description)
+                ImGui.Separator()
+            end
+
+            ImGui.Text(string.format("Health: %.0f / %.0f", tonumber(enemy.health or 0), tonumber(enemy.maxHealth or 0)))
+            ImGui.Text(string.format("Shield: %.0f / %.0f", tonumber(enemy.shield or 0), tonumber(enemy.maxShield or 0)))
+            ImGui.Text(string.format("Armor: %.1f", tonumber(enemy.armor or 0)))
+            ImGui.Text(string.format("Move Speed: %.2f", tonumber(enemy.moveSpeed or 0)))
+            ImGui.Text(string.format("Base Damage: %.0f", tonumber(enemy.baseDamage or 0)))
+            ImGui.Text(string.format("Bounty: $%.0f", tonumber(enemy.rewardMoney or 0)))
+
+            local resistances = enemy.resistances or {}
+            if #resistances > 0 then
+                ImGui.Separator()
+                ImGui.Text("Resistances")
+                table.sort(resistances, function(a, b)
+                    return tostring(a.damageType or "") < tostring(b.damageType or "")
+                end)
+                for i = 1, #resistances do
+                    local r = resistances[i]
+                    local dtype = tostring(r.damageType or "unknown")
+                    local pct = tonumber(r.percent or 0) or 0
+                    local tag = ""
+                    if pct > 100.0 then
+                        tag = " (heals)"
+                    elseif pct == 100.0 then
+                        tag = " (immune)"
+                    end
+                    ImGui.Text(string.format("%s: %.0f%%%s", dtype, pct, tag))
+                end
+            end
+
+            if enemy.selectionDistance then
+                ImGui.Text(string.format("Distance: %.2f", tonumber(enemy.selectionDistance or 0)))
+            end
+
+            ImGui.End()
+        end
+    end
+end
+
 function M.render(state, dt, elapsed)
     local gs = Gameplay.getState()
 
@@ -486,6 +937,7 @@ function M.render(state, dt, elapsed)
     drawMatchStateOverlay(gs)
     drawWaveCountdownOverlay(gs)
     moneyWindow(gs)
+    drawTowerUpgradeWindow(gs)
 
     local loadout = nil
     if Gameplay.getTowerLoadout then
@@ -830,6 +1282,8 @@ end
 
 function M.onExit()
     towerSlotTextures = {}
+    towerUiArtTextures = {}
+    lastUpgradeResult = ""
 
     startMatchButton = nil
     playAgainButton = nil
