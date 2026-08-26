@@ -7,11 +7,24 @@
 
 #include <cstdint>
 #include <functional>
+#include <string_view>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace playlevel {
+
+enum class TowerTargetingMode {
+    First,
+    Last,
+    Nearest,
+    Random,
+    HighestHp,
+    LowestHp,
+};
+
+const char* towerTargetingModeToString(TowerTargetingMode mode);
+bool tryParseTowerTargetingMode(std::string_view rawMode, TowerTargetingMode& outMode);
 
 struct ActiveEnemy {
     std::string enemyId = "goblin1";
@@ -49,6 +62,8 @@ struct PlacedTower {
     int ricochetCount = 0;
     int cost = 0;
     DamageType damageType = DamageType::Physical;
+    TowerTargetingMode targetingMode = TowerTargetingMode::Nearest;
+    float totalDamageDealt = 0.0f;
     std::vector<std::string> unlockedUpgradeNodeIds;
 };
 
@@ -66,6 +81,7 @@ struct ActiveProjectile {
     float ricochetRange = 3.5f;
     int chainTargetCount = 1;
     int remainingRicochetCount = 0;
+    int sourceTowerPoolIndex = -1;
     std::uint64_t targetEnemyRuntimeId = 0;
     std::uint64_t lastHitEnemyRuntimeId = 0;
 };
@@ -87,6 +103,7 @@ class PlayLevelCombatController {
 
     void updateProjectiles(float dt,
                            const std::function<glm::vec3(float)>& sampleRoutePosition,
+                           std::vector<playlevel::PlacedTower>& placedTowers,
                            std::vector<playlevel::ActiveEnemy>& activeEnemies,
                            std::vector<playlevel::ActiveProjectile>& activeProjectiles) const;
 

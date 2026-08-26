@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scenes/DamageTypes.hpp"
+#include "scenes/PlayLevelCombatController.hpp"
 
 #include <filesystem>
 #include <string>
@@ -47,6 +48,11 @@ struct TowerArchetype {
   };
 
   struct UpgradeNode {
+    struct UpgradeLevel {
+      int cost = 0;
+      UpgradeEffects effects{};
+    };
+
     std::string id;
     std::string displayName;
     std::string description;
@@ -56,16 +62,14 @@ struct TowerArchetype {
     std::string towerModelPathOverride;
     std::string projectileModelPathOverride;
     std::string branch;
-    int cost = 0;
     int tier = 0;
     int column = 0;
-    int maxLevel = 1;
     int minUpgradesRequired = 0;
     int towerPrototypeOverrideIndex = -1;
     int projectilePrototypeOverrideIndex = -1;
     std::vector<std::string> requiredNodeIds;
     std::vector<std::string> excludes;
-    UpgradeEffects effects{};
+    std::vector<UpgradeLevel> upgradeLevels;
   };
 
     std::string id = "tower";
@@ -73,8 +77,10 @@ struct TowerArchetype {
     std::string modelPath;
     std::string projectileModelPath;
     std::string previewImagePath;
+    std::string bio;
     int cost = 100;
     playlevel::DamageType damageType = playlevel::DamageType::Physical;
+    playlevel::TowerTargetingMode defaultTargetingMode = playlevel::TowerTargetingMode::Nearest;
     float attackDamage = 1.0f;
     float armorPiercing = 0.0f;
     float attackRange = 5.0f;

@@ -101,7 +101,11 @@ Gameplay.requestRevertDisplayChanges = nil
 ---@type any
 Gameplay.requestScene = nil
 ---@type any
+Gameplay.requestSelectedTowerTargetingMode = nil
+---@type any
 Gameplay.requestSelectedTowerUpgrade = nil
+---@type any
+Gameplay.requestSellSelectedTower = nil
 ---@type any
 Gameplay.requestSpendMoney = nil
 ---@type any
@@ -226,6 +230,8 @@ ImGui.InputText = nil
 ImGui.IsItemClicked = nil
 ---@type any
 ImGui.IsItemHovered = nil
+---@type any
+ImGui.IsKeyDown = nil
 ---@type any
 ImGui.IsKeyPressed = nil
 ---@type any

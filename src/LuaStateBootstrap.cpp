@@ -996,6 +996,17 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "IsKeyPressed");
 
+    // IsKeyDown(key) -> bool
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const ImGuiKey key = static_cast<ImGuiKey>(luaL_checkinteger(L, 1));
+            lua_pushboolean(L, ImGui::IsKeyDown(key));
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "IsKeyDown");
+
     // IsMouseClicked(button, [repeat]) -> bool
     lua_pushcclosure(
         L,

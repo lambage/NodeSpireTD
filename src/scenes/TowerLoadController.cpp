@@ -80,6 +80,7 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     readStringField("model", outArchetype.modelPath);
     readStringField("projectileModel", outArchetype.projectileModelPath);
     readStringField("previewImage", outArchetype.previewImagePath);
+    readStringField("bio", outArchetype.bio);
 
     lua_getfield(L_, -1, "stats");
     if (lua_istable(L_, -1)) {
@@ -102,6 +103,22 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
             }
         }
         lua_pop(L_, 1);
+
+        auto readTargetModeField = [&](const char* key) {
+            lua_getfield(L_, -1, key);
+            if (lua_isstring(L_, -1)) {
+                playlevel::TowerTargetingMode parsedMode{};
+                if (playlevel::tryParseTowerTargetingMode(lua_tostring(L_, -1), parsedMode)) {
+                    outArchetype.defaultTargetingMode = parsedMode;
+                } else {
+                    spdlog::warn("TowerLoadController: invalid targeting mode '{}' in {}. Falling back to 'nearest'.",
+                                 lua_tostring(L_, -1), scriptPath);
+                }
+            }
+            lua_pop(L_, 1);
+        };
+        readTargetModeField("targetMode");
+        readTargetModeField("targetingMode");
 
         lua_getfield(L_, -1, "attackRange");
         if (lua_isnumber(L_, -1)) {
@@ -319,12 +336,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 }
                 lua_pop(L_, 1);
 
-                lua_getfield(L_, -1, "cost");
-                if (lua_isinteger(L_, -1)) {
-                    node.cost = static_cast<int>(lua_tointeger(L_, -1));
-                }
-                lua_pop(L_, 1);
-
                 lua_getfield(L_, -1, "tier");
                 if (lua_isinteger(L_, -1)) {
                     node.tier = static_cast<int>(lua_tointeger(L_, -1));
@@ -334,12 +345,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 lua_getfield(L_, -1, "column");
                 if (lua_isinteger(L_, -1)) {
                     node.column = static_cast<int>(lua_tointeger(L_, -1));
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "maxLevel");
-                if (lua_isinteger(L_, -1)) {
-                    node.maxLevel = static_cast<int>(lua_tointeger(L_, -1));
                 }
                 lua_pop(L_, 1);
 
@@ -377,8 +382,7 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 }
                 lua_pop(L_, 1);
 
-                lua_getfield(L_, -1, "effects");
-                if (lua_istable(L_, -1)) {
+                auto readUpgradeEffects = [&](TowerArchetype::UpgradeEffects& outEffects) {
                     auto readEffect = [&](const char* key, float& outValue) {
                         lua_getfield(L_, -1, key);
                         if (lua_isnumber(L_, -1)) {
@@ -387,40 +391,128 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                         lua_pop(L_, 1);
                     };
 
-                    readEffect("attackDamageAdd", node.effects.attackDamageAdd);
-                    readEffect("attackDamageMul", node.effects.attackDamageMul);
-                    readEffect("attackRangeAdd", node.effects.attackRangeAdd);
-                    readEffect("attackRangeMul", node.effects.attackRangeMul);
-                    readEffect("attackSpeedAdd", node.effects.attackSpeedAdd);
-                    readEffect("attackSpeedMul", node.effects.attackSpeedMul);
-                    readEffect("projectileSpeedAdd", node.effects.projectileSpeedAdd);
-                    readEffect("projectileSpeedMul", node.effects.projectileSpeedMul);
-                    readEffect("splashRadiusAdd", node.effects.splashRadiusAdd);
-                    readEffect("splashRadiusMul", node.effects.splashRadiusMul);
-                    readEffect("chainRangeAdd", node.effects.chainRangeAdd);
-                    readEffect("chainRangeMul", node.effects.chainRangeMul);
-                    readEffect("ricochetRangeAdd", node.effects.ricochetRangeAdd);
-                    readEffect("ricochetRangeMul", node.effects.ricochetRangeMul);
+                    readEffect("attackDamageAdd", outEffects.attackDamageAdd);
+                    readEffect("attackDamageMul", outEffects.attackDamageMul);
+                    readEffect("attackRangeAdd", outEffects.attackRangeAdd);
+                    readEffect("attackRangeMul", outEffects.attackRangeMul);
+                    readEffect("attackSpeedAdd", outEffects.attackSpeedAdd);
+                    readEffect("attackSpeedMul", outEffects.attackSpeedMul);
+                    readEffect("projectileSpeedAdd", outEffects.projectileSpeedAdd);
+                    readEffect("projectileSpeedMul", outEffects.projectileSpeedMul);
+                    readEffect("splashRadiusAdd", outEffects.splashRadiusAdd);
+                    readEffect("splashRadiusMul", outEffects.splashRadiusMul);
+                    readEffect("chainRangeAdd", outEffects.chainRangeAdd);
+                    readEffect("chainRangeMul", outEffects.chainRangeMul);
+                    readEffect("ricochetRangeAdd", outEffects.ricochetRangeAdd);
+                    readEffect("ricochetRangeMul", outEffects.ricochetRangeMul);
 
                     lua_getfield(L_, -1, "projectileCountAdd");
                     if (lua_isinteger(L_, -1)) {
-                        node.effects.projectileCountAdd = static_cast<int>(lua_tointeger(L_, -1));
+                        outEffects.projectileCountAdd = static_cast<int>(lua_tointeger(L_, -1));
                     }
                     lua_pop(L_, 1);
 
                     lua_getfield(L_, -1, "chainTargetCountAdd");
                     if (lua_isinteger(L_, -1)) {
-                        node.effects.chainTargetCountAdd = static_cast<int>(lua_tointeger(L_, -1));
+                        outEffects.chainTargetCountAdd = static_cast<int>(lua_tointeger(L_, -1));
                     }
                     lua_pop(L_, 1);
 
                     lua_getfield(L_, -1, "ricochetCountAdd");
                     if (lua_isinteger(L_, -1)) {
-                        node.effects.ricochetCountAdd = static_cast<int>(lua_tointeger(L_, -1));
+                        outEffects.ricochetCountAdd = static_cast<int>(lua_tointeger(L_, -1));
                     }
                     lua_pop(L_, 1);
+                };
+
+                auto sanitizeUpgradeEffects = [](TowerArchetype::UpgradeEffects& effects) {
+                    if (effects.attackDamageMul <= 0.0f) {
+                        effects.attackDamageMul = 1.0f;
+                    }
+                    if (effects.attackRangeMul <= 0.0f) {
+                        effects.attackRangeMul = 1.0f;
+                    }
+                    if (effects.attackSpeedMul <= 0.0f) {
+                        effects.attackSpeedMul = 1.0f;
+                    }
+                    if (effects.projectileSpeedMul <= 0.0f) {
+                        effects.projectileSpeedMul = 1.0f;
+                    }
+                    if (effects.splashRadiusMul <= 0.0f) {
+                        effects.splashRadiusMul = 1.0f;
+                    }
+                    if (effects.chainRangeMul <= 0.0f) {
+                        effects.chainRangeMul = 1.0f;
+                    }
+                    if (effects.ricochetRangeMul <= 0.0f) {
+                        effects.ricochetRangeMul = 1.0f;
+                    }
+                };
+
+                lua_getfield(L_, -1, "upgradeLevels");
+                if (!lua_istable(L_, -1)) {
+                    lua_pop(L_, 1);
+                    lua_getfield(L_, -1, "levels");
+                }
+                if (lua_istable(L_, -1)) {
+                    const int levelCount = static_cast<int>(lua_rawlen(L_, -1));
+                    node.upgradeLevels.reserve(static_cast<std::size_t>(levelCount));
+                    for (int levelIdx = 1; levelIdx <= levelCount; ++levelIdx) {
+                        lua_geti(L_, -1, levelIdx);
+                        if (!lua_istable(L_, -1)) {
+                            lua_pop(L_, 1);
+                            continue;
+                        }
+
+                        TowerArchetype::UpgradeNode::UpgradeLevel level;
+
+                        lua_getfield(L_, -1, "cost");
+                        if (lua_isinteger(L_, -1)) {
+                            level.cost = static_cast<int>(lua_tointeger(L_, -1));
+                        }
+                        lua_pop(L_, 1);
+
+                        lua_getfield(L_, -1, "effects");
+                        const bool hasNestedEffects = lua_istable(L_, -1);
+                        if (hasNestedEffects) {
+                            readUpgradeEffects(level.effects);
+                        }
+                        lua_pop(L_, 1);
+                        if (!hasNestedEffects) {
+                            readUpgradeEffects(level.effects);
+                        }
+
+                        if (level.cost < 0) {
+                            level.cost = 0;
+                        }
+                        sanitizeUpgradeEffects(level.effects);
+                        node.upgradeLevels.push_back(std::move(level));
+                        lua_pop(L_, 1);
+                    }
                 }
                 lua_pop(L_, 1);
+
+                if (node.upgradeLevels.empty()) {
+                    TowerArchetype::UpgradeNode::UpgradeLevel legacyLevel;
+
+                    lua_getfield(L_, -1, "cost");
+                    if (lua_isinteger(L_, -1)) {
+                        legacyLevel.cost = static_cast<int>(lua_tointeger(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+
+                    lua_getfield(L_, -1, "effects");
+                    if (lua_istable(L_, -1)) {
+                        readUpgradeEffects(legacyLevel.effects);
+                    }
+                    lua_pop(L_, 1);
+
+                    if (legacyLevel.cost < 0) {
+                        legacyLevel.cost = 0;
+                    }
+                    sanitizeUpgradeEffects(legacyLevel.effects);
+                    node.upgradeLevels.push_back(std::move(legacyLevel));
+                }
 
                 if (node.id.empty()) {
                     lua_pop(L_, 1);
@@ -429,35 +521,11 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 if (node.displayName.empty()) {
                     node.displayName = node.id;
                 }
-                if (node.cost < 0) {
-                    node.cost = 0;
-                }
-                if (node.maxLevel < 1) {
-                    node.maxLevel = 1;
-                }
                 if (node.minUpgradesRequired < 0) {
                     node.minUpgradesRequired = 0;
                 }
-                if (node.effects.attackDamageMul <= 0.0f) {
-                    node.effects.attackDamageMul = 1.0f;
-                }
-                if (node.effects.attackRangeMul <= 0.0f) {
-                    node.effects.attackRangeMul = 1.0f;
-                }
-                if (node.effects.attackSpeedMul <= 0.0f) {
-                    node.effects.attackSpeedMul = 1.0f;
-                }
-                if (node.effects.projectileSpeedMul <= 0.0f) {
-                    node.effects.projectileSpeedMul = 1.0f;
-                }
-                if (node.effects.splashRadiusMul <= 0.0f) {
-                    node.effects.splashRadiusMul = 1.0f;
-                }
-                if (node.effects.chainRangeMul <= 0.0f) {
-                    node.effects.chainRangeMul = 1.0f;
-                }
-                if (node.effects.ricochetRangeMul <= 0.0f) {
-                    node.effects.ricochetRangeMul = 1.0f;
+                if (node.upgradeLevels.empty()) {
+                    node.upgradeLevels.emplace_back();
                 }
 
                 outArchetype.upgradeNodes.push_back(std::move(node));

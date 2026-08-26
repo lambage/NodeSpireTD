@@ -6,8 +6,8 @@ local debugPickSpheresVisible = false
 local debugPlacementBoundsVisible = false
 local debugUiVisible = false
 local towerSlotTextures = {}
-local lastUpgradeResult = ""
 local towerUiArtTextures = {}
+local towerBioVisibleByKey = {}
 
 local perfFpsInstant = 0.0
 local perfFpsSmoothed = 0.0
@@ -42,6 +42,39 @@ local escapeMenuStatus = ""
 
 local function UiTextWrapped(text)
     ImGui.TextWrapped(tostring(text or ""))
+end
+
+local function targetingModeDisplayName(mode)
+    local raw = tostring(mode or "nearest")
+    if raw == "first" then
+        return "First"
+    elseif raw == "last" then
+        return "Last"
+    elseif raw == "nearest" then
+        return "Nearest"
+    elseif raw == "random" then
+        return "Random"
+    elseif raw == "highest_hp" then
+        return "Highest HP"
+    elseif raw == "lowest_hp" then
+        return "Lowest HP"
+    end
+    return "Nearest"
+end
+
+local function isShiftHeld()
+    if not ImGui or not ImGui.IsKeyDown or not ImGuiKey then
+        return false
+    end
+
+    local leftShift = ImGuiKey.LeftShift or ImGuiKey.ModShift
+    local rightShift = ImGuiKey.RightShift
+    local modShift = ImGuiKey.ModShift
+
+    local leftDown = leftShift and ImGui.IsKeyDown(leftShift)
+    local rightDown = rightShift and ImGui.IsKeyDown(rightShift)
+    local modDown = modShift and ImGui.IsKeyDown(modShift)
+    return leftDown or rightDown or modDown
 end
 
 local function TextCentered(text)
@@ -208,7 +241,6 @@ end
 
 function M.onEnter()
     lastResult = "PlayLevel script loaded"
-    lastUpgradeResult = ""
     if Gameplay.getDebugPickSpheresVisible then
         debugPickSpheresVisible = Gameplay.getDebugPickSpheresVisible()
     end
@@ -414,6 +446,8 @@ local function drawTowerUpgradeWindow(gs)
     local getSelectedTowerUpgradeState = Gameplay and Gameplay["getSelectedTowerUpgradeState"]
     local getSelectedEnemyInfo = Gameplay and Gameplay["getSelectedEnemyInfo"]
     local requestSelectedTowerUpgrade = Gameplay and Gameplay["requestSelectedTowerUpgrade"]
+    local requestSelectedTowerTargetingMode = Gameplay and Gameplay["requestSelectedTowerTargetingMode"]
+    local requestSellSelectedTower = Gameplay and Gameplay["requestSellSelectedTower"]
 
     local function getTowerUiConfig(state)
         local ui = state and state.ui or nil
@@ -482,15 +516,68 @@ local function drawTowerUpgradeWindow(gs)
         table.insert(lines, string.format("%s: " .. fmt, label, numeric))
     end
 
+    local function buildEnabledEffectsSummary(node, purchasedLevels)
+        local summary = {
+            attackDamageAdd = 0,
+            attackDamageMul = 1,
+            attackRangeAdd = 0,
+            attackRangeMul = 1,
+            attackSpeedAdd = 0,
+            attackSpeedMul = 1,
+            projectileSpeedAdd = 0,
+            projectileSpeedMul = 1,
+            splashRadiusAdd = 0,
+            splashRadiusMul = 1,
+            chainRangeAdd = 0,
+            chainRangeMul = 1,
+            ricochetRangeAdd = 0,
+            ricochetRangeMul = 1,
+            projectileCountAdd = 0,
+            chainTargetCountAdd = 0,
+            ricochetCountAdd = 0,
+        }
+
+        local levels = node and node.upgradeLevels or nil
+        if type(levels) ~= "table" then
+            return summary
+        end
+
+        local count = math.max(0, math.floor(tonumber(purchasedLevels or 0) or 0))
+        for i = 1, count do
+            local level = levels[i]
+            local fx = level and level.effects or nil
+            if type(fx) == "table" then
+                summary.attackDamageAdd = summary.attackDamageAdd + (tonumber(fx.attackDamageAdd or 0) or 0)
+                summary.attackDamageMul = summary.attackDamageMul * (tonumber(fx.attackDamageMul or 1) or 1)
+                summary.attackRangeAdd = summary.attackRangeAdd + (tonumber(fx.attackRangeAdd or 0) or 0)
+                summary.attackRangeMul = summary.attackRangeMul * (tonumber(fx.attackRangeMul or 1) or 1)
+                summary.attackSpeedAdd = summary.attackSpeedAdd + (tonumber(fx.attackSpeedAdd or 0) or 0)
+                summary.attackSpeedMul = summary.attackSpeedMul * (tonumber(fx.attackSpeedMul or 1) or 1)
+                summary.projectileSpeedAdd = summary.projectileSpeedAdd + (tonumber(fx.projectileSpeedAdd or 0) or 0)
+                summary.projectileSpeedMul = summary.projectileSpeedMul * (tonumber(fx.projectileSpeedMul or 1) or 1)
+                summary.splashRadiusAdd = summary.splashRadiusAdd + (tonumber(fx.splashRadiusAdd or 0) or 0)
+                summary.splashRadiusMul = summary.splashRadiusMul * (tonumber(fx.splashRadiusMul or 1) or 1)
+                summary.chainRangeAdd = summary.chainRangeAdd + (tonumber(fx.chainRangeAdd or 0) or 0)
+                summary.chainRangeMul = summary.chainRangeMul * (tonumber(fx.chainRangeMul or 1) or 1)
+                summary.ricochetRangeAdd = summary.ricochetRangeAdd + (tonumber(fx.ricochetRangeAdd or 0) or 0)
+                summary.ricochetRangeMul = summary.ricochetRangeMul * (tonumber(fx.ricochetRangeMul or 1) or 1)
+                summary.projectileCountAdd = summary.projectileCountAdd + (tonumber(fx.projectileCountAdd or 0) or 0)
+                summary.chainTargetCountAdd = summary.chainTargetCountAdd + (tonumber(fx.chainTargetCountAdd or 0) or 0)
+                summary.ricochetCountAdd = summary.ricochetCountAdd + (tonumber(fx.ricochetCountAdd or 0) or 0)
+            end
+        end
+
+        return summary
+    end
+
     local function buildNodeTooltip(node)
         local lines = {}
         table.insert(lines, tostring(node.displayName or node.id or "Talent"))
         local currentLevel = tonumber(node.currentLevel or 0) or 0
         local maxLevel = tonumber(node.maxLevel or 1) or 1
         table.insert(lines, string.format("Level %d/%d", currentLevel, maxLevel))
-        table.insert(lines, string.format("Cost: %d", math.floor(tonumber(node.cost or 0) or 0)))
-        if node.parent and node.parent ~= "" then
-            table.insert(lines, "Parent: " .. tostring(node.parent))
+        if currentLevel < maxLevel then
+            table.insert(lines, string.format("Cost: %d", math.floor(tonumber(node.cost or 0) or 0)))
         end
         if tonumber(node.minUpgradesRequired or 0) > 0 then
             table.insert(lines, string.format("Needs total upgrades: %d", tonumber(node.minUpgradesRequired or 0)))
@@ -500,6 +587,9 @@ local function drawTowerUpgradeWindow(gs)
         end
 
         local fx = node.effects or {}
+        if currentLevel >= maxLevel then
+            fx = buildEnabledEffectsSummary(node, currentLevel)
+        end
         appendEffectLine(lines, "Damage Add", fx.attackDamageAdd, "%+.2f")
         appendEffectLine(lines, "Damage Mult", fx.attackDamageMul and (fx.attackDamageMul - 1.0), "%+.2f")
         appendEffectLine(lines, "Range Add", fx.attackRangeAdd, "%+.2f")
@@ -533,28 +623,55 @@ local function drawTowerUpgradeWindow(gs)
             uiConfig.unlocked = applyUiColorOverride(state and state.ui and state.ui.unlocked, uiConfig.unlocked)
             uiConfig.locked = applyUiColorOverride(state and state.ui and state.ui.locked, uiConfig.locked)
             local displayW, _ = ImGui.GetDisplaySize()
-            local panelW, panelH = 960, 500
+            local panelW, panelH = 960, 680
             ImGui.SetNextWindowPos(displayW - panelW - 20, 90, ImGuiCond.FirstUseEver)
             ImGui.SetNextWindowSize(panelW, panelH, ImGuiCond.FirstUseEver)
             ImGui.SetNextWindowBgAlpha(0.84)
-            ImGui.Begin("TowerUpgrades", ImGuiWindowFlags.NoCollapse)
+            local towerWindowTitle = string.format("%s###TowerUpgrades", tostring(state.displayName or state.towerId or "Tower"))
+            ImGui.Begin(towerWindowTitle, ImGuiWindowFlags.NoCollapse)
 
-            ImGui.Text(tostring(uiConfig.panelTitle or "Tower Talent Tree"))
-            local artPath = tostring(uiConfig.talentTreeArtPath or "")
-            if artPath ~= "" then
-                local artTex = getTowerUiArtTexture(artPath)
-                if artTex then
-                    ImGui.Image(artTex, panelW - 36, 90)
+            local function clampColorComponent(value)
+                return math.max(0.0, math.min(1.0, value))
+            end
+
+            local function drawOutlinedRect(x1, y1, x2, y2, r, g, b, a, thickness)
+                if not ImGui.DrawLine then
+                    return
+                end
+                ImGui.DrawLine(x1, y1, x2, y1, r, g, b, a, thickness)
+                ImGui.DrawLine(x2, y1, x2, y2, r, g, b, a, thickness)
+                ImGui.DrawLine(x2, y2, x1, y2, r, g, b, a, thickness)
+                ImGui.DrawLine(x1, y2, x1, y1, r, g, b, a, thickness)
+            end
+
+            local function drawStateMark(nodeState, x, y, size, color)
+                if not ImGui.DrawLine then
+                    return
+                end
+
+                local r = clampColorComponent(color[1])
+                local g = clampColorComponent(color[2])
+                local b = clampColorComponent(color[3])
+                local a = clampColorComponent(color[4] or 1.0)
+
+                if nodeState == "locked" then
+                    ImGui.DrawLine(x + 7, y + 7, x + size - 7, y + size - 7, r, g, b, a, 2.5)
+                    ImGui.DrawLine(x + size - 7, y + 7, x + 7, y + size - 7, r, g, b, a, 2.5)
+                elseif nodeState == "purchased" then
+                    ImGui.DrawLine(x + 8, y + size * 0.54, x + size * 0.40, y + size - 9, r, g, b, a, 3.0)
+                    ImGui.DrawLine(x + size * 0.40, y + size - 9, x + size - 8, y + 9, r, g, b, a, 3.0)
+                elseif nodeState == "hovered" then
+                    drawOutlinedRect(x - 2, y - 2, x + size + 2, y + size + 2, r, g, b, a, 2.0)
                 end
             end
-            ImGui.Separator()
 
-            ImGui.Text(string.format("%s  #%d", tostring(state.displayName or state.towerId or "Tower"),
-                tonumber(state.towerInstanceOrdinal or 1) or 1))
-            ImGui.Text(string.format("Type: %s   Money: %d", tostring(state.damageType or "physical"),
-                math.floor(tonumber(gs.playerMoney or 0) or 0)))
-            ImGui.Separator()
-            ImGui.Text("Talent Graph")
+            local graphAvailW, graphAvailH = ImGui.GetContentRegionAvail()
+            local graphHeight = math.max(280, math.min(360, math.floor((graphAvailH or 0) * 0.62)))
+            local hasGraphChild = false
+            if ImGui.BeginChild then
+                hasGraphChild = true
+                ImGui.BeginChild("TalentGraphScroll", 0, graphHeight, 0)
+            end
 
             local nodes = state.nodes or {}
             local nodesById = {}
@@ -677,18 +794,69 @@ local function drawTowerUpgradeWindow(gs)
                 defaultNodeIconPath = tostring(state.ui.defaultNodeIcon)
             end
 
-            local nodeIconSize = 32
-            local nodeStepXBase = 74
-            local nodeStepXMin = 56
-            local nodeStepXMax = 112
-            local rowGapY = 42
+            local nodeIconSize = 40
+            local nodeStepXBase = 80
+            local nodeStepXMin = 60
+            local nodeStepXMax = 124
+            local nodeStepXDepth3Boost = 1.22
+            local nodeStepXDepth3Max = 160
+            local rowGapY = 18
             local nodeCenters = {}
+            local nodeLayoutXById = {}
 
             for depth = 0, maxDepth do
                 local row = rowSorted[depth] or {}
 
                 if #row == 0 then
                     ImGui.Dummy(1, rowGapY)
+                else
+                    local desiredXByNodeId = {}
+                    for i = 1, #row do
+                        local node = row[i]
+                        local nodeId = tostring(node.id or "")
+                        local parentId = tostring(node.parent or "")
+                        if parentId ~= "" and nodeLayoutXById[parentId] ~= nil then
+                            desiredXByNodeId[nodeId] = nodeLayoutXById[parentId]
+                        else
+                            desiredXByNodeId[nodeId] = tonumber(node.column or (i - 1)) or (i - 1)
+                        end
+                    end
+
+                    table.sort(row, function(a, b)
+                        local aId = tostring(a.id or "")
+                        local bId = tostring(b.id or "")
+                        local aParent = tostring(a.parent or "")
+                        local bParent = tostring(b.parent or "")
+                        local ax = desiredXByNodeId[aId] or 0
+                        local bx = desiredXByNodeId[bId] or 0
+                        if ax ~= bx then
+                            return ax < bx
+                        end
+
+                        if aParent ~= "" and aParent == bParent then
+                            local rankMap = childrenOrderRankByParent[aParent]
+                            if rankMap then
+                                local ar = rankMap[aId]
+                                local br = rankMap[bId]
+                                if ar ~= nil and br ~= nil and ar ~= br then
+                                    return ar < br
+                                end
+                                if ar ~= nil and br == nil then
+                                    return true
+                                end
+                                if ar == nil and br ~= nil then
+                                    return false
+                                end
+                            end
+                        end
+
+                        local ac = tonumber(a.column or 0) or 0
+                        local bc = tonumber(b.column or 0) or 0
+                        if ac ~= bc then
+                            return ac < bc
+                        end
+                        return aId < bId
+                    end)
                 end
 
                 local availW, _ = ImGui.GetContentRegionAvail()
@@ -697,37 +865,195 @@ local function drawTowerUpgradeWindow(gs)
                     local fitStep = (availW - nodeIconSize) / (#row - 1)
                     rowStepX = math.max(nodeStepXMin, math.min(nodeStepXMax, fitStep))
                 end
-                local rowWidth = ((#row - 1) * rowStepX) + nodeIconSize
-                if #row > 0 then
-                    ImGui.SetCursorPosX(math.max(6, (availW - rowWidth) * 0.5))
+                if depth == 2 then
+                    rowStepX = math.min(nodeStepXDepth3Max, rowStepX * nodeStepXDepth3Boost)
                 end
+
+                local siblingFanStepUnits = (depth >= 2) and 1.1 or 1.0
+                local groupGapUnits = 1.35
+
+                local rowDesired = {}
+                local rowPos = {}
+                local desiredByNodeId = {}
+                local solvedByNodeId = {}
+                local groupsByParent = {}
+                local groups = {}
+                for i = 1, #row do
+                    local node = row[i]
+                    local nodeId = tostring(node.id or "")
+                    local parentId = tostring(node.parent or "")
+                    if parentId == "" then
+                        parentId = "__root__"
+                    end
+
+                    local group = groupsByParent[parentId]
+                    if not group then
+                        local pivot = nil
+                        if parentId ~= "__root__" and nodeLayoutXById[parentId] ~= nil then
+                            pivot = nodeLayoutXById[parentId]
+                        else
+                            pivot = tonumber(node.column or (i - 1)) or (i - 1)
+                        end
+                        group = { parentId = parentId, pivot = pivot, nodes = {} }
+                        groupsByParent[parentId] = group
+                        table.insert(groups, group)
+                    end
+                    table.insert(group.nodes, node)
+                end
+
+                for _, group in ipairs(groups) do
+                    table.sort(group.nodes, function(a, b)
+                        local aId = tostring(a.id or "")
+                        local bId = tostring(b.id or "")
+                        local parentId = tostring(a.parent or "")
+                        local rankMap = childrenOrderRankByParent[parentId]
+                        if rankMap then
+                            local ar = rankMap[aId]
+                            local br = rankMap[bId]
+                            if ar ~= nil and br ~= nil and ar ~= br then
+                                return ar < br
+                            end
+                            if ar ~= nil and br == nil then
+                                return true
+                            end
+                            if ar == nil and br ~= nil then
+                                return false
+                            end
+                        end
+                        local ac = tonumber(a.column or 0) or 0
+                        local bc = tonumber(b.column or 0) or 0
+                        if ac ~= bc then
+                            return ac < bc
+                        end
+                        return aId < bId
+                    end)
+
+                    local childCount = #group.nodes
+                    local span = (childCount > 1) and ((childCount - 1) * siblingFanStepUnits) or 0.0
+                    group.span = span
+                    group.desiredStart = group.pivot - (span * 0.5)
+                end
+
+                table.sort(groups, function(a, b)
+                    if a.pivot ~= b.pivot then
+                        return a.pivot < b.pivot
+                    end
+                    return a.parentId < b.parentId
+                end)
+
+                local previousGroupEnd = nil
+                for _, group in ipairs(groups) do
+                    local start = group.desiredStart
+                    if previousGroupEnd ~= nil and start < (previousGroupEnd + groupGapUnits) then
+                        start = previousGroupEnd + groupGapUnits
+                    end
+
+                    local childCount = #group.nodes
+                    for childIndex = 1, childCount do
+                        local node = group.nodes[childIndex]
+                        local nodeId = tostring(node.id or "")
+                        local centeredIndex = childIndex - ((childCount + 1) * 0.5)
+                        desiredByNodeId[nodeId] = group.pivot + (centeredIndex * siblingFanStepUnits)
+                        solvedByNodeId[nodeId] = start + ((childIndex - 1) * siblingFanStepUnits)
+                    end
+
+                    previousGroupEnd = start + group.span
+                end
+
+                table.sort(row, function(a, b)
+                    local aId = tostring(a.id or "")
+                    local bId = tostring(b.id or "")
+                    local ax = solvedByNodeId[aId] or 0
+                    local bx = solvedByNodeId[bId] or 0
+                    if ax ~= bx then
+                        return ax < bx
+                    end
+                    return aId < bId
+                end)
+
+                local desiredSum = 0.0
+                for i = 1, #row do
+                    local nodeId = tostring(row[i].id or "")
+                    rowDesired[i] = desiredByNodeId[nodeId] or (i - 1)
+                    rowPos[i] = solvedByNodeId[nodeId] or rowDesired[i]
+                    desiredSum = desiredSum + rowDesired[i]
+                end
+
+                if #row > 0 then
+                    local desiredMean = desiredSum / #row
+                    local placedSum = 0.0
+                    for i = 1, #row do
+                        placedSum = placedSum + rowPos[i]
+                    end
+                    local placedMean = placedSum / #row
+                    local shift = desiredMean - placedMean
+                    for i = 1, #row do
+                        rowPos[i] = rowPos[i] + shift
+                    end
+                end
+
+                local minPos = 0.0
+                local maxPos = 0.0
+                if #row > 0 then
+                    minPos = rowPos[1]
+                    maxPos = rowPos[1]
+                    for i = 2, #row do
+                        if rowPos[i] < minPos then
+                            minPos = rowPos[i]
+                        end
+                        if rowPos[i] > maxPos then
+                            maxPos = rowPos[i]
+                        end
+                    end
+                end
+
+                local rowWidth = ((maxPos - minPos) * rowStepX) + nodeIconSize
+                local rowStartX = math.max(6, (availW - rowWidth) * 0.5)
+                local _, rowStartY = ImGui.GetCursorPos()
 
                 for i = 1, #row do
                     local node = row[i]
-                    if i > 1 then
-                        ImGui.SameLine(0, rowStepX - nodeIconSize)
-                    end
+                    local nodeX = rowStartX + ((rowPos[i] - minPos) * rowStepX)
+                    ImGui.SetCursorPos(nodeX, rowStartY)
 
                     local unlocked = node.unlocked == true
+                    local currentLevel = tonumber(node.currentLevel or 0) or 0
                     local canUnlock = node.canUnlock == true
-                    if unlocked then
-                        ImGui.PushStyleColor(ImGuiCol.Button, uiConfig.unlocked[1], uiConfig.unlocked[2], uiConfig.unlocked[3], 0.95)
-                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, uiConfig.unlocked[1] + 0.03, uiConfig.unlocked[2] + 0.08,
-                            uiConfig.unlocked[3] + 0.04, 0.98)
-                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, uiConfig.unlocked[1] - 0.03, uiConfig.unlocked[2] - 0.07,
-                            uiConfig.unlocked[3] - 0.03, 0.98)
+                    local maxLevel = tonumber(node.maxLevel or 1) or 1
+                    local purchased = unlocked or currentLevel > 0
+                    local maxedOut = currentLevel >= maxLevel
+                    local lockedOut = not purchased and not canUnlock
+                    local hoveredState = false
+                    local stateName = "available"
+                    local stateColor = uiConfig.accent
+
+                    if purchased then
+                        stateName = "purchased"
+                        stateColor = uiConfig.unlocked
+                        ImGui.PushStyleColor(ImGuiCol.Button, clampColorComponent(uiConfig.unlocked[1] + 0.01),
+                            clampColorComponent(uiConfig.unlocked[2] + 0.01), clampColorComponent(uiConfig.unlocked[3] + 0.01), 0.98)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, clampColorComponent(uiConfig.unlocked[1] + 0.10),
+                            clampColorComponent(uiConfig.unlocked[2] + 0.14), clampColorComponent(uiConfig.unlocked[3] + 0.08), 1.0)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, clampColorComponent(uiConfig.unlocked[1] - 0.02),
+                            clampColorComponent(uiConfig.unlocked[2] - 0.05), clampColorComponent(uiConfig.unlocked[3] - 0.03), 1.0)
                     elseif canUnlock then
-                        ImGui.PushStyleColor(ImGuiCol.Button, uiConfig.accent[1], uiConfig.accent[2], uiConfig.accent[3], 0.95)
-                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, uiConfig.accent[1] + 0.10, uiConfig.accent[2] + 0.10,
-                            uiConfig.accent[3] + 0.05, 0.98)
-                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, uiConfig.accent[1] - 0.08, uiConfig.accent[2] - 0.07,
-                            uiConfig.accent[3] - 0.03, 0.98)
+                        stateName = "available"
+                        stateColor = uiConfig.accent
+                        ImGui.PushStyleColor(ImGuiCol.Button, clampColorComponent(uiConfig.accent[1] + 0.01),
+                            clampColorComponent(uiConfig.accent[2] + 0.01), clampColorComponent(uiConfig.accent[3] + 0.01), 0.98)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, clampColorComponent(uiConfig.accent[1] + 0.15),
+                            clampColorComponent(uiConfig.accent[2] + 0.13), clampColorComponent(uiConfig.accent[3] + 0.06), 1.0)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, clampColorComponent(uiConfig.accent[1] - 0.06),
+                            clampColorComponent(uiConfig.accent[2] - 0.05), clampColorComponent(uiConfig.accent[3] - 0.02), 1.0)
                     else
-                        ImGui.PushStyleColor(ImGuiCol.Button, uiConfig.locked[1], uiConfig.locked[2], uiConfig.locked[3], 0.88)
-                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, uiConfig.locked[1] + 0.04, uiConfig.locked[2] + 0.04,
-                            uiConfig.locked[3] + 0.04, 0.90)
-                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, uiConfig.locked[1] - 0.04, uiConfig.locked[2] - 0.03,
-                            uiConfig.locked[3] - 0.03, 0.92)
+                        stateName = "locked"
+                        stateColor = uiConfig.locked
+                        ImGui.PushStyleColor(ImGuiCol.Button, clampColorComponent(uiConfig.locked[1]),
+                            clampColorComponent(uiConfig.locked[2]), clampColorComponent(uiConfig.locked[3]), 0.82)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, clampColorComponent(uiConfig.locked[1] + 0.03),
+                            clampColorComponent(uiConfig.locked[2] + 0.03), clampColorComponent(uiConfig.locked[3] + 0.03), 0.88)
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, clampColorComponent(uiConfig.locked[1] - 0.03),
+                            clampColorComponent(uiConfig.locked[2] - 0.03), clampColorComponent(uiConfig.locked[3] - 0.03), 0.90)
                     end
 
                     local iconTex = getNodeIconTexture(node, defaultNodeIconPath)
@@ -742,6 +1068,37 @@ local function drawTowerUpgradeWindow(gs)
                     end
                     ImGui.PopStyleVar()
 
+                    hoveredState = ImGui.IsItemHovered and ImGui.IsItemHovered() or false
+
+                    if hoveredState then
+                        drawOutlinedRect(iconX - 3, iconY - 3, iconX + nodeIconSize + 3, iconY + nodeIconSize + 3,
+                            clampColorComponent(stateColor[1] + 0.16), clampColorComponent(stateColor[2] + 0.16),
+                            clampColorComponent(stateColor[3] + 0.10), 0.95, 2.5)
+                    end
+
+                    if purchased then
+                        drawOutlinedRect(iconX - 1, iconY - 1, iconX + nodeIconSize + 1, iconY + nodeIconSize + 1,
+                            clampColorComponent(uiConfig.unlocked[1] + 0.10), clampColorComponent(uiConfig.unlocked[2] + 0.12),
+                            clampColorComponent(uiConfig.unlocked[3] + 0.06), 0.95, 1.8)
+                        if maxedOut then
+                            drawStateMark("purchased", iconX, iconY, nodeIconSize,
+                                { clampColorComponent(uiConfig.unlocked[1] + 0.16),
+                                  clampColorComponent(uiConfig.unlocked[2] + 0.22),
+                                  clampColorComponent(uiConfig.unlocked[3] + 0.12), 1.0 })
+                        end
+                    elseif lockedOut then
+                        drawOutlinedRect(iconX - 1, iconY - 1, iconX + nodeIconSize + 1, iconY + nodeIconSize + 1,
+                            clampColorComponent(uiConfig.locked[1] + 0.12), clampColorComponent(uiConfig.locked[2] + 0.12),
+                            clampColorComponent(uiConfig.locked[3] + 0.12), 0.92, 1.6)
+                        drawStateMark("locked", iconX, iconY, nodeIconSize,
+                            { clampColorComponent(uiConfig.locked[1] + 0.14), clampColorComponent(uiConfig.locked[2] + 0.14),
+                              clampColorComponent(uiConfig.locked[3] + 0.14), 1.0 })
+                    elseif hoveredState then
+                        drawStateMark("hovered", iconX, iconY, nodeIconSize,
+                            { clampColorComponent(uiConfig.accent[1] + 0.20), clampColorComponent(uiConfig.accent[2] + 0.18),
+                              clampColorComponent(uiConfig.accent[3] + 0.08), 1.0 })
+                    end
+
                     local nodeTopCenterX = iconX + nodeIconSize * 0.5
                     local nodeTopY = iconY
                     local nodeBottomY = iconY + nodeIconSize
@@ -749,6 +1106,7 @@ local function drawTowerUpgradeWindow(gs)
                     local nodeId = tostring(node.id or "")
                     if nodeId ~= "" then
                         nodeCenters[nodeId] = { x = nodeTopCenterX, yTop = nodeTopY, yBottom = nodeBottomY }
+                        nodeLayoutXById[nodeId] = rowPos[i]
                     end
 
                     local parentId = tostring(node.parent or "")
@@ -760,10 +1118,8 @@ local function drawTowerUpgradeWindow(gs)
                     end
 
                     if clicked then
-                        if requestSelectedTowerUpgrade then
-                            local r = requestSelectedTowerUpgrade(tostring(node.id or ""))
-                            lastUpgradeResult = string.format("Upgrade %s -> ok=%s reason=%s", tostring(node.id), tostring(r.ok),
-                                tostring(r.reason))
+                        if not lockedOut and requestSelectedTowerUpgrade then
+                            requestSelectedTowerUpgrade(tostring(node.id or ""))
                         end
                     end
                     if ImGui.IsItemHovered and ImGui.SetTooltip and ImGui.IsItemHovered() then
@@ -773,29 +1129,115 @@ local function drawTowerUpgradeWindow(gs)
                 end
 
                 if #row > 0 then
-                    ImGui.Dummy(1, rowGapY)
+                    ImGui.SetCursorPos(rowStartX, rowStartY + nodeIconSize)
+                    if depth < maxDepth then
+                        ImGui.Dummy(1, rowGapY)
+                    else
+                        ImGui.Dummy(1, 8)
+                    end
                 end
             end
 
-            ImGui.Separator()
-            ImGui.Text("Tower Stats")
-            ImGui.Text(string.format("DMG %.1f -> %.1f   AP %.1f -> %.1f   RNG %.1f -> %.1f",
-                tonumber(state.baseAttackDamage or 0), tonumber(state.attackDamage or 0),
-                tonumber(state.baseArmorPiercing or 0), tonumber(state.armorPiercing or 0),
-                tonumber(state.baseAttackRange or 0), tonumber(state.attackRange or 0)))
-            ImGui.Text(string.format("SPD %.2f -> %.2f   PROJ %.1f -> %.1f   SPL %.1f -> %.1f",
-                tonumber(state.baseAttackSpeed or 0), tonumber(state.attackSpeed or 0),
-                tonumber(state.baseProjectileSpeed or 0), tonumber(state.projectileSpeed or 0),
-                tonumber(state.baseSplashRadius or 0), tonumber(state.splashRadius or 0)))
-            ImGui.Text(string.format("SHOT %d -> %d   CHAIN %d -> %d @ %.1f -> %.1f   BOUNCE %d -> %d @ %.1f -> %.1f",
-                tonumber(state.baseProjectileCount or 1), tonumber(state.projectileCount or 1),
-                tonumber(state.baseChainTargetCount or 1), tonumber(state.chainTargetCount or 1),
-                tonumber(state.baseChainRange or 0), tonumber(state.chainRange or 0),
-                tonumber(state.baseRicochetCount or 0), tonumber(state.ricochetCount or 0),
-                tonumber(state.baseRicochetRange or 0), tonumber(state.ricochetRange or 0)))
+            if hasGraphChild and ImGui.EndChild then
+                ImGui.EndChild()
+            end
 
-            if lastUpgradeResult ~= "" then
-                UiTextWrapped(lastUpgradeResult)
+            local towerSpent = tonumber(state.totalSpent or 0) or 0
+            if towerSpent <= 0 then
+                towerSpent = tonumber(state.baseCost or 0) or 0
+                local nodes = state.nodes or {}
+                for i = 1, #nodes do
+                    local node = nodes[i]
+                    local currentLevel = tonumber(node.currentLevel or 0) or 0
+                    local levels = node.upgradeLevels or {}
+                    local appliedLevels = math.min(currentLevel, #levels)
+                    for levelIndex = 1, appliedLevels do
+                        local levelData = levels[levelIndex]
+                        towerSpent = towerSpent + (tonumber(levelData and levelData.cost or 0) or 0)
+                    end
+                end
+            end
+            local towerDamageDealt = tonumber(state.totalDamageDealt or 0) or 0
+
+            ImGui.Separator()
+            ImGui.Text(string.format("TYPE %s   SPENT %d   DMG %.1f", tostring(state.damageType or "physical"),
+                math.floor(math.max(0, towerSpent)), towerDamageDealt))
+            ImGui.Text(string.format("DMG %.1f   AP %.1f   RNG %.1f",
+                tonumber(state.attackDamage or 0),
+                tonumber(state.armorPiercing or 0),
+                tonumber(state.attackRange or 0)))
+            ImGui.Text(string.format("SPD %.2f   PROJ %.1f   SPL %.1f",
+                tonumber(state.attackSpeed or 0),
+                tonumber(state.projectileSpeed or 0),
+                tonumber(state.splashRadius or 0)))
+            ImGui.Text(string.format("SHOT %d   CHAIN %d @ %.1f   BOUNCE %d @ %.1f",
+                tonumber(state.projectileCount or 1),
+                tonumber(state.chainTargetCount or 1),
+                tonumber(state.chainRange or 0),
+                tonumber(state.ricochetCount or 0),
+                tonumber(state.ricochetRange or 0)))
+
+            ImGui.Separator()
+            local towerKey = string.format("%s:%d", tostring(state.towerId or "tower"),
+                tonumber(state.towerInstanceOrdinal or 0) or 0)
+
+            local bioVisible = towerBioVisibleByKey[towerKey] == true
+            if ImGui.Button("Bio") then
+                towerBioVisibleByKey[towerKey] = not bioVisible
+                bioVisible = towerBioVisibleByKey[towerKey] == true
+            end
+
+            ImGui.SameLine()
+            local targetModes = { "first", "last", "nearest", "random", "highest_hp", "lowest_hp" }
+            local currentTargetMode = tostring(state.targetingMode or "nearest")
+            local currentTargetIndex = 3
+            for i = 1, #targetModes do
+                if targetModes[i] == currentTargetMode then
+                    currentTargetIndex = i
+                    break
+                end
+            end
+            local targetLabel = string.format("Target: %s", targetingModeDisplayName(currentTargetMode))
+            if ImGui.Button(targetLabel) then
+                local nextIndex = (currentTargetIndex % #targetModes) + 1
+                local nextMode = targetModes[nextIndex]
+                if requestSelectedTowerTargetingMode then
+                    requestSelectedTowerTargetingMode(nextMode)
+                end
+            end
+
+            ImGui.SameLine()
+            local sellPopupId = "SellTowerConfirm"
+            if ImGui.Button("Sell (80%)") and requestSellSelectedTower then
+                if isShiftHeld() then
+                    requestSellSelectedTower()
+                elseif ImGui.OpenPopup then
+                    ImGui.OpenPopup(sellPopupId)
+                end
+            end
+
+            if ImGui.BeginPopupModal and ImGui.EndPopup and ImGui.BeginPopupModal(sellPopupId, ImGuiWindowFlags.AlwaysAutoResize) then
+                ImGui.Text("Sell this tower for 80% of invested cost?")
+                ImGui.TextDisabled("Tip: hold Shift while clicking Sell to skip this dialog.")
+                ImGui.Separator()
+
+                if ImGui.Button("Confirm Sell") and requestSellSelectedTower then
+                    requestSellSelectedTower()
+                    if ImGui.CloseCurrentPopup then
+                        ImGui.CloseCurrentPopup()
+                    end
+                end
+                ImGui.SameLine()
+                if ImGui.Button("Cancel") and ImGui.CloseCurrentPopup then
+                    ImGui.CloseCurrentPopup()
+                end
+
+                ImGui.EndPopup()
+            end
+
+            if bioVisible then
+                ImGui.Separator()
+                UiTextWrapped(state.bio ~= "" and state.bio or "No bio set for this tower yet.")
             end
 
             ImGui.End()
@@ -1320,11 +1762,11 @@ end
 function M.onExit()
     towerSlotTextures = {}
     towerUiArtTextures = {}
+    towerBioVisibleByKey = {}
     perfFpsInstant = 0.0
     perfFpsSmoothed = 0.0
     perfFrameMsSmoothed = 0.0
     perfSampleFrames = 0
-    lastUpgradeResult = ""
 
     startMatchButton = nil
     playAgainButton = nil

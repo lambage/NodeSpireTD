@@ -1,8 +1,11 @@
 #include "scenes/PlayLevelCombatController.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <glm/geometric.hpp>
 #include <limits>
+#include <random>
+#include <string>
 #include <unordered_set>
 #include <utility>
 
@@ -26,6 +29,62 @@ float computeDamageDelta(float incomingDamage, float armor, float armorPiercing,
 }
 
 } // namespace
+
+const char* playlevel::towerTargetingModeToString(TowerTargetingMode mode) {
+    switch (mode) {
+    case TowerTargetingMode::First:
+        return "first";
+    case TowerTargetingMode::Last:
+        return "last";
+    case TowerTargetingMode::Nearest:
+        return "nearest";
+    case TowerTargetingMode::Random:
+        return "random";
+    case TowerTargetingMode::HighestHp:
+        return "highest_hp";
+    case TowerTargetingMode::LowestHp:
+        return "lowest_hp";
+    }
+    return "nearest";
+}
+
+bool playlevel::tryParseTowerTargetingMode(std::string_view rawMode, TowerTargetingMode& outMode) {
+    std::string normalized;
+    normalized.reserve(rawMode.size());
+    for (char c : rawMode) {
+        if (c == ' ' || c == '-' || c == '_') {
+            normalized.push_back('_');
+            continue;
+        }
+        normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+
+    if (normalized == "first") {
+        outMode = TowerTargetingMode::First;
+        return true;
+    }
+    if (normalized == "last") {
+        outMode = TowerTargetingMode::Last;
+        return true;
+    }
+    if (normalized == "nearest") {
+        outMode = TowerTargetingMode::Nearest;
+        return true;
+    }
+    if (normalized == "random") {
+        outMode = TowerTargetingMode::Random;
+        return true;
+    }
+    if (normalized == "highest_hp" || normalized == "highesthp") {
+        outMode = TowerTargetingMode::HighestHp;
+        return true;
+    }
+    if (normalized == "lowest_hp" || normalized == "lowesthp") {
+        outMode = TowerTargetingMode::LowestHp;
+        return true;
+    }
+    return false;
+}
 
 void PlayLevelCombatController::advanceEnemies(float dt,
                                                float routeTotalLength,
@@ -52,7 +111,8 @@ void PlayLevelCombatController::updateTowerAttacks(
     std::vector<playlevel::PlacedTower>& placedTowers,
     const std::vector<playlevel::ActiveEnemy>& activeEnemies,
     std::vector<playlevel::ActiveProjectile>& activeProjectiles) const {
-    for (playlevel::PlacedTower& tower : placedTowers) {
+    for (int towerIndex = 0; towerIndex < static_cast<int>(placedTowers.size()); ++towerIndex) {
+        playlevel::PlacedTower& tower = placedTowers[static_cast<std::size_t>(towerIndex)];
         tower.attackCooldownRemainingSeconds = std::max(0.0f, tower.attackCooldownRemainingSeconds - dt);
         if (tower.attackCooldownRemainingSeconds > 0.0f) {
             continue;
@@ -76,8 +136,49 @@ void PlayLevelCombatController::updateTowerAttacks(
             continue;
         }
 
-        std::sort(candidateTargets.begin(), candidateTargets.end(),
-                  [](const std::pair<float, int>& a, const std::pair<float, int>& b) { return a.first < b.first; });
+        const auto targetMode = tower.targetingMode;
+        if (targetMode == playlevel::TowerTargetingMode::Random) {
+            static thread_local std::mt19937 rng{std::random_device{}()};
+            std::shuffle(candidateTargets.begin(), candidateTargets.end(), rng);
+        } else {
+            std::sort(candidateTargets.begin(), candidateTargets.end(),
+                      [&activeEnemies, targetMode](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                          const playlevel::ActiveEnemy& enemyA = activeEnemies[static_cast<std::size_t>(a.second)];
+                          const playlevel::ActiveEnemy& enemyB = activeEnemies[static_cast<std::size_t>(b.second)];
+
+                          switch (targetMode) {
+                          case playlevel::TowerTargetingMode::First:
+                              if (enemyA.distanceAlongPath != enemyB.distanceAlongPath) {
+                                  return enemyA.distanceAlongPath > enemyB.distanceAlongPath;
+                              }
+                              break;
+                          case playlevel::TowerTargetingMode::Last:
+                              if (enemyA.distanceAlongPath != enemyB.distanceAlongPath) {
+                                  return enemyA.distanceAlongPath < enemyB.distanceAlongPath;
+                              }
+                              break;
+                          case playlevel::TowerTargetingMode::HighestHp:
+                              if (enemyA.health != enemyB.health) {
+                                  return enemyA.health > enemyB.health;
+                              }
+                              break;
+                          case playlevel::TowerTargetingMode::LowestHp:
+                              if (enemyA.health != enemyB.health) {
+                                  return enemyA.health < enemyB.health;
+                              }
+                              break;
+                          case playlevel::TowerTargetingMode::Nearest:
+                              break;
+                          case playlevel::TowerTargetingMode::Random:
+                              break;
+                          }
+
+                          if (a.first != b.first) {
+                              return a.first < b.first;
+                          }
+                          return a.second < b.second;
+                      });
+        }
 
         const int projectileCount = std::max(1, tower.projectileCount);
         for (int shotIdx = 0; shotIdx < projectileCount; ++shotIdx) {
@@ -113,6 +214,7 @@ void PlayLevelCombatController::updateTowerAttacks(
             projectile.ricochetRange = std::max(0.1f, tower.ricochetRange);
             projectile.chainTargetCount = std::max(1, tower.chainTargetCount);
             projectile.remainingRicochetCount = std::max(0, tower.ricochetCount);
+            projectile.sourceTowerPoolIndex = towerIndex;
             projectile.targetEnemyRuntimeId = targetEnemy.runtimeId;
             projectile.lastHitEnemyRuntimeId = 0;
             activeProjectiles.push_back(std::move(projectile));
@@ -124,6 +226,7 @@ void PlayLevelCombatController::updateTowerAttacks(
 
 void PlayLevelCombatController::updateProjectiles(float dt,
                                                   const std::function<glm::vec3(float)>& sampleRoutePosition,
+                                                  std::vector<playlevel::PlacedTower>& placedTowers,
                                                   std::vector<playlevel::ActiveEnemy>& activeEnemies,
                                                   std::vector<playlevel::ActiveProjectile>& activeProjectiles) const {
     std::size_t projectileWriteIndex = 0;
@@ -245,6 +348,13 @@ void PlayLevelCombatController::updateProjectiles(float dt,
                     computeDamageDelta(projectile.damage, hitEnemy.armor, projectile.armorPiercing, resistancePercent);
                 hitEnemy.health -= delta;
                 hitEnemy.health = std::min(hitEnemy.maxHealth, hitEnemy.health);
+
+                if (projectile.sourceTowerPoolIndex >= 0 &&
+                    projectile.sourceTowerPoolIndex < static_cast<int>(placedTowers.size())) {
+                    playlevel::PlacedTower& sourceTower =
+                        placedTowers[static_cast<std::size_t>(projectile.sourceTowerPoolIndex)];
+                    sourceTower.totalDamageDealt += std::max(0.0f, delta);
+                }
             }
 
             if (projectile.remainingRicochetCount > 0 && projectile.remainingLifeSeconds > 0.0f) {
