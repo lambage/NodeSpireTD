@@ -103,6 +103,10 @@ void PlayLevelCombatController::advanceEnemies(float dt,
         }
 
         enemy.distanceAlongPath += std::max(0.05f, enemy.moveSpeed) * dt;
+        // Drives this enemy's own per-instance Walking clip playback time (see
+        // PlayLevelScene::syncTowerInstanceTransforms) -- only accumulated while actually Alive,
+        // matching this branch's "still walking" scope.
+        enemy.walkAnimElapsedSeconds += dt;
 
         if (enemy.distanceAlongPath >= routeTotalLength) {
             onEnemyReachedBase(std::max(1.0f, enemy.baseDamage));
@@ -427,17 +431,18 @@ void PlayLevelCombatController::collectDefeatedEnemies(std::vector<playlevel::Ac
 }
 
 void PlayLevelCombatController::advanceDyingEnemies(
-    float dt, const std::function<float(const std::string&)>& lookupDeathClipDurationSeconds,
+    float dt, const std::function<float(const playlevel::ActiveEnemy&)>& lookupDeathClipDurationSeconds,
     std::vector<playlevel::ActiveEnemy>& activeEnemies) const {
     std::size_t writeIndex = 0;
     for (std::size_t i = 0; i < activeEnemies.size(); ++i) {
         playlevel::ActiveEnemy enemy = activeEnemies[i];
         if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Dying) {
             enemy.deathElapsedSeconds += dt;
-            // Looked up per-enemy (by its own archetype's deathClipName) rather than once for the
-            // whole frame -- different archetypes can name/author Death clips of different lengths.
+            // Looked up per-enemy (by its own archetype's deathClipName AND its own
+            // templatePrototypeIndex/animator) rather than once for the whole frame -- different
+            // archetypes can name/author Death clips of different lengths on different models.
             const float requiredSeconds =
-                std::max(0.0f, lookupDeathClipDurationSeconds(enemy.deathClipName));
+                std::max(0.0f, lookupDeathClipDurationSeconds(enemy));
             if (enemy.deathElapsedSeconds >= requiredSeconds) {
                 enemy.lifecycleState = playlevel::EnemyLifecycleState::Dead;
             }

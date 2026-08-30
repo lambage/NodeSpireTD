@@ -1,7 +1,7 @@
 #include "scenes/EnemySpawnFactory.hpp"
 
 playlevel::ActiveEnemy EnemySpawnFactory::create(const std::string& enemyId, const EnemyArchetype* archetype,
-                                                 std::uint64_t runtimeId) {
+                                                 std::uint64_t runtimeId, int templatePrototypeIndex) {
     const float health = archetype ? archetype->health : 1.0f;
     const float shield = archetype ? archetype->shield : 0.0f;
     const float armor = archetype ? archetype->armor : 0.0f;
@@ -35,5 +35,9 @@ playlevel::ActiveEnemy EnemySpawnFactory::create(const std::string& enemyId, con
     enemy.idleClipName = idleClipName;
     enemy.walkingClipName = walkingClipName;
     enemy.deathClipName = deathClipName;
+    // Caller must resolve this from its own worldAssetSpec_.animatedTemplateModelPaths lookup (see
+    // PlayLevelScene::findEnemyPrototypeIndex) -- each enemy archetype has its own glTF model/skeleton,
+    // and skinning/animation will silently use the wrong skeleton if this is left at the struct default.
+    enemy.templatePrototypeIndex = templatePrototypeIndex;
     return enemy;
 }

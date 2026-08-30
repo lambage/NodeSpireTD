@@ -9,6 +9,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <chrono>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <limits>
@@ -197,7 +198,7 @@ void WorldRenderer::createSamplerLayoutAndPool() {
     bindings[0].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     bindings[1].binding            = 1;
-    bindings[1].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[1].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     bindings[1].descriptorCount    = 1;
     bindings[1].stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
 
@@ -210,7 +211,7 @@ void WorldRenderer::createSamplerLayoutAndPool() {
     // Private descriptor pool (freed wholesale in release())
     VkDescriptorPoolSize poolSizes[2] = {
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 512}
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 512}
     };
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pi.maxSets       = 513;
@@ -219,7 +220,14 @@ void WorldRenderer::createSamplerLayoutAndPool() {
     if (vkCreateDescriptorPool(ctx_.device(), &pi, nullptr, &ownDescPool_) != VK_SUCCESS)
         throw std::runtime_error("Failed to create texture descriptor pool.");
 
-    const VkDeviceSize skinBufferSize = sizeof(glm::mat4) * kMaxSkinJoints;
+    VkPhysicalDeviceProperties deviceProps{};
+    vkGetPhysicalDeviceProperties(ctx_.physicalDevice(), &deviceProps);
+    const VkDeviceSize paletteBytes = sizeof(glm::mat4) * kMaxSkinJoints;
+    const VkDeviceSize uboAlignment = std::max<VkDeviceSize>(1, deviceProps.limits.minUniformBufferOffsetAlignment);
+    skinPaletteSlotStride_ = ((paletteBytes + uboAlignment - 1) / uboAlignment) * uboAlignment;
+
+    const VkDeviceSize skinBufferSize =
+        skinPaletteSlotStride_ * (1 + kSkinPaletteFrameRegions * kSkinPaletteSlotsPerFrame);
     VkBufferCreateInfo skinBufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     skinBufInfo.size = skinBufferSize;
     skinBufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
@@ -236,7 +244,11 @@ void WorldRenderer::createSamplerLayoutAndPool() {
         throw std::runtime_error("Failed to create skin palette uniform buffer.");
     }
     skinPaletteMapped_ = allocInfo.pMappedData;
-    uploadIdentitySkinPalette();
+
+    // Slot 0 is written once here and never again: unskinned draws bind it by offset.
+    std::vector<glm::mat4> identityPalette(kMaxSkinJoints, glm::mat4{1.0f});
+    std::memcpy(skinPaletteMapped_, identityPalette.data(), static_cast<std::size_t>(paletteBytes));
+    vmaFlushAllocation(ctx_.allocator(), skinPaletteAlloc_, 0, paletteBytes);
 }
 
 WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, uint32_t h) {
@@ -362,7 +374,7 @@ VkDescriptorSet WorldRenderer::makeTextureDescSet(VkImageView view) {
     writes[1].dstSet = set;
     writes[1].dstBinding = 1;
     writes[1].descriptorCount = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     writes[1].pBufferInfo = &bi;
 
     vkUpdateDescriptorSets(ctx_.device(), 2, writes, 0, nullptr);
@@ -376,10 +388,60 @@ void WorldRenderer::createFallbackTexture() {
 }
 
 WorldRenderer::WorldRenderer(lua_State* L, VulkanContext& ctx)
-    : L_(L), ctx_(ctx), templateAnimator_(std::make_unique<TemplateAnimator>()) {}
+    : L_(L), ctx_(ctx) {}
 
 WorldRenderer::~WorldRenderer() {
     release();
+}
+
+TemplateAnimator* WorldRenderer::animatorForPrototype(int templatePrototypeIndex) {
+    if (templateAnimators_.empty()) {
+        return nullptr;
+    }
+    std::size_t idx = 0;
+    if (templatePrototypeIndex >= 0 &&
+        static_cast<std::size_t>(templatePrototypeIndex) < templateAnimators_.size() &&
+        templateAnimators_[static_cast<std::size_t>(templatePrototypeIndex)]) {
+        idx = static_cast<std::size_t>(templatePrototypeIndex);
+    }
+    return templateAnimators_[idx].get();
+}
+
+const TemplateAnimator* WorldRenderer::animatorForPrototype(int templatePrototypeIndex) const {
+    return const_cast<WorldRenderer*>(this)->animatorForPrototype(templatePrototypeIndex);
+}
+
+std::vector<WorldRenderer::AnimatorBaseState> WorldRenderer::captureAnimatorBaseStates() const {
+    std::vector<AnimatorBaseState> baseStates(templateAnimators_.size());
+    for (std::size_t i = 0; i < templateAnimators_.size(); ++i) {
+        const TemplateAnimator* animator = templateAnimators_[i].get();
+        if (!animator) {
+            continue;
+        }
+        baseStates[i].timeSeconds = animator->currentTimeSeconds();
+        baseStates[i].durationSeconds = animator->timelineDurationSeconds();
+        baseStates[i].activeClipIndex = animator->activeAnimationClipIndex();
+        baseStates[i].compositeMode = animator->compositeMode();
+    }
+    return baseStates;
+}
+
+void WorldRenderer::restoreAnimatorBaseStates(const std::vector<AnimatorBaseState>& baseStates) {
+    for (std::size_t i = 0; i < templateAnimators_.size() && i < baseStates.size(); ++i) {
+        TemplateAnimator* animator = templateAnimators_[i].get();
+        if (!animator) {
+            continue;
+        }
+        const AnimatorBaseState& base = baseStates[i];
+        if (animator->activeAnimationClipIndex() != base.activeClipIndex) {
+            animator->setActiveAnimationClipByIndex(base.activeClipIndex);
+        }
+        if (animator->compositeMode() != base.compositeMode) {
+            animator->setCompositeMode(base.compositeMode);
+        }
+        animator->setPlaybackTimeSeconds(base.timeSeconds);
+        animator->update(0.0f);
+    }
 }
 
 // ─── activity helpers ─────────────────────────────────────────────────────────
@@ -409,7 +471,12 @@ void WorldRenderer::setAnimatedEntityInstances(std::vector<AnimatedEntityInstanc
 void WorldRenderer::resizeAnimatedEntityPhaseOffsetsIfNeeded(std::size_t instanceCount) {
     if (animatedEntityPhaseOffsetsSeconds_.size() != instanceCount) {
         animatedEntityPhaseOffsetsSeconds_.resize(instanceCount, 0.0f);
-        const float timelineDuration = std::max(0.0f, templateAnimator_->timelineDurationSeconds());
+        // Only used as a fallback stagger for instances with no per-instance clip/time override
+        // (see sampleEnemyInstanceAnimation) -- template 0's duration is a fine representative
+        // value for this cosmetic desync heuristic even when multiple templates are loaded.
+        const TemplateAnimator* representativeAnimator = animatorForPrototype(0);
+        const float timelineDuration =
+            representativeAnimator ? std::max(0.0f, representativeAnimator->timelineDurationSeconds()) : 0.0f;
         if (timelineDuration > 1e-5f) {
             for (std::size_t i = 0; i < animatedEntityPhaseOffsetsSeconds_.size(); ++i) {
                 const float unitOffset = std::fmod(static_cast<float>(i) * 0.61803398875f, 1.0f);
@@ -445,56 +512,82 @@ void WorldRenderer::setHighlightedInstances(WorldEntityKind hoveredKind, int hov
 }
 
 bool WorldRenderer::hasTemplateAnimation() const {
-    return templateAnimator_->hasAnimation();
+    // Coarse "is there any animated enemy content at all" gate used before per-instance work --
+    // deliberately not per-template, since callers use this only to decide whether to bother.
+    for (const auto& animator : templateAnimators_) {
+        if (animator && animator->hasAnimation()) {
+            return true;
+        }
+    }
+    return false;
 }
 
-const std::string& WorldRenderer::templateAnimationName() const {
-    return templateAnimator_->animationName();
+const std::string& WorldRenderer::templateAnimationName(int templatePrototypeIndex) const {
+    static const std::string kEmpty;
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->animationName() : kEmpty;
 }
 
-int WorldRenderer::templateAnimationClipCount() const {
-    return templateAnimator_->animationClipCount();
+int WorldRenderer::templateAnimationClipCount(int templatePrototypeIndex) const {
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->animationClipCount() : 0;
 }
 
-int WorldRenderer::activeTemplateAnimationClipIndex() const {
-    return templateAnimator_->activeAnimationClipIndex();
+int WorldRenderer::activeTemplateAnimationClipIndex(int templatePrototypeIndex) const {
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->activeAnimationClipIndex() : -1;
 }
 
-std::vector<std::string> WorldRenderer::templateAnimationClipNames() const {
-    return templateAnimator_->animationClipNames();
+std::vector<std::string> WorldRenderer::templateAnimationClipNames(int templatePrototypeIndex) const {
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->animationClipNames() : std::vector<std::string>{};
 }
 
-bool WorldRenderer::setActiveTemplateAnimationClipByIndex(int clipIndex) {
-    return templateAnimator_->setActiveAnimationClipByIndex(clipIndex);
+bool WorldRenderer::setActiveTemplateAnimationClipByIndex(int clipIndex, int templatePrototypeIndex) {
+    TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->setActiveAnimationClipByIndex(clipIndex) : false;
 }
 
-bool WorldRenderer::setActiveTemplateAnimationClipByName(const std::string& clipName) {
-    return templateAnimator_->setActiveAnimationClipByName(clipName);
+bool WorldRenderer::setActiveTemplateAnimationClipByName(const std::string& clipName, int templatePrototypeIndex) {
+    TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->setActiveAnimationClipByName(clipName) : false;
 }
 
-void WorldRenderer::setCompositeTemplateAnimationMode(bool enabled) {
-    templateAnimator_->setCompositeMode(enabled);
+void WorldRenderer::setCompositeTemplateAnimationMode(bool enabled, int templatePrototypeIndex) {
+    if (TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex)) {
+        animator->setCompositeMode(enabled);
+    }
 }
 
-bool WorldRenderer::compositeTemplateAnimationMode() const {
-    return templateAnimator_->compositeMode();
+bool WorldRenderer::compositeTemplateAnimationMode(int templatePrototypeIndex) const {
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator && animator->compositeMode();
 }
 
-const EnemyAnimationDebugInfo& WorldRenderer::templateAnimationDebugInfo() const {
-    return templateAnimator_->debugInfo();
+const EnemyAnimationDebugInfo& WorldRenderer::templateAnimationDebugInfo(int templatePrototypeIndex) const {
+    static const EnemyAnimationDebugInfo kEmpty{};
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->debugInfo() : kEmpty;
 }
 
-int WorldRenderer::templateAnimationClipIndexByName(const std::string& clipName) const {
-    return templateAnimator_->findAnimationClipIndexByName(clipName);
+int WorldRenderer::templateAnimationClipIndexByName(const std::string& clipName, int templatePrototypeIndex) const {
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->findAnimationClipIndexByName(clipName) : -1;
 }
 
-float WorldRenderer::templateAnimationClipDurationSeconds(int clipIndex) const {
-    return templateAnimator_->animationClipDurationSeconds(clipIndex);
+float WorldRenderer::templateAnimationClipDurationSeconds(int clipIndex, int templatePrototypeIndex) const {
+    const TemplateAnimator* animator = animatorForPrototype(templatePrototypeIndex);
+    return animator ? animator->animationClipDurationSeconds(clipIndex) : 0.0f;
 }
 
-void WorldRenderer::uploadSkinPalette(const std::vector<glm::mat4>& joints) {
+void WorldRenderer::beginSkinPaletteFrame() {
+    skinPaletteFrameRegion_ = (skinPaletteFrameRegion_ + 1) % kSkinPaletteFrameRegions;
+    skinPaletteSlotCursor_ = 0;
+}
+
+uint32_t WorldRenderer::uploadSkinPalette(const std::vector<glm::mat4>& joints) {
     if (!skinPaletteMapped_ || skinPaletteBuffer_ == VK_NULL_HANDLE) {
-        return;
+        return 0;
     }
 
     std::array<glm::mat4, kMaxSkinJoints> palette{};
@@ -507,14 +600,22 @@ void WorldRenderer::uploadSkinPalette(const std::vector<glm::mat4>& joints) {
         palette[i] = joints[i];
     }
 
+    // Wraps rather than grows: past kSkinPaletteSlotsPerFrame simultaneously-skinned draws the
+    // oldest slots are reused, which mispose a few far-off instances instead of failing the frame.
+    const uint32_t slotInRegion = skinPaletteSlotCursor_ % kSkinPaletteSlotsPerFrame;
+    ++skinPaletteSlotCursor_;
+    const uint32_t slot = 1 + skinPaletteFrameRegion_ * kSkinPaletteSlotsPerFrame + slotInRegion;
+    const VkDeviceSize byteOffset = skinPaletteSlotStride_ * slot;
+
     const VkDeviceSize byteSize = sizeof(glm::mat4) * kMaxSkinJoints;
-    std::memcpy(skinPaletteMapped_, palette.data(), static_cast<std::size_t>(byteSize));
-    vmaFlushAllocation(ctx_.allocator(), skinPaletteAlloc_, 0, byteSize);
+    std::memcpy(static_cast<std::byte*>(skinPaletteMapped_) + byteOffset, palette.data(),
+                static_cast<std::size_t>(byteSize));
+    vmaFlushAllocation(ctx_.allocator(), skinPaletteAlloc_, byteOffset, byteSize);
+    return static_cast<uint32_t>(byteOffset);
 }
 
-void WorldRenderer::uploadIdentitySkinPalette() {
-    static const std::vector<glm::mat4> kIdentityPalette(1, glm::mat4{1.0f});
-    uploadSkinPalette(kIdentityPalette);
+uint32_t WorldRenderer::uploadIdentitySkinPalette() const {
+    return 0; // Slot 0 holds a permanently-identity palette; nothing to write.
 }
 
 // ─── public loading interface ─────────────────────────────────────────────────
@@ -532,7 +633,7 @@ void WorldRenderer::beginLoad(const std::filesystem::path& assetPath, const Worl
     progress_.store(0.0f,    std::memory_order_relaxed);
     firstRenderTick_ = true;
     assetSpec_ = spec;
-    templateAnimator_->reset();
+    templateAnimators_.clear();
     setActivity(0.0f, "Starting...");
 
     loadThread_ = std::thread(&WorldRenderer::backgroundLoad, this, assetPath);
@@ -544,7 +645,7 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     const bool ok = assetLoader_.load(
         assetPath,
         assetSpec_,
-        *templateAnimator_,
+        templateAnimators_,
         [this]() { return cancelLoad_.load(std::memory_order_relaxed); },
         [this](float progress, const std::string& activity) { setActivity(progress, activity); },
         loadResult,
@@ -826,8 +927,15 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
     animatedEntityInstances_.forEachMeshWorldTransform(
         enemyTemplateMeshes_,
         [this](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
-            (void)instanceIndex;
-            return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+            // Picking/highlight-bounds queries sample each instance's own template's CURRENT pose
+            // (whatever clip/time that animator was left on at the end of the last render() call --
+            // the template's base/globally-active clip, not any per-instance override), same
+            // approximation as before this fix, just resolved against the correct per-prototype
+            // animator instead of a single shared one.
+            const AnimatedEntityInstanceSet::Instance* inst =
+                (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex)) : nullptr;
+            const TemplateAnimator* animator = animatorForPrototype(inst ? inst->prototypeIndex : 0);
+            return animator ? animator->resolveNodeTransform(nodeIndex, fallback) : fallback;
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             testMesh(mesh, world, meshIndex, instanceIndex, WorldEntityKind::Enemy, nullptr, nullptr);
@@ -1041,8 +1149,15 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
     animatedEntityInstances_.forEachMeshWorldTransform(
         enemyTemplateMeshes_,
         [this](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
-            (void)instanceIndex;
-            return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+            // Picking/highlight-bounds queries sample each instance's own template's CURRENT pose
+            // (whatever clip/time that animator was left on at the end of the last render() call --
+            // the template's base/globally-active clip, not any per-instance override), same
+            // approximation as before this fix, just resolved against the correct per-prototype
+            // animator instead of a single shared one.
+            const AnimatedEntityInstanceSet::Instance* inst =
+                (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex)) : nullptr;
+            const TemplateAnimator* animator = animatorForPrototype(inst ? inst->prototypeIndex : 0);
+            return animator ? animator->resolveNodeTransform(nodeIndex, fallback) : fallback;
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             (void)meshIndex;
@@ -1099,46 +1214,62 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
     return spheres;
 }
 
-void WorldRenderer::sampleEnemyInstanceAnimation(int instanceIndex, float baseAnimationTime,
-                                                 float animationDuration, int baseActiveClipIndex,
-                                                 bool baseCompositeMode) {
+TemplateAnimator* WorldRenderer::sampleEnemyInstanceAnimation(int instanceIndex,
+                                                               const std::vector<AnimatorBaseState>& baseStates) {
     const AnimatedEntityInstanceSet::Instance* inst =
         (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex)) : nullptr;
+    const int prototypeIndex = inst ? inst->prototypeIndex : 0;
+    TemplateAnimator* animator = animatorForPrototype(prototypeIndex);
+    if (!animator) {
+        return nullptr;
+    }
+
+    // Mirrors animatorForPrototype()'s own clamping so the base state we restore-to always
+    // belongs to the SAME animator instance we just resolved above (a mismatch here would restore
+    // one template's animator using another template's captured base state).
+    static const AnimatorBaseState kDefaultBaseState{};
+    const bool resolvedDirectly = prototypeIndex >= 0 &&
+        static_cast<std::size_t>(prototypeIndex) < templateAnimators_.size() &&
+        templateAnimators_[static_cast<std::size_t>(prototypeIndex)];
+    const std::size_t baseIndex = resolvedDirectly ? static_cast<std::size_t>(prototypeIndex) : 0;
+    const AnimatorBaseState& base = (baseIndex < baseStates.size()) ? baseStates[baseIndex] : kDefaultBaseState;
+
     const int overrideClip = inst ? inst->animationClipIndexOverride : -1;
 
-    if (overrideClip >= 0 && overrideClip < templateAnimator_->animationClipCount()) {
+    if (overrideClip >= 0 && overrideClip < animator->animationClipCount()) {
         // An override means "play exactly this one clip for this one instance" -- force composite
         // off for this sample regardless of the template's real composite flag. Guarded (not
         // unconditional) only to avoid a redundant write; setActiveAnimationClipByIndex() below
         // would also clear it, but only when the clip index actually changes, so this call is
         // still required when consecutive dying instances share the same override clip index.
-        if (templateAnimator_->compositeMode()) {
-            templateAnimator_->setCompositeMode(false);
+        if (animator->compositeMode()) {
+            animator->setCompositeMode(false);
         }
-        if (templateAnimator_->activeAnimationClipIndex() != overrideClip) {
-            templateAnimator_->setActiveAnimationClipByIndex(overrideClip);
+        if (animator->activeAnimationClipIndex() != overrideClip) {
+            animator->setActiveAnimationClipByIndex(overrideClip);
         }
-        templateAnimator_->setPlaybackTimeSeconds(inst->animationClipTimeSecondsOverride);
+        animator->setPlaybackTimeSeconds(inst->animationClipTimeSecondsOverride);
     } else {
-        // Not overridden: restore the template's real clip/composite state, in case an earlier
-        // instance this frame was an override that changed either (setActiveAnimationClipByIndex()
-        // always clears composite mode as a side effect, so the composite restore must happen
-        // after -- and independently of -- the clip-index restore, since the index may already
-        // match while composite is still wrong).
-        if (templateAnimator_->activeAnimationClipIndex() != baseActiveClipIndex) {
-            templateAnimator_->setActiveAnimationClipByIndex(baseActiveClipIndex);
+        // Not overridden: restore this template's real clip/composite state, in case an earlier
+        // instance of the SAME template this frame was an override that changed either
+        // (setActiveAnimationClipByIndex() always clears composite mode as a side effect, so the
+        // composite restore must happen after -- and independently of -- the clip-index restore,
+        // since the index may already match while composite is still wrong).
+        if (animator->activeAnimationClipIndex() != base.activeClipIndex) {
+            animator->setActiveAnimationClipByIndex(base.activeClipIndex);
         }
-        if (templateAnimator_->compositeMode() != baseCompositeMode) {
-            templateAnimator_->setCompositeMode(baseCompositeMode);
+        if (animator->compositeMode() != base.compositeMode) {
+            animator->setCompositeMode(base.compositeMode);
         }
-        float sampleTime = baseAnimationTime;
-        if (animationDuration > 1e-5f && instanceIndex >= 0 &&
+        float sampleTime = base.timeSeconds;
+        if (base.durationSeconds > 1e-5f && instanceIndex >= 0 &&
             static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
             sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
         }
-        templateAnimator_->setPlaybackTimeSeconds(sampleTime);
+        animator->setPlaybackTimeSeconds(sampleTime);
     }
-    templateAnimator_->update(0.0f);
+    animator->update(0.0f);
+    return animator;
 }
 
 void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view) {
@@ -1153,7 +1284,13 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         dtSeconds = std::chrono::duration<float>(now - lastRenderTick_).count();
         lastRenderTick_ = now;
     }
-    templateAnimator_->update(dtSeconds);
+    for (auto& animator : templateAnimators_) {
+        if (animator) {
+            animator->update(dtSeconds);
+        }
+    }
+
+    beginSkinPaletteFrame();
 
     // ── Projection ────────────────────────────────────────────────────────
     const float aspect = (extent.height > 0)
@@ -1183,7 +1320,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     };
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    uploadIdentitySkinPalette();
+    const uint32_t identitySkinOffset = uploadIdentitySkinPalette();
 
     // ── Draw each mesh (bind its base-colour texture) ─────────────────────
     for (const WorldMesh& mesh : meshes_) {
@@ -1194,41 +1331,42 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
 
         VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
         if (ds) vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 0, nullptr);
+                                        pipelineLayout_, 0, 1, &ds, 1, &identitySkinOffset);
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
     }
 
-    const float baseAnimationTime = templateAnimator_->currentTimeSeconds();
-    const float animationDuration = templateAnimator_->timelineDurationSeconds();
-    const int baseActiveClipIndex = templateAnimator_->activeAnimationClipIndex();
-    const bool baseCompositeMode = templateAnimator_->compositeMode();
+    // Snapshot each template's own globally-active clip/time/composite state once per frame,
+    // before any per-instance override below mutates its animator -- restored per-non-overridden-
+    // instance and again for every animator once this frame's draws are done.
+    const std::vector<AnimatorBaseState> baseStates = captureAnimatorBaseStates();
 
     int currentInstanceIndex = -1;
     int activeSkinIndex = -2;
+    uint32_t enemySkinOffset = identitySkinOffset;
+    TemplateAnimator* currentAnimator = nullptr;
     animatedEntityInstances_.forEachMeshWorldTransform(
         enemyTemplateMeshes_,
-        [this, &currentInstanceIndex, &activeSkinIndex, baseAnimationTime, animationDuration,
-         baseActiveClipIndex, baseCompositeMode](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+        [this, &currentInstanceIndex, &activeSkinIndex, &currentAnimator, &baseStates](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
             if (instanceIndex != currentInstanceIndex) {
                 currentInstanceIndex = instanceIndex;
                 activeSkinIndex = -2;
-                sampleEnemyInstanceAnimation(instanceIndex, baseAnimationTime, animationDuration, baseActiveClipIndex,
-                                             baseCompositeMode);
+                currentAnimator = sampleEnemyInstanceAnimation(instanceIndex, baseStates);
             }
-            return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+            return currentAnimator ? currentAnimator->resolveNodeTransform(nodeIndex, fallback) : fallback;
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             (void)meshIndex;
             if (mesh.sourceSkinIndex != activeSkinIndex) {
                 activeSkinIndex = mesh.sourceSkinIndex;
-                const std::vector<glm::mat4>* jointPalette = templateAnimator_->skinJointMatricesForSkin(mesh.sourceSkinIndex);
+                const std::vector<glm::mat4>* jointPalette =
+                    currentAnimator ? currentAnimator->skinJointMatricesForSkin(mesh.sourceSkinIndex) : nullptr;
                 if (jointPalette) {
-                    uploadSkinPalette(*jointPalette);
+                    enemySkinOffset = uploadSkinPalette(*jointPalette);
                 } else {
-                    uploadIdentitySkinPalette();
+                    enemySkinOffset = uploadIdentitySkinPalette();
                 }
             }
 
@@ -1240,7 +1378,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 0, nullptr);
+                                        pipelineLayout_, 0, 1, &ds, 1, &enemySkinOffset);
             }
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1248,7 +1386,6 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
         });
 
-    uploadIdentitySkinPalette();
     towerInstances_.forEachMeshWorldTransform(
         towerTemplateMeshes_,
         [](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
@@ -1268,7 +1405,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 0, nullptr);
+                                        pipelineLayout_, 0, 1, &ds, 1, &identitySkinOffset);
             }
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1280,6 +1417,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         (hoveredEntityKind_ != WorldEntityKind::None || selectedEntityKind_ != WorldEntityKind::None)) {
         const glm::mat4 invView = glm::inverse(view);
         const glm::vec3 cameraPos = glm::vec3(invView[3]);
+        uint32_t highlightSkinOffset = identitySkinOffset;
 
         auto drawHighlightMesh = [&](const WorldMesh& mesh, const glm::mat4& world, const glm::vec4& color) {
             const glm::mat4 mvp = proj * view * world;
@@ -1291,7 +1429,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        highlightPipelineLayout_, 0, 1, &ds, 0, nullptr);
+                                        highlightPipelineLayout_, 0, 1, &ds, 1, &highlightSkinOffset);
             }
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1311,10 +1449,11 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             if (kind == WorldEntityKind::Enemy) {
                 int highlightCurrentInstance = -1;
                 int highlightActiveSkin = -2;
+                TemplateAnimator* highlightAnimator = nullptr;
                 animatedEntityInstances_.forEachMeshWorldTransform(
                     enemyTemplateMeshes_,
-                    [this, &highlightCurrentInstance, &highlightActiveSkin, baseAnimationTime, animationDuration,
-                     baseActiveClipIndex, baseCompositeMode, targetInstanceIndex](int instanceIndex, int nodeIndex,
+                    [this, &highlightCurrentInstance, &highlightActiveSkin, &highlightAnimator, &baseStates,
+                     targetInstanceIndex](int instanceIndex, int nodeIndex,
                                                                const glm::mat4& fallback) {
                         if (instanceIndex != targetInstanceIndex) {
                             return glm::mat4(0.0f);
@@ -1322,10 +1461,9 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
                         if (instanceIndex != highlightCurrentInstance) {
                             highlightCurrentInstance = instanceIndex;
                             highlightActiveSkin = -2;
-                            sampleEnemyInstanceAnimation(instanceIndex, baseAnimationTime, animationDuration,
-                                                         baseActiveClipIndex, baseCompositeMode);
+                            highlightAnimator = sampleEnemyInstanceAnimation(instanceIndex, baseStates);
                         }
-                        return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
+                        return highlightAnimator ? highlightAnimator->resolveNodeTransform(nodeIndex, fallback) : fallback;
                     },
                     [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
                         (void)meshIndex;
@@ -1336,18 +1474,18 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
                         if (mesh.sourceSkinIndex != highlightActiveSkin) {
                             highlightActiveSkin = mesh.sourceSkinIndex;
                             const std::vector<glm::mat4>* jointPalette =
-                                templateAnimator_->skinJointMatricesForSkin(mesh.sourceSkinIndex);
+                                highlightAnimator ? highlightAnimator->skinJointMatricesForSkin(mesh.sourceSkinIndex) : nullptr;
                             if (jointPalette) {
-                                uploadSkinPalette(*jointPalette);
+                                highlightSkinOffset = uploadSkinPalette(*jointPalette);
                             } else {
-                                uploadIdentitySkinPalette();
+                                highlightSkinOffset = uploadIdentitySkinPalette();
                             }
                         }
 
                         drawHighlightMesh(mesh, world, color);
                     });
             } else { // WorldEntityKind::Tower
-                uploadIdentitySkinPalette();
+                highlightSkinOffset = uploadIdentitySkinPalette();
                 towerInstances_.forEachMeshWorldTransform(
                     towerTemplateMeshes_,
                     [](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
@@ -1375,14 +1513,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         }
     }
 
-    if (templateAnimator_->activeAnimationClipIndex() != baseActiveClipIndex) {
-        templateAnimator_->setActiveAnimationClipByIndex(baseActiveClipIndex);
-    }
-    if (templateAnimator_->compositeMode() != baseCompositeMode) {
-        templateAnimator_->setCompositeMode(baseCompositeMode);
-    }
-    templateAnimator_->setPlaybackTimeSeconds(baseAnimationTime);
-    templateAnimator_->update(0.0f);
+    restoreAnimatorBaseStates(baseStates);
 }
 
 bool WorldRenderer::computeTowerPrototypeBounds(int prototypeIndex, glm::vec3& outCenter, float& outRadius) const {
@@ -1434,7 +1565,7 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
     }
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    uploadIdentitySkinPalette();
+    const uint32_t previewSkinOffset = uploadIdentitySkinPalette();
 
     for (std::size_t panelIdx = 0; panelIdx < panels.size(); ++panelIdx) {
         const TowerPreviewPanel& panel = panels[panelIdx];
@@ -1531,7 +1662,7 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 0, nullptr);
+                                        pipelineLayout_, 0, 1, &ds, 1, &previewSkinOffset);
             }
 
             const VkDeviceSize offset = 0;
@@ -1599,6 +1730,9 @@ void WorldRenderer::release() {
         skinPaletteBuffer_ = VK_NULL_HANDLE;
         skinPaletteAlloc_ = nullptr;
         skinPaletteMapped_ = nullptr;
+        skinPaletteSlotStride_ = 0;
+        skinPaletteFrameRegion_ = 0;
+        skinPaletteSlotCursor_ = 0;
     }
 
     auto destroyTex = [&](WorldTexture& t) {
@@ -1641,7 +1775,7 @@ void WorldRenderer::release() {
     selectedEntityKind_ = WorldEntityKind::None;
     selectedInstanceIndex_ = -1;
     routePoints_.clear();
-    templateAnimator_->reset();
+    templateAnimators_.clear();
     firstRenderTick_ = true;
 
     // Reset async state

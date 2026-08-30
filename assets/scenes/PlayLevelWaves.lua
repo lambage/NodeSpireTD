@@ -10,9 +10,6 @@ function M.onLoad()
     local goblin1 = Entity.Load("assets/models/enemy/goblin1.enemy.lua")
     local goblinScout = Entity.Load("assets/models/enemy/goblin_scout.enemy.lua")
 
-    -- Example future extension:
-    -- local goblin2 = Entity.Load("assets/models/enemy/goblin2.enemy.lua")
-
     Wave.Register({
         { entity = goblin1, count = 6, spawnIntervalSeconds = 0.9 },
     }, 30)

@@ -19,6 +19,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <unordered_set>
@@ -126,13 +127,14 @@ bool tryParseRegionFromNode(const fastgltf::Node& node,
 
 bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                             const WorldAssetSpec& spec,
-                            TemplateAnimator& animator,
+                            std::vector<std::unique_ptr<TemplateAnimator>>& animators,
                             const IsCancelledFn& isCancelled,
                             const ActivityFn& setActivity,
                             WorldAssetLoadResult& outResult,
                             std::string& outFailReason) const {
     outResult = {};
     outFailReason.clear();
+    animators.clear();
 
     setActivity(0.01f, "Parsing " + assetPath.filename().string() + "...");
 
@@ -635,8 +637,12 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         }
         WorldAssetLoadResult dummyResult;  // Template models don't have regions
         traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, prototypeIndex, false, outMeshes, debugGroup, label, dummyResult);
-        if (initializeAnimator) {
-            animator.initializeFromAsset(modelAsset);
+        if (initializeAnimator && prototypeIndex >= 0 && static_cast<std::size_t>(prototypeIndex) < animators.size()) {
+            // Each animated template gets its own TemplateAnimator instance -- different
+            // archetypes can use different models with different skeletons/bind poses even when
+            // their glTF clip names (Idle/Walking/Death) happen to match.
+            animators[static_cast<std::size_t>(prototypeIndex)] = std::make_unique<TemplateAnimator>();
+            animators[static_cast<std::size_t>(prototypeIndex)]->initializeFromAsset(modelAsset);
         }
     };
 
@@ -740,8 +746,11 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         return false;
     }
 
+    // Every animated template gets its own TemplateAnimator (see loadAndStageModelTemplate above)
+    // -- previously only template index 0 initialized an animator and every other archetype's
+    // meshes were (incorrectly) skinned/animated against that first template's skeleton.
+    animators.resize(spec.animatedTemplateModelPaths.size());
     for (std::size_t i = 0; i < spec.animatedTemplateModelPaths.size(); ++i) {
-        const bool initializeAnimator = (i == 0);
         const std::string label = "animated template " + std::to_string(i + 1);
         loadAndStageModelTemplate(spec.animatedTemplateModelPaths[i],
                                   label,
@@ -749,7 +758,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                                   static_cast<int>(i),
                                   outResult.templateMeshes,
                                   true,
-                                  initializeAnimator,
+                                  true,
                                   loadFailed);
         if (loadFailed) {
             return false;

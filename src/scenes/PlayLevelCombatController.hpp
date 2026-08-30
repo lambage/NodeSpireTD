@@ -57,8 +57,19 @@ struct ActiveEnemy {
     std::string idleClipName = "Idle";
     std::string walkingClipName = "Walking";
     std::string deathClipName = "Death";
+    // Which animated enemy template (WorldAssetSpec::animatedTemplateModelPaths index / the
+    // templatePrototypeIndex carried on WorldMesh) this enemy's own model/skeleton/animator maps
+    // to. Resolved once at spawn time (see findEnemyPrototypeIndex in PlayLevelScene.cpp) so every
+    // per-frame animation lookup routes to THIS enemy's own TemplateAnimator rather than
+    // whichever template happened to load first.
+    int templatePrototypeIndex = 0;
     EnemyLifecycleState lifecycleState = EnemyLifecycleState::Alive;
     float deathElapsedSeconds = 0.0f;
+    // Elapsed simulation time (seconds) this enemy has spent Alive/walking, used to drive its own
+    // independent Walking clip playback time (see PlayLevelScene::syncTowerInstanceTransforms) --
+    // TemplateAnimator::setPlaybackTimeSeconds() wraps this modulo the clip's duration, so a
+    // continuously-growing value here loops correctly without any extra bookkeeping.
+    float walkAnimElapsedSeconds = 0.0f;
 };
 
 struct PlacedTower {
@@ -131,9 +142,11 @@ class PlayLevelCombatController {
 
     // Advances enemies already in the Dying state and removes ones whose Death clip has finished
     // playing (deathElapsedSeconds >= that enemy's own Death clip duration). lookupDeathClipDurationSeconds
-    // is called with each Dying enemy's own deathClipName (archetypes can name it differently) and
-    // should return 0 when the active model has no clip by that name -- such enemies are then
-    // removed immediately, same as the old instant-removal behavior.
-    void advanceDyingEnemies(float dt, const std::function<float(const std::string&)>& lookupDeathClipDurationSeconds,
+    // is called with each Dying enemy (so the caller can resolve both its own deathClipName AND its
+    // own templatePrototypeIndex -- archetypes can name their Death clip differently AND use
+    // different models/animators) and should return 0 when the active model has no clip by that
+    // name -- such enemies are then removed immediately, same as the old instant-removal behavior.
+    void advanceDyingEnemies(float dt,
+                             const std::function<float(const playlevel::ActiveEnemy&)>& lookupDeathClipDurationSeconds,
                              std::vector<playlevel::ActiveEnemy>& activeEnemies) const;
 };

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <functional>
 #include <glm/glm.hpp>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -121,9 +122,14 @@ class WorldAssetLoader {
     using IsCancelledFn = std::function<bool()>;
     using ActivityFn = std::function<void(float, const std::string&)>;
 
+    // animators is indexed by template prototype index (i.e. index into
+    // spec.animatedTemplateModelPaths) -- one independent TemplateAnimator per animated enemy
+    // template, since each template can have its own skeleton/bind pose even when clip names
+    // (Idle/Walking/Death) coincide. Resized and populated by this call; any previous contents
+    // are discarded.
     bool load(const std::filesystem::path& assetPath,
               const WorldAssetSpec& spec,
-              TemplateAnimator& animator,
+              std::vector<std::unique_ptr<TemplateAnimator>>& animators,
               const IsCancelledFn& isCancelled,
               const ActivityFn& setActivity,
               WorldAssetLoadResult& outResult,

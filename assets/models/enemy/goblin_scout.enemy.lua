@@ -30,6 +30,6 @@ return {
 
     render = {
         renderScale = 0.85,
-        facingYawOffsetDegrees = 180.0,
+        facingYawOffsetDegrees = 0.0,
     }
 }

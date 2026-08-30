@@ -141,10 +141,10 @@ class PlayLevelScene final : public GameScene {
     std::string validateStartWaveRequest() const;
     void applyPendingGameplayCommands();
     void updateWaveSimulation(float dt);
-    // Drives the enemy template's shared Idle/Walking clip selection: Walking whenever at least
-    // one enemy is alive and moving, Idle otherwise (only if the model has those clips -- a
-    // no-op fallback otherwise). Per-instance Death playback is handled separately, in
-    // syncTowerInstanceTransforms(), since (unlike Idle/Walking) it must differ per enemy.
+    // One-time initialization: seeds every registered enemy archetype's own template animator
+    // with its own Idle clip (only if that model has a clip by that name -- a no-op fallback
+    // otherwise). Per-instance Walking and Death playback are both handled per-enemy, in
+    // syncTowerInstanceTransforms(), since they must differ per enemy (and per archetype/template).
     void updateEnemyAnimationState();
     // Number of activeEnemies_ entries that are still Alive (i.e. excludes Dying/Dead corpses kept
     // around only so their Death clip can finish rendering). Wave-spawn throttling, the HUD's
