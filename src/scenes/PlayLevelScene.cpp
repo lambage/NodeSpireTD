@@ -11,6 +11,8 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <string_view>
 #include <cmath>
 #include <filesystem>
 #include <glm/geometric.hpp>
@@ -27,6 +29,14 @@ constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
 constexpr float kTowerHiddenY = -10000.0f;
 constexpr float kTowerGhostAlpha = 0.45f;
 
+// Last-resort default clip name, used only for the one-time Idle-on-load initialization when no
+// enemy archetype is registered yet to supply EnemyArchetype::idleClipName. Every other clip
+// decision (Walking, Death) is sourced per-enemy from ActiveEnemy::walkingClipName/deathClipName
+// (see EnemyLoadController.hpp), which default to "Idle"/"Walking"/"Death" -- the goblin_scout/
+// goblin1 rig convention -- but a Lua archetype can override them. Every lookup already tolerates
+// a clip name the model doesn't have (falls back to whatever TemplateAnimator auto-selected).
+constexpr const char* kEnemyClipIdle = "Idle";
+
 enum class ProjectionRejectReason {
     None = 0,
     BehindCamera = 1,
@@ -37,6 +47,24 @@ enum class ProjectionRejectReason {
 bool isProjectAssetPath(const std::filesystem::path& path) {
     const std::string normalized = path.generic_string();
     return normalized.rfind("assets/", 0) == 0;
+}
+
+int findEnemyPrototypeIndex(const WorldAssetSpec& assetSpec,
+                           const EnemyLoadController& enemyLoadController,
+                           const std::string& enemyId) {
+    const EnemyArchetype* archetype = enemyLoadController.findArchetype(enemyId);
+    if (!archetype || archetype->modelPath.empty()) {
+        return 0;
+    }
+
+    const std::filesystem::path archetypeModelPath = std::filesystem::path(archetype->modelPath).lexically_normal();
+    for (std::size_t i = 0; i < assetSpec.animatedTemplateModelPaths.size(); ++i) {
+        if (assetSpec.animatedTemplateModelPaths[i].lexically_normal() == archetypeModelPath) {
+            return static_cast<int>(i);
+        }
+    }
+
+    return 0;
 }
 
 PlayLevelScene* luaSceneSelf(lua_State* L) {
@@ -251,6 +279,7 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     placementRegions_.clear();
     towerPlacementPreviewResolver_.reset();
     lastPlacementValidationReason_.clear();
+    enemyAnimationInitialized_ = false;
     bootstrap_.configureLevel(L_, state, selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
                               worldAssetSpec_, towerLoadController_, enemyLoadController_, waveController_);
 
@@ -839,8 +868,16 @@ void PlayLevelScene::syncTowerInstanceTransforms() {
         return;
     }
 
-    std::vector<glm::mat4> transforms;
-    transforms.reserve(activeEnemies_.size());
+    // Each enemy independently overrides its own clip/time -- Walking while Alive, Death while
+    // Dying -- against ITS OWN template's animator, selected via templatePrototypeIndex (resolved
+    // once at spawn time; see findEnemyPrototypeIndex / ActiveEnemy::templatePrototypeIndex). This
+    // is what lets two different simultaneously-alive archetypes each show their own clip on their
+    // own skeleton, rather than one shared "first alive enemy wins" clip for the whole level -- see
+    // AnimatedEntityInstanceSet::Instance::animationClipIndexOverride. Looked up per-enemy (by its
+    // own archetype's clip names) rather than once for the whole list, since different archetypes
+    // can name their clips differently.
+    std::vector<AnimatedEntityInstanceSet::Instance> instances;
+    instances.reserve(activeEnemies_.size());
 
     for (const ActiveEnemy& enemy : activeEnemies_) {
         const glm::vec3 pos = sampleRoutePosition(enemy.distanceAlongPath);
@@ -849,10 +886,76 @@ void PlayLevelScene::syncTowerInstanceTransforms() {
         const glm::mat4 model = glm::translate(glm::mat4{1.0f}, pos) *
                                 glm::rotate(glm::mat4{1.0f}, yaw, glm::vec3(0.0f, 1.0f, 0.0f)) *
                                 glm::scale(glm::mat4{1.0f}, glm::vec3(enemy.renderScale));
-        transforms.push_back(model);
+
+        AnimatedEntityInstanceSet::Instance instance;
+        instance.transform = model;
+        instance.prototypeIndex = enemy.templatePrototypeIndex;
+        if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Dying) {
+            const int deathClipIndex =
+                worldRenderer_->enemyAnimationClipIndexByName(enemy.deathClipName, enemy.templatePrototypeIndex);
+            if (deathClipIndex >= 0) {
+                instance.animationClipIndexOverride = deathClipIndex;
+                instance.animationClipTimeSecondsOverride = enemy.deathElapsedSeconds;
+            }
+        } else if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Alive) {
+            const int walkClipIndex =
+                worldRenderer_->enemyAnimationClipIndexByName(enemy.walkingClipName, enemy.templatePrototypeIndex);
+            if (walkClipIndex >= 0) {
+                instance.animationClipIndexOverride = walkClipIndex;
+                instance.animationClipTimeSecondsOverride = enemy.walkAnimElapsedSeconds;
+            }
+        }
+        instances.push_back(instance);
     }
 
-    worldRenderer_->setAnimatedEntityInstanceTransforms(transforms);
+    worldRenderer_->setAnimatedEntityInstances(std::move(instances));
+}
+
+int PlayLevelScene::countAliveEnemies() const {
+    int count = 0;
+    for (const ActiveEnemy& enemy : activeEnemies_) {
+        if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Alive) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void PlayLevelScene::updateEnemyAnimationState() {
+    if (!worldRenderer_ || !worldRenderer_->hasEnemyAnimation()) {
+        return;
+    }
+
+    // One-time initialization only: seeds every registered archetype's OWN template animator with
+    // ITS OWN idle clip (data-driven -- see EnemyArchetype::idleClipName), so a differently-rigged
+    // enemy doesn't silently fall back to the generic auto-pick heuristic, and so the idle pose
+    // shown before any enemy of that archetype has spawned is correct even with multiple
+    // simultaneously-registered archetypes/templates. kEnemyClipIdle is only the last-resort
+    // default for when no archetype is registered yet.
+    //
+    // Walking/Death selection no longer lives here: syncTowerInstanceTransforms() now gives every
+    // Alive/Dying enemy instance its own per-instance clip/time override against its own
+    // template's animator (see AnimatedEntityInstanceSet::Instance::animationClipIndexOverride),
+    // so two simultaneously-alive archetypes each correctly show their own Walking clip instead of
+    // one shared "first alive enemy wins" clip for the whole level -- the old per-frame
+    // first-alive-enemy hack this function used to contain is gone, and with it the one-shared-
+    // clip limitation it documented.
+    if (enemyAnimationInitialized_) {
+        return;
+    }
+    enemyAnimationInitialized_ = true;
+
+    if (enemyLoadController_.empty()) {
+        worldRenderer_->setActiveEnemyAnimationClipByName(kEnemyClipIdle, 0);
+        return;
+    }
+
+    for (const auto& [id, archetype] : enemyLoadController_.archetypes()) {
+        const int prototypeIndex = findEnemyPrototypeIndex(worldAssetSpec_, enemyLoadController_, id);
+        // No-op (returns false) if that template has no clip by this name -- leaves whatever
+        // TemplateAnimator auto-selected on load in place, for older/simpler enemy models.
+        worldRenderer_->setActiveEnemyAnimationClipByName(archetype.idleClipName, prototypeIndex);
+    }
 }
 
 void PlayLevelScene::drawTowerPlacementOverlay() const {
@@ -1070,12 +1173,16 @@ std::string PlayLevelScene::validateStartWaveRequest() const {
 }
 
 void PlayLevelScene::updateWaveSimulation(float dt) {
+    // One-time idle-clip seeding for every registered archetype's template (see
+    // updateEnemyAnimationState) -- a no-op on every call after the first.
+    updateEnemyAnimationState();
+
     if (gameplayState_.matchStatus != MatchStatus::Running) {
         return;
     }
 
     waveController_.updateWaveSpawning(
-        gameplayState_, dt, static_cast<int>(activeEnemies_.size()), [this](const std::string& enemyId) {
+        gameplayState_, dt, countAliveEnemies(), [this](const std::string& enemyId) {
             const EnemyArchetype* archetype = enemyLoadController_.findArchetype(enemyId);
             const float health = archetype ? archetype->health : 1.0f;
             const float shield = archetype ? archetype->shield : 0.0f;
@@ -1091,20 +1198,32 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
 
             const float clampedHealth = std::max(1.0f, health);
             const float clampedShield = std::max(0.0f, shield);
-            activeEnemies_.push_back(ActiveEnemy{enemyId,
-                                                 nextEnemyRuntimeId_++,
-                                                 0.0f,
-                                                 clampedHealth,
-                                                 clampedHealth,
-                                                 clampedShield,
-                                                 clampedShield,
-                                                 std::max(0.0f, armor),
-                                                 resistances,
-                                                 std::max(0.05f, moveSpeed),
-                                                 std::max(0.0f, rewardMoney),
-                                                 std::max(1.0f, baseDamage),
-                                                 std::max(0.01f, renderScale),
-                                                 facingYawOffsetDegrees});
+            ActiveEnemy enemy{enemyId,
+                             nextEnemyRuntimeId_++,
+                             0.0f,
+                             clampedHealth,
+                             clampedHealth,
+                             clampedShield,
+                             clampedShield,
+                             std::max(0.0f, armor),
+                             resistances,
+                             std::max(0.05f, moveSpeed),
+                             std::max(0.0f, rewardMoney),
+                             std::max(1.0f, baseDamage),
+                             std::max(0.01f, renderScale),
+                             facingYawOffsetDegrees};
+            // Data-driven clip names (see EnemyArchetype::idleClipName/walkingClipName/deathClipName)
+            // -- defaults match the Idle/Walking/Death convention when an archetype doesn't specify.
+            if (archetype) {
+                enemy.idleClipName = archetype->idleClipName;
+                enemy.walkingClipName = archetype->walkingClipName;
+                enemy.deathClipName = archetype->deathClipName;
+            }
+            // Resolved once at spawn time rather than re-derived every frame: which animated
+            // template (and therefore which independent TemplateAnimator/skeleton) this enemy's
+            // own model maps to. See ActiveEnemy::templatePrototypeIndex.
+            enemy.templatePrototypeIndex = findEnemyPrototypeIndex(worldAssetSpec_, enemyLoadController_, enemyId);
+            activeEnemies_.push_back(std::move(enemy));
         });
 
     combatController_.advanceEnemies(dt, routeController_.totalLength(), activeEnemies_,
@@ -1124,7 +1243,24 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         [this]() { gameplayState_.enemiesDefeated += 1; });
     reconcileSelectedEnemyAfterSimulation();
 
-    gameplayState_.enemiesAlive = static_cast<int>(activeEnemies_.size());
+    // Enemies that just transitioned to Dying (health hit 0) keep playing their own Death clip
+    // (by name, per their archetype -- see ActiveEnemy::deathClipName) in place until it finishes,
+    // then get removed. Falls back to 0-duration (instant removal, same as the old behavior) for a
+    // model with no clip by that name.
+    combatController_.advanceDyingEnemies(
+        dt,
+        [this](const playlevel::ActiveEnemy& enemy) {
+            if (!worldRenderer_) {
+                return 0.0f;
+            }
+            const int clipIndex =
+                worldRenderer_->enemyAnimationClipIndexByName(enemy.deathClipName, enemy.templatePrototypeIndex);
+            return worldRenderer_->enemyAnimationClipDurationSeconds(clipIndex, enemy.templatePrototypeIndex);
+        },
+        activeEnemies_);
+    reconcileSelectedEnemyAfterSimulation();
+
+    gameplayState_.enemiesAlive = countAliveEnemies();
 
     if (gameplayState_.matchStatus != MatchStatus::Running) {
         gameplayState_.waveInProgress = false;
@@ -1140,16 +1276,16 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
     }
 
     if (!gameplayState_.waveInProgress && !gameplayState_.waveCountdownActive) {
+        // Use the Alive-only count here too: a Dying enemy still finishing its Death clip must not
+        // delay Victory -- it's kept in activeEnemies_ purely to render
+        // out its death animation, not because it's still meaningfully "in the fight".
+        const bool noEnemiesAlive = countAliveEnemies() == 0;
         const int waveCount = static_cast<int>(waveController_.waveCount());
         if (gameplayState_.currentWave > waveCount) {
-            if (activeEnemies_.empty()) {
+            if (noEnemiesAlive) {
                 gameplayState_.matchStatus = MatchStatus::Victory;
             }
             return;
-        }
-
-        if (activeEnemies_.empty()) {
-            requestStartWave();
         }
     }
 }

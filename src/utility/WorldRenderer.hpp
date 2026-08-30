@@ -132,32 +132,52 @@ class WorldRenderer {
     int meshCount()     const { return static_cast<int>(meshes_.size()); }
     int totalVertices() const { return totalVertices_; }
     int totalIndices()  const { return totalIndices_; }
+    // Every method below that touches "the template animation" now takes an optional
+    // templatePrototypeIndex (default 0), selecting which animated enemy template's independent
+    // TemplateAnimator to operate on -- see templateAnimators_. Index 0 preserves exact prior
+    // behavior for the single-archetype case (there is only ever one animator). Per-enemy runtime
+    // code (PlayLevelScene) should always pass the enemy's own resolved template prototype index;
+    // the default of 0 exists for callers that only ever care about "the" template, such as the
+    // developer clip-list debug panel, which previews template 0 only (a known, harmless
+    // limitation -- see report).
     bool hasTemplateAnimation() const;
-    const std::string& templateAnimationName() const;
-    int templateAnimationClipCount() const;
-    int activeTemplateAnimationClipIndex() const;
-    std::vector<std::string> templateAnimationClipNames() const;
-    bool setActiveTemplateAnimationClipByIndex(int clipIndex);
-    bool setActiveTemplateAnimationClipByName(const std::string& clipName);
-    void setCompositeTemplateAnimationMode(bool enabled);
-    bool compositeTemplateAnimationMode() const;
+    const std::string& templateAnimationName(int templatePrototypeIndex = 0) const;
+    int templateAnimationClipCount(int templatePrototypeIndex = 0) const;
+    int activeTemplateAnimationClipIndex(int templatePrototypeIndex = 0) const;
+    std::vector<std::string> templateAnimationClipNames(int templatePrototypeIndex = 0) const;
+    bool setActiveTemplateAnimationClipByIndex(int clipIndex, int templatePrototypeIndex = 0);
+    bool setActiveTemplateAnimationClipByName(const std::string& clipName, int templatePrototypeIndex = 0);
+    void setCompositeTemplateAnimationMode(bool enabled, int templatePrototypeIndex = 0);
+    bool compositeTemplateAnimationMode(int templatePrototypeIndex = 0) const;
+    // Clip lookup/duration by name/index that does NOT change the globally active clip -- used to
+    // check whether the loaded model has a given clip (e.g. "Death") and how long it runs, without
+    // disturbing what every other (non-overridden) instance is currently playing.
+    int templateAnimationClipIndexByName(const std::string& clipName, int templatePrototypeIndex = 0) const;
+    float templateAnimationClipDurationSeconds(int clipIndex, int templatePrototypeIndex = 0) const;
 
     bool hasEnemyAnimation() const { return hasTemplateAnimation(); }
-    const std::string& enemyAnimationName() const { return templateAnimationName(); }
-    int enemyAnimationClipCount() const { return templateAnimationClipCount(); }
-    int activeEnemyAnimationClipIndex() const { return activeTemplateAnimationClipIndex(); }
-    std::vector<std::string> enemyAnimationClipNames() const { return templateAnimationClipNames(); }
-    bool setActiveEnemyAnimationClipByIndex(int clipIndex) { return setActiveTemplateAnimationClipByIndex(clipIndex); }
-    bool setActiveEnemyAnimationClipByName(const std::string& clipName) { return setActiveTemplateAnimationClipByName(clipName); }
-    void setPlayAllEnemyAnimationClips(bool enabled) { setCompositeTemplateAnimationMode(enabled); }
-    bool playAllEnemyAnimationClips() const { return compositeTemplateAnimationMode(); }
+    const std::string& enemyAnimationName(int templatePrototypeIndex = 0) const { return templateAnimationName(templatePrototypeIndex); }
+    int enemyAnimationClipCount(int templatePrototypeIndex = 0) const { return templateAnimationClipCount(templatePrototypeIndex); }
+    int activeEnemyAnimationClipIndex(int templatePrototypeIndex = 0) const { return activeTemplateAnimationClipIndex(templatePrototypeIndex); }
+    std::vector<std::string> enemyAnimationClipNames(int templatePrototypeIndex = 0) const { return templateAnimationClipNames(templatePrototypeIndex); }
+    bool setActiveEnemyAnimationClipByIndex(int clipIndex, int templatePrototypeIndex = 0) { return setActiveTemplateAnimationClipByIndex(clipIndex, templatePrototypeIndex); }
+    bool setActiveEnemyAnimationClipByName(const std::string& clipName, int templatePrototypeIndex = 0) { return setActiveTemplateAnimationClipByName(clipName, templatePrototypeIndex); }
+    void setPlayAllEnemyAnimationClips(bool enabled, int templatePrototypeIndex = 0) { setCompositeTemplateAnimationMode(enabled, templatePrototypeIndex); }
+    bool playAllEnemyAnimationClips(int templatePrototypeIndex = 0) const { return compositeTemplateAnimationMode(templatePrototypeIndex); }
 
     void setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms);
+    // Full per-instance form: lets a caller attach an animation clip override (see
+    // AnimatedEntityInstanceSet::Instance) to individual enemy instances, e.g. a dying enemy
+    // playing Death independently of the rest of the (walking) pack.
+    void setAnimatedEntityInstances(std::vector<AnimatedEntityInstanceSet::Instance> instances);
     void setTowerInstanceTransforms(const std::vector<AnimatedEntityInstanceSet::Instance>& instances);
     bool setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform);
     void setHighlightedInstances(WorldEntityKind hoveredKind, int hoveredInstanceIndex,
                                  WorldEntityKind selectedKind, int selectedInstanceIndex);
     void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) { setAnimatedEntityInstanceTransforms(transforms); }
+    void setEnemyInstances(std::vector<AnimatedEntityInstanceSet::Instance> instances) { setAnimatedEntityInstances(std::move(instances)); }
+    int enemyAnimationClipIndexByName(const std::string& clipName, int templatePrototypeIndex = 0) const { return templateAnimationClipIndexByName(clipName, templatePrototypeIndex); }
+    float enemyAnimationClipDurationSeconds(int clipIndex, int templatePrototypeIndex = 0) const { return templateAnimationClipDurationSeconds(clipIndex, templatePrototypeIndex); }
     const std::vector<glm::vec3>& routePoints() const { return routePoints_; }
     bool hasAnimatedEntityTemplate() const { return !enemyTemplateMeshes_.empty(); }
     bool hasEnemyTemplate() const { return hasAnimatedEntityTemplate(); }
@@ -172,8 +192,8 @@ class WorldRenderer {
                               const glm::vec3& rayDir,
                               WorldPickHit& outHit) const;
     std::vector<WorldPickDebugSphere> buildDynamicPickDebugSpheres(const WorldPickOptions& options = {}) const;
-    const EnemyAnimationDebugInfo& templateAnimationDebugInfo() const;
-    const EnemyAnimationDebugInfo& enemyAnimationDebugInfo() const { return templateAnimationDebugInfo(); }
+    const EnemyAnimationDebugInfo& templateAnimationDebugInfo(int templatePrototypeIndex = 0) const;
+    const EnemyAnimationDebugInfo& enemyAnimationDebugInfo(int templatePrototypeIndex = 0) const { return templateAnimationDebugInfo(templatePrototypeIndex); }
     const std::vector<TowerPlacementRegion>& placementRegions() const { return placementRegions_; }
 
     void render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view);
@@ -251,16 +271,71 @@ class WorldRenderer {
     std::vector<TowerPlacementRegion> placementRegions_;
 
     static constexpr uint32_t kMaxSkinJoints = 128;
+    // The GPU reads skin palettes when the frame executes, not when it is recorded, so every draw
+    // that needs a different palette must get its own slot in this buffer and address it with a
+    // dynamic uniform offset. Slot 0 holds a permanent identity palette (unskinned draws); the
+    // remaining slots are split into one ring region per frame in flight, so palettes written
+    // while recording frame N never overwrite palettes the GPU is still reading for frame N-1.
+    static constexpr uint32_t kSkinPaletteFrameRegions = 2;
+    static constexpr uint32_t kSkinPaletteSlotsPerFrame = 128;
     VkBuffer      skinPaletteBuffer_ = VK_NULL_HANDLE;
     VmaAllocation skinPaletteAlloc_  = nullptr;
     void*         skinPaletteMapped_ = nullptr;
+    VkDeviceSize  skinPaletteSlotStride_ = 0;
+    uint32_t      skinPaletteFrameRegion_ = 0;
+    uint32_t      skinPaletteSlotCursor_ = 0;
 
-    std::unique_ptr<TemplateAnimator> templateAnimator_;
+    // One independent TemplateAnimator per animated enemy template, indexed by template
+    // prototype index (== index into WorldAssetSpec::animatedTemplateModelPaths == the
+    // templatePrototypeIndex/prototypeIndex carried on WorldMesh/AnimatedEntityInstanceSet::
+    // Instance). Populated by WorldAssetLoader::load() on the background load thread; the main
+    // thread only reads it after cpuDone_ is observed, same discipline as stagedEnemyMeshes_ etc.
+    // Replaces a single shared TemplateAnimator that used to be initialized ONLY from the first
+    // template model, silently reusing that one skeleton/bind-pose for every other archetype's
+    // meshes -- the root cause of broken animation once a second enemy type was added.
+    std::vector<std::unique_ptr<TemplateAnimator>> templateAnimators_;
     bool firstRenderTick_ = true;
     std::chrono::steady_clock::time_point lastRenderTick_{};
 
-    void uploadSkinPalette(const std::vector<glm::mat4>& joints);
-    void uploadIdentitySkinPalette();
+    // Returns the animator for templatePrototypeIndex, clamped to a valid index (defaulting to
+    // animator 0) so an out-of-range/unresolved index degrades to "the first template" rather than
+    // crashing -- mirrors the tolerant fallback findEnemyPrototypeIndex() already uses on the
+    // Lua/scene side. Returns nullptr only when no templates are loaded at all.
+    TemplateAnimator* animatorForPrototype(int templatePrototypeIndex);
+    const TemplateAnimator* animatorForPrototype(int templatePrototypeIndex) const;
+
+    // Snapshot of one animator's "globally active" clip/time/composite state, captured once per
+    // render() call before any instance overrides mutate it, so non-overridden instances (and the
+    // animator itself, once the frame's draws are done) can be restored to it. One entry per
+    // templateAnimators_ slot.
+    struct AnimatorBaseState {
+        float timeSeconds = 0.0f;
+        float durationSeconds = 0.0f;
+        int activeClipIndex = -1;
+        bool compositeMode = false;
+    };
+    std::vector<AnimatorBaseState> captureAnimatorBaseStates() const;
+    void restoreAnimatorBaseStates(const std::vector<AnimatorBaseState>& baseStates);
+
+    // Both return the dynamic uniform offset the palette was written to, which the caller must
+    // pass to vkCmdBindDescriptorSets for the draws that use it.
+    uint32_t uploadSkinPalette(const std::vector<glm::mat4>& joints);
+    uint32_t uploadIdentitySkinPalette() const;
+    // Advances to the next frame's palette ring region. Called once per render() call.
+    void beginSkinPaletteFrame();
+    // Resolves which template's animator instanceIndex belongs to (via its prototypeIndex) and
+    // points that animator at the correct clip/time before its meshes' node transforms are
+    // resolved -- an override clip/time if the instance has one, otherwise that template's
+    // globally active clip/composite-mode (baseStates[prototypeIndex]) plus that instance's phase
+    // offset (prior behavior). An override instance always samples with composite forced off (an
+    // override means "play exactly this one clip"), and that forcing must not bleed into any other
+    // instance's sampling this frame -- the non-override branch restores the base composite mode
+    // itself, since setActiveAnimationClipByIndex() unconditionally clears composite mode as a
+    // side effect. Returns the animator instanceIndex was sampled against (nullptr if none), which
+    // the caller must keep using for resolveNodeTransform()/skinJointMatricesForSkin() until the
+    // next instance change.
+    TemplateAnimator* sampleEnemyInstanceAnimation(int instanceIndex, const std::vector<AnimatorBaseState>& baseStates);
+    void resizeAnimatedEntityPhaseOffsetsIfNeeded(std::size_t instanceCount);
     // ─────────────────────────────────────────────────────────────────────
 
     void setActivity(float progress, std::string activity);

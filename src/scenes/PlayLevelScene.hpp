@@ -76,6 +76,10 @@ class PlayLevelScene final : public GameScene {
     PlayLevelPickingController pickingController_{};
     TowerPlacementPreviewResolver towerPlacementPreviewResolver_{};
     std::uint64_t selectedEnemyRuntimeId_ = 0;
+    // One-shot: the first time the enemy template's animation data is available, put the shared
+    // clip on Idle (if the model has one) before any enemy has spawned. Guarded so it fires once
+    // per level entry rather than fighting the debug "Clip List" panel's manual clip selection.
+    bool enemyAnimationInitialized_ = false;
     std::vector<TowerPreviewPanel> towerPreviewPanels_;
     float towerPreviewSpinRadians_ = 0.0f;
 
@@ -137,6 +141,16 @@ class PlayLevelScene final : public GameScene {
     std::string validateStartWaveRequest() const;
     void applyPendingGameplayCommands();
     void updateWaveSimulation(float dt);
+    // One-time initialization: seeds every registered enemy archetype's own template animator
+    // with its own Idle clip (only if that model has a clip by that name -- a no-op fallback
+    // otherwise). Per-instance Walking and Death playback are both handled per-enemy, in
+    // syncTowerInstanceTransforms(), since they must differ per enemy (and per archetype/template).
+    void updateEnemyAnimationState();
+    // Number of activeEnemies_ entries that are still Alive (i.e. excludes Dying/Dead corpses kept
+    // around only so their Death clip can finish rendering). Wave-spawn throttling, the HUD's
+    // enemiesAlive count, and next-wave/Victory gating must all use this -- not activeEnemies_.size()
+    // or .empty() -- so a lingering corpse doesn't delay wave pacing or Victory.
+    int countAliveEnemies() const;
     void reconcileSelectedEnemyAfterSimulation();
     void registerLuaGameplayApi();
 

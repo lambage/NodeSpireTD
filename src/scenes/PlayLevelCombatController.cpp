@@ -93,7 +93,20 @@ void PlayLevelCombatController::advanceEnemies(float dt,
     std::size_t writeIndex = 0;
     for (std::size_t i = 0; i < activeEnemies.size(); ++i) {
         playlevel::ActiveEnemy enemy = activeEnemies[i];
+
+        if (enemy.lifecycleState != playlevel::EnemyLifecycleState::Alive) {
+            // Already dying/dead: no path movement, no base damage -- it's just playing out its
+            // death animation in place. advanceDyingEnemies() (not this function) decides when it
+            // is actually removed.
+            activeEnemies[writeIndex++] = std::move(enemy);
+            continue;
+        }
+
         enemy.distanceAlongPath += std::max(0.05f, enemy.moveSpeed) * dt;
+        // Drives this enemy's own per-instance Walking clip playback time (see
+        // PlayLevelScene::syncTowerInstanceTransforms) -- only accumulated while actually Alive,
+        // matching this branch's "still walking" scope.
+        enemy.walkAnimElapsedSeconds += dt;
 
         if (enemy.distanceAlongPath >= routeTotalLength) {
             onEnemyReachedBase(std::max(1.0f, enemy.baseDamage));
@@ -124,6 +137,9 @@ void PlayLevelCombatController::updateTowerAttacks(
 
         for (int i = 0; i < static_cast<int>(activeEnemies.size()); ++i) {
             const playlevel::ActiveEnemy& enemy = activeEnemies[static_cast<std::size_t>(i)];
+            if (enemy.lifecycleState != playlevel::EnemyLifecycleState::Alive) {
+                continue;
+            }
             const glm::vec3 enemyPos = sampleRoutePosition(enemy.distanceAlongPath);
             const glm::vec3 delta = enemyPos - tower.position;
             const float distSq = glm::dot(delta, delta);
@@ -402,15 +418,41 @@ void PlayLevelCombatController::updateProjectiles(float dt,
 void PlayLevelCombatController::collectDefeatedEnemies(std::vector<playlevel::ActiveEnemy>& activeEnemies,
                                                        const std::function<void(float)>& onRewardGranted,
                                                        const std::function<void()>& onEnemyDefeated) const {
-    std::size_t enemyWriteIndex = 0;
-    for (std::size_t i = 0; i < activeEnemies.size(); ++i) {
-        playlevel::ActiveEnemy enemy = activeEnemies[i];
-        if (enemy.health <= 0.0f) {
+    // Health hitting zero no longer removes the enemy on the spot: it flips Alive -> Dying (once)
+    // so its Death clip can play out. advanceDyingEnemies() removes it once that clip finishes.
+    for (playlevel::ActiveEnemy& enemy : activeEnemies) {
+        if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Alive && enemy.health <= 0.0f) {
+            enemy.lifecycleState = playlevel::EnemyLifecycleState::Dying;
+            enemy.deathElapsedSeconds = 0.0f;
             onRewardGranted(std::max(0.0f, enemy.rewardMoney));
             onEnemyDefeated();
+        }
+    }
+}
+
+void PlayLevelCombatController::advanceDyingEnemies(
+    float dt, const std::function<float(const playlevel::ActiveEnemy&)>& lookupDeathClipDurationSeconds,
+    std::vector<playlevel::ActiveEnemy>& activeEnemies) const {
+    std::size_t writeIndex = 0;
+    for (std::size_t i = 0; i < activeEnemies.size(); ++i) {
+        playlevel::ActiveEnemy enemy = activeEnemies[i];
+        if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Dying) {
+            enemy.deathElapsedSeconds += dt;
+            // Looked up per-enemy (by its own archetype's deathClipName AND its own
+            // templatePrototypeIndex/animator) rather than once for the whole frame -- different
+            // archetypes can name/author Death clips of different lengths on different models.
+            const float requiredSeconds =
+                std::max(0.0f, lookupDeathClipDurationSeconds(enemy));
+            if (enemy.deathElapsedSeconds >= requiredSeconds) {
+                enemy.lifecycleState = playlevel::EnemyLifecycleState::Dead;
+            }
+        }
+
+        if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Dead) {
             continue;
         }
-        activeEnemies[enemyWriteIndex++] = std::move(enemy);
+
+        activeEnemies[writeIndex++] = std::move(enemy);
     }
-    activeEnemies.resize(enemyWriteIndex);
+    activeEnemies.resize(writeIndex);
 }

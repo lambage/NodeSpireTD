@@ -4,8 +4,53 @@
 #include "utility/WorldRenderer.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <optional>
 #include <spdlog/spdlog.h>
+
+namespace {
+
+void preloadEnemyArchetypes(EnemyLoadController& enemyLoadController) {
+    const std::filesystem::path enemyRoot = "assets/models/enemy";
+    const std::filesystem::path defaultScript = enemyRoot / "goblin1.enemy.lua";
+
+    if (enemyLoadController.empty() && !enemyLoadController.loadEnemyArchetype(defaultScript.string())) {
+        spdlog::warn("PlayLevelScene: using built-in enemy defaults because no archetype could be loaded.");
+        enemyLoadController.registerArchetype(EnemyArchetype{});
+    }
+
+    if (!std::filesystem::exists(enemyRoot)) {
+        return;
+    }
+
+    std::vector<std::filesystem::path> discoveredScripts;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(enemyRoot)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const std::filesystem::path scriptPath = entry.path();
+        if (scriptPath.extension() != ".lua") {
+            continue;
+        }
+        const std::string stem = scriptPath.stem().string();
+        if (!stem.ends_with(".enemy")) {
+            continue;
+        }
+        if (scriptPath.lexically_normal() == defaultScript.lexically_normal()) {
+            continue;
+        }
+        discoveredScripts.push_back(scriptPath);
+    }
+
+    std::sort(discoveredScripts.begin(), discoveredScripts.end());
+    for (const std::filesystem::path& scriptPath : discoveredScripts) {
+        if (!enemyLoadController.loadEnemyArchetype(scriptPath.string())) {
+            spdlog::warn("PlayLevelScene: failed to preload enemy archetype {}.", scriptPath.string());
+        }
+    }
+}
+
+} // namespace
 
 void PlayLevelBootstrap::resetRuntimeState(
     PlayLevelState& gameplayState, TowerLoadController& towerLoadController, EnemyLoadController& enemyLoadController,
@@ -62,11 +107,7 @@ void PlayLevelBootstrap::configureLevel(lua_State* luaState, SceneSharedState& s
         publishLevelUiTextures(luaState, worldAssetSpec);
     }
 
-    if (enemyLoadController.empty() &&
-        !enemyLoadController.loadEnemyArchetype("assets/models/enemy/goblin1.enemy.lua")) {
-        spdlog::warn("PlayLevelScene: using built-in enemy defaults because no archetype could be loaded.");
-        enemyLoadController.registerArchetype(EnemyArchetype{});
-    }
+    preloadEnemyArchetypes(enemyLoadController);
 
     if (!waveController.hasDefinitions() && !selectedWavesScriptPath.empty() &&
         !waveController.loadWaveDefinitions(

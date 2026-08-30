@@ -8,5 +8,5 @@
 class EnemySpawnFactory {
   public:
     static playlevel::ActiveEnemy create(const std::string& enemyId, const EnemyArchetype* archetype,
-                                         std::uint64_t runtimeId);
+                                         std::uint64_t runtimeId, int templatePrototypeIndex);
 };

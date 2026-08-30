@@ -101,17 +101,32 @@ bool TemplateAnimator::setActiveAnimationClipByIndex(int clipIndex) {
 }
 
 bool TemplateAnimator::setActiveAnimationClipByName(const std::string& clipName) {
-    if (clipName.empty()) {
+    const int clipIndex = findAnimationClipIndexByName(clipName);
+    if (clipIndex < 0) {
         return false;
+    }
+    return setActiveAnimationClipByIndex(clipIndex);
+}
+
+int TemplateAnimator::findAnimationClipIndexByName(const std::string& clipName) const {
+    if (clipName.empty()) {
+        return -1;
     }
 
     const std::string needle = normalizeName(clipName);
     for (std::size_t i = 0; i < animationClips_.size(); ++i) {
         if (normalizeName(animationClips_[i].name) == needle) {
-            return setActiveAnimationClipByIndex(static_cast<int>(i));
+            return static_cast<int>(i);
         }
     }
-    return false;
+    return -1;
+}
+
+float TemplateAnimator::animationClipDurationSeconds(int clipIndex) const {
+    if (clipIndex < 0 || static_cast<std::size_t>(clipIndex) >= animationClips_.size()) {
+        return 0.0f;
+    }
+    return animationClips_[clipIndex].durationSeconds;
 }
 
 float TemplateAnimator::timelineDurationSeconds() const {

@@ -125,6 +125,12 @@ bool EnemyLoadController::parseEnemyArchetypeScript(const std::string& scriptPat
             outArchetype.facingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
         }
         lua_pop(L_, 1);
+
+        // Optional per-archetype animation clip name overrides (default: Idle/Walking/Death, the
+        // goblin_scout/goblin1 rig convention). Left at their defaults if unspecified.
+        readStringField("idleClipName", outArchetype.idleClipName);
+        readStringField("walkingClipName", outArchetype.walkingClipName);
+        readStringField("deathClipName", outArchetype.deathClipName);
     }
     lua_pop(L_, 1);
 
