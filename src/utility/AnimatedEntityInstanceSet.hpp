@@ -14,6 +14,14 @@ class AnimatedEntityInstanceSet {
     float alpha = 1.0f;
     std::string debugGroup;
     std::string debugLabel;
+
+    // Per-instance animation clip override, used so one instance (e.g. a dying enemy playing its
+    // Death clip once) can render a different clip/time than the shared template-wide active clip
+    // every other instance of the same prototype is sampling. -1 means "no override": the instance
+    // follows the template's globally active clip (and its usual phase-offset desync), unchanged
+    // from prior behavior.
+    int animationClipIndexOverride = -1;
+    float animationClipTimeSecondsOverride = 0.0f;
   };
 
   void setTransforms(const std::vector<glm::mat4>& transforms) {

@@ -12,21 +12,28 @@ playlevel::ActiveEnemy EnemySpawnFactory::create(const std::string& enemyId, con
     const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
     const auto resistances =
         archetype ? archetype->resistances : std::unordered_map<playlevel::DamageType, float, playlevel::DamageTypeHash>{};
+    const std::string idleClipName = archetype ? archetype->idleClipName : std::string("Idle");
+    const std::string walkingClipName = archetype ? archetype->walkingClipName : std::string("Walking");
+    const std::string deathClipName = archetype ? archetype->deathClipName : std::string("Death");
 
     const float clampedHealth = std::max(1.0f, health);
     const float clampedShield = std::max(0.0f, shield);
-    return playlevel::ActiveEnemy{enemyId,
-                                  runtimeId,
-                                  0.0f,
-                                  clampedHealth,
-                                  clampedHealth,
-                                  clampedShield,
-                                  clampedShield,
-                                  std::max(0.0f, armor),
-                                  resistances,
-                                  std::max(0.05f, moveSpeed),
-                                  std::max(0.0f, rewardMoney),
-                                  std::max(1.0f, baseDamage),
-                                  std::max(0.01f, renderScale),
-                                  facingYawOffsetDegrees};
+    playlevel::ActiveEnemy enemy{enemyId,
+                                 runtimeId,
+                                 0.0f,
+                                 clampedHealth,
+                                 clampedHealth,
+                                 clampedShield,
+                                 clampedShield,
+                                 std::max(0.0f, armor),
+                                 resistances,
+                                 std::max(0.05f, moveSpeed),
+                                 std::max(0.0f, rewardMoney),
+                                 std::max(1.0f, baseDamage),
+                                 std::max(0.01f, renderScale),
+                                 facingYawOffsetDegrees};
+    enemy.idleClipName = idleClipName;
+    enemy.walkingClipName = walkingClipName;
+    enemy.deathClipName = deathClipName;
+    return enemy;
 }

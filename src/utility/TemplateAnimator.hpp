@@ -28,6 +28,11 @@ class TemplateAnimator {
 
     bool setActiveAnimationClipByIndex(int clipIndex);
     bool setActiveAnimationClipByName(const std::string& clipName);
+    // Looks up a clip by name (case-insensitive) without mutating playback state. Returns -1 if
+    // no clip with that name exists. Lets callers check "does this model have a Death clip?" /
+    // read its duration without forcing it to become the active clip first.
+    int findAnimationClipIndexByName(const std::string& clipName) const;
+    float animationClipDurationSeconds(int clipIndex) const;
 
     void setCompositeMode(bool enabled) { playAllAnimationClips_ = enabled; }
     bool compositeMode() const { return playAllAnimationClips_; }

@@ -8,6 +8,7 @@ function M.onLoad()
     Wave.Reset()
 
     local goblin1 = Entity.Load("assets/models/enemy/goblin1.enemy.lua")
+    local goblinScout = Entity.Load("assets/models/enemy/goblin_scout.enemy.lua")
 
     -- Example future extension:
     -- local goblin2 = Entity.Load("assets/models/enemy/goblin2.enemy.lua")
@@ -21,16 +22,26 @@ function M.onLoad()
     }, 35)
 
     Wave.Register({
-        { entity = goblin1, count = 12, spawnIntervalSeconds = 0.72 },
+        { entity = goblinScout, count = 4, spawnIntervalSeconds = 0.55 },
+        { entity = goblin1, count = 8, spawnIntervalSeconds = 0.72 },
         -- { entity = goblin2, count = 10, spawnIntervalSeconds = 1.0 },
     }, 40)
 
     Wave.Register({
+        { entity = goblinScout, count = 10, spawnIntervalSeconds = 0.55 },
         { entity = goblin1, count = 20, spawnIntervalSeconds = 0.72 },
+        { entity = goblinScout, count = 10, spawnIntervalSeconds = 0.55 },
     }, 40)
 
     Wave.Register({
-        { entity = goblin1, count = 40, spawnIntervalSeconds = 0.5 },
+        { entity = goblinScout, count = 10, spawnIntervalSeconds = 0.35 },
+        { entity = goblin1, count = 10, spawnIntervalSeconds = 0.5 },
+        { entity = goblinScout, count = 10, spawnIntervalSeconds = 0.35 },
+        { entity = goblin1, count = 10, spawnIntervalSeconds = 0.5 },
+        { entity = goblinScout, count = 10, spawnIntervalSeconds = 0.35 },
+        { entity = goblin1, count = 10, spawnIntervalSeconds = 0.5 },
+        { entity = goblinScout, count = 10, spawnIntervalSeconds = 0.35 },
+        { entity = goblin1, count = 10, spawnIntervalSeconds = 0.5 },
     }, 40)
     
 

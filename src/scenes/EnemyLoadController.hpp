@@ -23,6 +23,14 @@ struct EnemyArchetype {
     float baseDamage = 5.0f;
     float renderScale = 1.0f;
     float facingYawOffsetDegrees = 0.0f;
+    // Names of this archetype's glTF animation clips, matched case-insensitively by
+    // TemplateAnimator. Defaults match the convention used by goblin_scout/goblin1's rig; a
+    // Lua-authored archetype can override any of these (e.g. render.idleClipName = "Stand") for a
+    // differently-named rig. A clip name the model doesn't actually have is a harmless no-op
+    // (TemplateAnimator/WorldRenderer's clip lookups already fall back gracefully).
+    std::string idleClipName = "Idle";
+    std::string walkingClipName = "Walking";
+    std::string deathClipName = "Death";
 };
 
 // Owns discovery/parsing/storage of enemy archetypes loaded from Lua scripts, plus the notion of

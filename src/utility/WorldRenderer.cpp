@@ -397,9 +397,18 @@ std::string WorldRenderer::loadActivity() const {
 
 void WorldRenderer::setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms) {
     animatedEntityInstances_.setTransforms(transforms);
+    resizeAnimatedEntityPhaseOffsetsIfNeeded(transforms.size());
+}
 
-    if (animatedEntityPhaseOffsetsSeconds_.size() != transforms.size()) {
-        animatedEntityPhaseOffsetsSeconds_.resize(transforms.size(), 0.0f);
+void WorldRenderer::setAnimatedEntityInstances(std::vector<AnimatedEntityInstanceSet::Instance> instances) {
+    const std::size_t instanceCount = instances.size();
+    animatedEntityInstances_.setInstances(std::move(instances));
+    resizeAnimatedEntityPhaseOffsetsIfNeeded(instanceCount);
+}
+
+void WorldRenderer::resizeAnimatedEntityPhaseOffsetsIfNeeded(std::size_t instanceCount) {
+    if (animatedEntityPhaseOffsetsSeconds_.size() != instanceCount) {
+        animatedEntityPhaseOffsetsSeconds_.resize(instanceCount, 0.0f);
         const float timelineDuration = std::max(0.0f, templateAnimator_->timelineDurationSeconds());
         if (timelineDuration > 1e-5f) {
             for (std::size_t i = 0; i < animatedEntityPhaseOffsetsSeconds_.size(); ++i) {
@@ -473,6 +482,14 @@ bool WorldRenderer::compositeTemplateAnimationMode() const {
 
 const EnemyAnimationDebugInfo& WorldRenderer::templateAnimationDebugInfo() const {
     return templateAnimator_->debugInfo();
+}
+
+int WorldRenderer::templateAnimationClipIndexByName(const std::string& clipName) const {
+    return templateAnimator_->findAnimationClipIndexByName(clipName);
+}
+
+float WorldRenderer::templateAnimationClipDurationSeconds(int clipIndex) const {
+    return templateAnimator_->animationClipDurationSeconds(clipIndex);
 }
 
 void WorldRenderer::uploadSkinPalette(const std::vector<glm::mat4>& joints) {
@@ -1082,6 +1099,48 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
     return spheres;
 }
 
+void WorldRenderer::sampleEnemyInstanceAnimation(int instanceIndex, float baseAnimationTime,
+                                                 float animationDuration, int baseActiveClipIndex,
+                                                 bool baseCompositeMode) {
+    const AnimatedEntityInstanceSet::Instance* inst =
+        (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex)) : nullptr;
+    const int overrideClip = inst ? inst->animationClipIndexOverride : -1;
+
+    if (overrideClip >= 0 && overrideClip < templateAnimator_->animationClipCount()) {
+        // An override means "play exactly this one clip for this one instance" -- force composite
+        // off for this sample regardless of the template's real composite flag. Guarded (not
+        // unconditional) only to avoid a redundant write; setActiveAnimationClipByIndex() below
+        // would also clear it, but only when the clip index actually changes, so this call is
+        // still required when consecutive dying instances share the same override clip index.
+        if (templateAnimator_->compositeMode()) {
+            templateAnimator_->setCompositeMode(false);
+        }
+        if (templateAnimator_->activeAnimationClipIndex() != overrideClip) {
+            templateAnimator_->setActiveAnimationClipByIndex(overrideClip);
+        }
+        templateAnimator_->setPlaybackTimeSeconds(inst->animationClipTimeSecondsOverride);
+    } else {
+        // Not overridden: restore the template's real clip/composite state, in case an earlier
+        // instance this frame was an override that changed either (setActiveAnimationClipByIndex()
+        // always clears composite mode as a side effect, so the composite restore must happen
+        // after -- and independently of -- the clip-index restore, since the index may already
+        // match while composite is still wrong).
+        if (templateAnimator_->activeAnimationClipIndex() != baseActiveClipIndex) {
+            templateAnimator_->setActiveAnimationClipByIndex(baseActiveClipIndex);
+        }
+        if (templateAnimator_->compositeMode() != baseCompositeMode) {
+            templateAnimator_->setCompositeMode(baseCompositeMode);
+        }
+        float sampleTime = baseAnimationTime;
+        if (animationDuration > 1e-5f && instanceIndex >= 0 &&
+            static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
+            sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
+        }
+        templateAnimator_->setPlaybackTimeSeconds(sampleTime);
+    }
+    templateAnimator_->update(0.0f);
+}
+
 void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view) {
     if (!loaded_ || pipeline_ == VK_NULL_HANDLE) return;
 
@@ -1144,25 +1203,20 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
 
     const float baseAnimationTime = templateAnimator_->currentTimeSeconds();
     const float animationDuration = templateAnimator_->timelineDurationSeconds();
+    const int baseActiveClipIndex = templateAnimator_->activeAnimationClipIndex();
+    const bool baseCompositeMode = templateAnimator_->compositeMode();
 
     int currentInstanceIndex = -1;
     int activeSkinIndex = -2;
     animatedEntityInstances_.forEachMeshWorldTransform(
         enemyTemplateMeshes_,
-        [this, &currentInstanceIndex, &activeSkinIndex, baseAnimationTime, animationDuration](int instanceIndex,
-                                                                                               int nodeIndex,
-                                                                                               const glm::mat4& fallback) {
+        [this, &currentInstanceIndex, &activeSkinIndex, baseAnimationTime, animationDuration,
+         baseActiveClipIndex, baseCompositeMode](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
             if (instanceIndex != currentInstanceIndex) {
                 currentInstanceIndex = instanceIndex;
                 activeSkinIndex = -2;
-
-                float sampleTime = baseAnimationTime;
-                if (animationDuration > 1e-5f && instanceIndex >= 0 &&
-                    static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
-                    sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
-                }
-                templateAnimator_->setPlaybackTimeSeconds(sampleTime);
-                templateAnimator_->update(0.0f);
+                sampleEnemyInstanceAnimation(instanceIndex, baseAnimationTime, animationDuration, baseActiveClipIndex,
+                                             baseCompositeMode);
             }
             return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
         },
@@ -1260,21 +1314,16 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
                 animatedEntityInstances_.forEachMeshWorldTransform(
                     enemyTemplateMeshes_,
                     [this, &highlightCurrentInstance, &highlightActiveSkin, baseAnimationTime, animationDuration,
-                     targetInstanceIndex](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+                     baseActiveClipIndex, baseCompositeMode, targetInstanceIndex](int instanceIndex, int nodeIndex,
+                                                               const glm::mat4& fallback) {
                         if (instanceIndex != targetInstanceIndex) {
                             return glm::mat4(0.0f);
                         }
                         if (instanceIndex != highlightCurrentInstance) {
                             highlightCurrentInstance = instanceIndex;
                             highlightActiveSkin = -2;
-
-                            float sampleTime = baseAnimationTime;
-                            if (animationDuration > 1e-5f && instanceIndex >= 0 &&
-                                static_cast<std::size_t>(instanceIndex) < animatedEntityPhaseOffsetsSeconds_.size()) {
-                                sampleTime += animatedEntityPhaseOffsetsSeconds_[instanceIndex];
-                            }
-                            templateAnimator_->setPlaybackTimeSeconds(sampleTime);
-                            templateAnimator_->update(0.0f);
+                            sampleEnemyInstanceAnimation(instanceIndex, baseAnimationTime, animationDuration,
+                                                         baseActiveClipIndex, baseCompositeMode);
                         }
                         return templateAnimator_->resolveNodeTransform(nodeIndex, fallback);
                     },
@@ -1326,6 +1375,12 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         }
     }
 
+    if (templateAnimator_->activeAnimationClipIndex() != baseActiveClipIndex) {
+        templateAnimator_->setActiveAnimationClipByIndex(baseActiveClipIndex);
+    }
+    if (templateAnimator_->compositeMode() != baseCompositeMode) {
+        templateAnimator_->setCompositeMode(baseCompositeMode);
+    }
     templateAnimator_->setPlaybackTimeSeconds(baseAnimationTime);
     templateAnimator_->update(0.0f);
 }

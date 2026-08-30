@@ -141,6 +141,11 @@ class WorldRenderer {
     bool setActiveTemplateAnimationClipByName(const std::string& clipName);
     void setCompositeTemplateAnimationMode(bool enabled);
     bool compositeTemplateAnimationMode() const;
+    // Clip lookup/duration by name/index that does NOT change the globally active clip -- used to
+    // check whether the loaded model has a given clip (e.g. "Death") and how long it runs, without
+    // disturbing what every other (non-overridden) instance is currently playing.
+    int templateAnimationClipIndexByName(const std::string& clipName) const;
+    float templateAnimationClipDurationSeconds(int clipIndex) const;
 
     bool hasEnemyAnimation() const { return hasTemplateAnimation(); }
     const std::string& enemyAnimationName() const { return templateAnimationName(); }
@@ -153,11 +158,18 @@ class WorldRenderer {
     bool playAllEnemyAnimationClips() const { return compositeTemplateAnimationMode(); }
 
     void setAnimatedEntityInstanceTransforms(const std::vector<glm::mat4>& transforms);
+    // Full per-instance form: lets a caller attach an animation clip override (see
+    // AnimatedEntityInstanceSet::Instance) to individual enemy instances, e.g. a dying enemy
+    // playing Death independently of the rest of the (walking) pack.
+    void setAnimatedEntityInstances(std::vector<AnimatedEntityInstanceSet::Instance> instances);
     void setTowerInstanceTransforms(const std::vector<AnimatedEntityInstanceSet::Instance>& instances);
     bool setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform);
     void setHighlightedInstances(WorldEntityKind hoveredKind, int hoveredInstanceIndex,
                                  WorldEntityKind selectedKind, int selectedInstanceIndex);
     void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) { setAnimatedEntityInstanceTransforms(transforms); }
+    void setEnemyInstances(std::vector<AnimatedEntityInstanceSet::Instance> instances) { setAnimatedEntityInstances(std::move(instances)); }
+    int enemyAnimationClipIndexByName(const std::string& clipName) const { return templateAnimationClipIndexByName(clipName); }
+    float enemyAnimationClipDurationSeconds(int clipIndex) const { return templateAnimationClipDurationSeconds(clipIndex); }
     const std::vector<glm::vec3>& routePoints() const { return routePoints_; }
     bool hasAnimatedEntityTemplate() const { return !enemyTemplateMeshes_.empty(); }
     bool hasEnemyTemplate() const { return hasAnimatedEntityTemplate(); }
@@ -261,6 +273,17 @@ class WorldRenderer {
 
     void uploadSkinPalette(const std::vector<glm::mat4>& joints);
     void uploadIdentitySkinPalette();
+    // Points templateAnimator_ at the correct clip/time for one enemy instance before its meshes'
+    // node transforms are resolved -- an override clip/time if the instance has one, otherwise the
+    // template's globally active clip/composite-mode plus that instance's phase offset (prior
+    // behavior). baseCompositeMode is the template's real composite-mode flag for this render();
+    // an override instance always samples with composite forced off (an override means "play
+    // exactly this one clip"), and that forcing must not bleed into any other instance's sampling
+    // this frame -- the non-override branch restores baseCompositeMode itself, since
+    // setActiveAnimationClipByIndex() unconditionally clears composite mode as a side effect.
+    void sampleEnemyInstanceAnimation(int instanceIndex, float baseAnimationTime, float animationDuration,
+                                      int baseActiveClipIndex, bool baseCompositeMode);
+    void resizeAnimatedEntityPhaseOffsetsIfNeeded(std::size_t instanceCount);
     // ─────────────────────────────────────────────────────────────────────
 
     void setActivity(float progress, std::string activity);
