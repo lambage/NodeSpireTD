@@ -1,21 +1,24 @@
 #include "utility/WorldRenderer.hpp"
-#include "utility/WorldAssetLoader.hpp"
+
 #include "utility/TemplateAnimator.hpp"
+#include "utility/WorldAssetLoader.hpp"
+
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
+#include <array>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <chrono>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <mutex>
 #include <limits>
+#include <mutex>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
-#include <cstring>
+
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,8 +48,8 @@ VkBuffer createStagingBuffer(VmaAllocator allocator, VkDeviceSize size, VmaAlloc
     return buffer;
 }
 
-void copyBufferImmediate(VkDevice device, VkQueue queue, VkCommandPool pool,
-                         VkBuffer src, VkBuffer dst, VkDeviceSize size) {
+void copyBufferImmediate(VkDevice device, VkQueue queue, VkCommandPool pool, VkBuffer src, VkBuffer dst,
+                         VkDeviceSize size) {
     VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool = pool;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -81,32 +84,29 @@ float maxScaleFromMatrix(const glm::mat4& m) {
 
 // Single place that maps an entity kind to its pick-radius tuning. Every instanced kind
 // still goes through identical picking/highlight logic -- only these tuning knobs vary.
-void pickRadiusParamsForKind(const WorldPickOptions& options, WorldEntityKind kind,
-                            float& outScale, float& outPadding, float& outMinRadius) {
+void pickRadiusParamsForKind(const WorldPickOptions& options, WorldEntityKind kind, float& outScale, float& outPadding,
+                             float& outMinRadius) {
     switch (kind) {
-        case WorldEntityKind::Tower:
-            outScale = options.towerRadiusScale;
-            outPadding = options.towerRadiusPadding;
-            outMinRadius = options.towerMinRadius;
-            break;
-        case WorldEntityKind::Enemy:
-            outScale = options.instancedRadiusScale;
-            outPadding = options.instancedRadiusPadding;
-            outMinRadius = options.instancedMinRadius;
-            break;
-        case WorldEntityKind::None:
-        default:
-            outScale = options.staticRadiusScale;
-            outPadding = options.staticRadiusPadding;
-            outMinRadius = options.staticMinRadius;
-            break;
+    case WorldEntityKind::Tower:
+        outScale = options.towerRadiusScale;
+        outPadding = options.towerRadiusPadding;
+        outMinRadius = options.towerMinRadius;
+        break;
+    case WorldEntityKind::Enemy:
+        outScale = options.instancedRadiusScale;
+        outPadding = options.instancedRadiusPadding;
+        outMinRadius = options.instancedMinRadius;
+        break;
+    case WorldEntityKind::None:
+    default:
+        outScale = options.staticRadiusScale;
+        outPadding = options.staticRadiusPadding;
+        outMinRadius = options.staticMinRadius;
+        break;
     }
 }
 
-bool raySphereIntersect(const glm::vec3& rayOrigin,
-                        const glm::vec3& rayDir,
-                        const glm::vec3& center,
-                        float radius,
+bool raySphereIntersect(const glm::vec3& rayOrigin, const glm::vec3& rayDir, const glm::vec3& center, float radius,
                         float& outT) {
     const glm::vec3 oc = rayOrigin - center;
     const float a = glm::dot(rayDir, rayDir);
@@ -141,45 +141,46 @@ bool raySphereIntersect(const glm::vec3& rayOrigin,
 void WorldRenderer::createSamplerLayoutAndPool() {
     // Sampler
     VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    si.magFilter        = VK_FILTER_LINEAR;
-    si.minFilter        = VK_FILTER_LINEAR;
-    si.mipmapMode       = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    si.addressModeU     = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    si.addressModeV     = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    si.addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    si.maxLod           = VK_LOD_CLAMP_NONE;
-    if (vkCreateSampler(ctx_.device(), &si, nullptr, &sampler_) != VK_SUCCESS)
+    si.magFilter = VK_FILTER_LINEAR;
+    si.minFilter = VK_FILTER_LINEAR;
+    si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.maxLod = VK_LOD_CLAMP_NONE;
+    if (vkCreateSampler(ctx_.device(), &si, nullptr, &sampler_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create texture sampler.");
+    }
 
     // Descriptor set layout: binding 0 = base color sampler, binding 1 = skin matrices
     VkDescriptorSetLayoutBinding bindings[2]{};
-    bindings[0].binding            = 0;
-    bindings[0].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[0].descriptorCount    = 1;
-    bindings[0].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    bindings[1].binding            = 1;
-    bindings[1].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    bindings[1].descriptorCount    = 1;
-    bindings[1].stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
     VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     li.bindingCount = 2;
-    li.pBindings    = bindings;
-    if (vkCreateDescriptorSetLayout(ctx_.device(), &li, nullptr, &textureDescLayout_) != VK_SUCCESS)
+    li.pBindings = bindings;
+    if (vkCreateDescriptorSetLayout(ctx_.device(), &li, nullptr, &textureDescLayout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create texture descriptor set layout.");
+    }
 
     // Private descriptor pool (freed wholesale in release())
-    VkDescriptorPoolSize poolSizes[2] = {
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512},
-        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 512}
-    };
+    VkDescriptorPoolSize poolSizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512},
+                                         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 512}};
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pi.maxSets       = 513;
+    pi.maxSets = 513;
     pi.poolSizeCount = 2;
-    pi.pPoolSizes    = poolSizes;
-    if (vkCreateDescriptorPool(ctx_.device(), &pi, nullptr, &ownDescPool_) != VK_SUCCESS)
+    pi.pPoolSizes = poolSizes;
+    if (vkCreateDescriptorPool(ctx_.device(), &pi, nullptr, &ownDescPool_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create texture descriptor pool.");
+    }
 
     VkPhysicalDeviceProperties deviceProps{};
     vkGetPhysicalDeviceProperties(ctx_.physicalDevice(), &deviceProps);
@@ -196,12 +197,11 @@ void WorldRenderer::createSamplerLayoutAndPool() {
 
     VmaAllocationCreateInfo skinAllocInfo{};
     skinAllocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-    skinAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                          VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    skinAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
     VmaAllocationInfo allocInfo{};
-    if (vmaCreateBuffer(ctx_.allocator(), &skinBufInfo, &skinAllocInfo,
-                        &skinPaletteBuffer_, &skinPaletteAlloc_, &allocInfo) != VK_SUCCESS) {
+    if (vmaCreateBuffer(ctx_.allocator(), &skinBufInfo, &skinAllocInfo, &skinPaletteBuffer_, &skinPaletteAlloc_,
+                        &allocInfo) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create skin palette uniform buffer.");
     }
     skinPaletteMapped_ = allocInfo.pMappedData;
@@ -213,7 +213,9 @@ void WorldRenderer::createSamplerLayoutAndPool() {
 }
 
 WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, uint32_t h) {
-    if (!pixels || w == 0 || h == 0) return {};
+    if (!pixels || w == 0 || h == 0) {
+        return {};
+    }
 
     const VkDeviceSize byteSize = static_cast<VkDeviceSize>(w) * h * 4;
 
@@ -225,15 +227,15 @@ WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, u
 
     // Device-local image
     VkImageCreateInfo imgCI{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    imgCI.imageType     = VK_IMAGE_TYPE_2D;
-    imgCI.format        = VK_FORMAT_R8G8B8A8_UNORM;
-    imgCI.extent        = {w, h, 1};
-    imgCI.mipLevels     = 1;
-    imgCI.arrayLayers   = 1;
-    imgCI.samples       = VK_SAMPLE_COUNT_1_BIT;
-    imgCI.tiling        = VK_IMAGE_TILING_OPTIMAL;
-    imgCI.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    imgCI.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    imgCI.imageType = VK_IMAGE_TYPE_2D;
+    imgCI.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imgCI.extent = {w, h, 1};
+    imgCI.mipLevels = 1;
+    imgCI.arrayLayers = 1;
+    imgCI.samples = VK_SAMPLE_COUNT_1_BIT;
+    imgCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imgCI.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imgCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imgCI.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VmaAllocationCreateInfo imgAlloc{};
@@ -248,7 +250,7 @@ WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, u
     // Upload via one-shot command buffer
     VkCommandBufferAllocateInfo cbAI{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     cbAI.commandPool = ctx_.commandPool();
-    cbAI.level       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbAI.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cbAI.commandBufferCount = 1;
     VkCommandBuffer cb{};
     vkAllocateCommandBuffers(ctx_.device(), &cbAI, &cb);
@@ -257,36 +259,34 @@ WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, u
     cbBI.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cb, &cbBI);
 
-    auto transition = [&](VkImageLayout from, VkImageLayout to,
-                          VkAccessFlags src, VkAccessFlags dst,
+    auto transition = [&](VkImageLayout from, VkImageLayout to, VkAccessFlags src, VkAccessFlags dst,
                           VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage) {
         VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        b.oldLayout        = from;
-        b.newLayout        = to;
-        b.srcAccessMask    = src;
-        b.dstAccessMask    = dst;
-        b.image            = tex.image;
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcAccessMask = src;
+        b.dstAccessMask = dst;
+        b.image = tex.image;
         b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
     };
 
-    transition(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-               0, VK_ACCESS_TRANSFER_WRITE_BIT,
+    transition(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     VkBufferImageCopy region{};
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent      = {w, h, 1};
+    region.imageExtent = {w, h, 1};
     vkCmdCopyBufferToImage(cb, staging, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     transition(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-               VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
     vkEndCommandBuffer(cb);
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     si.commandBufferCount = 1;
-    si.pCommandBuffers    = &cb;
+    si.pCommandBuffers = &cb;
     vkQueueSubmit(ctx_.graphicsQueue(), 1, &si, VK_NULL_HANDLE);
     vkQueueWaitIdle(ctx_.graphicsQueue());
     vkFreeCommandBuffers(ctx_.device(), ctx_.commandPool(), 1, &cb);
@@ -294,9 +294,9 @@ WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, u
 
     // Image view
     VkImageViewCreateInfo viewCI{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    viewCI.image            = tex.image;
-    viewCI.viewType         = VK_IMAGE_VIEW_TYPE_2D;
-    viewCI.format           = VK_FORMAT_R8G8B8A8_UNORM;
+    viewCI.image = tex.image;
+    viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewCI.format = VK_FORMAT_R8G8B8A8_UNORM;
     viewCI.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     if (vkCreateImageView(ctx_.device(), &viewCI, nullptr, &tex.view) != VK_SUCCESS) {
         vmaDestroyImage(ctx_.allocator(), tex.image, tex.allocation);
@@ -307,21 +307,23 @@ WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, u
 
 VkDescriptorSet WorldRenderer::makeTextureDescSet(VkImageView view) {
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    ai.descriptorPool     = ownDescPool_;
+    ai.descriptorPool = ownDescPool_;
     ai.descriptorSetCount = 1;
-    ai.pSetLayouts        = &textureDescLayout_;
+    ai.pSetLayouts = &textureDescLayout_;
     VkDescriptorSet set{};
-    if (vkAllocateDescriptorSets(ctx_.device(), &ai, &set) != VK_SUCCESS) return VK_NULL_HANDLE;
+    if (vkAllocateDescriptorSets(ctx_.device(), &ai, &set) != VK_SUCCESS) {
+        return VK_NULL_HANDLE;
+    }
 
     VkDescriptorImageInfo ii{};
-    ii.sampler     = sampler_;
-    ii.imageView   = view;
+    ii.sampler = sampler_;
+    ii.imageView = view;
     ii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     VkDescriptorBufferInfo bi{};
     bi.buffer = skinPaletteBuffer_;
     bi.offset = 0;
-    bi.range  = sizeof(glm::mat4) * kMaxSkinJoints;
+    bi.range = sizeof(glm::mat4) * kMaxSkinJoints;
 
     VkWriteDescriptorSet writes[2]{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -348,8 +350,7 @@ void WorldRenderer::createFallbackTexture() {
     fallbackDescSet_ = fallbackTexture_.valid() ? makeTextureDescSet(fallbackTexture_.view) : VK_NULL_HANDLE;
 }
 
-WorldRenderer::WorldRenderer(lua_State* L, VulkanContext& ctx)
-    : L_(L), ctx_(ctx) {}
+WorldRenderer::WorldRenderer(lua_State* L, VulkanContext& ctx) : L_(L), ctx_(ctx) {}
 
 WorldRenderer::~WorldRenderer() {
     release();
@@ -360,8 +361,7 @@ TemplateAnimator* WorldRenderer::animatorForPrototype(int templatePrototypeIndex
         return nullptr;
     }
     std::size_t idx = 0;
-    if (templatePrototypeIndex >= 0 &&
-        static_cast<std::size_t>(templatePrototypeIndex) < templateAnimators_.size() &&
+    if (templatePrototypeIndex >= 0 && static_cast<std::size_t>(templatePrototypeIndex) < templateAnimators_.size() &&
         templateAnimators_[static_cast<std::size_t>(templatePrototypeIndex)]) {
         idx = static_cast<std::size_t>(templatePrototypeIndex);
     }
@@ -589,9 +589,9 @@ void WorldRenderer::beginLoad(const std::filesystem::path& assetPath, const Worl
     createFallbackTexture();
 
     cancelLoad_.store(false, std::memory_order_relaxed);
-    cpuDone_.store(false,    std::memory_order_relaxed);
-    cpuFailed_.store(false,  std::memory_order_relaxed);
-    progress_.store(0.0f,    std::memory_order_relaxed);
+    cpuDone_.store(false, std::memory_order_relaxed);
+    cpuFailed_.store(false, std::memory_order_relaxed);
+    progress_.store(0.0f, std::memory_order_relaxed);
     firstRenderTick_ = true;
     assetSpec_ = spec;
     templateAnimators_.clear();
@@ -604,12 +604,8 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     WorldAssetLoadResult loadResult;
     std::string failReason;
     const bool ok = assetLoader_.load(
-        assetPath,
-        assetSpec_,
-        templateAnimators_,
-        [this]() { return cancelLoad_.load(std::memory_order_relaxed); },
-        [this](float progress, const std::string& activity) { setActivity(progress, activity); },
-        loadResult,
+        assetPath, assetSpec_, templateAnimators_, [this]() { return cancelLoad_.load(std::memory_order_relaxed); },
+        [this](float progress, const std::string& activity) { setActivity(progress, activity); }, loadResult,
         failReason);
 
     if (!ok) {
@@ -630,20 +626,24 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     placementRegions_ = std::move(loadResult.placementRegions);
 
     setActivity(0.65f, "Ready — " + std::to_string(stagedMeshes_.size()) + " meshes, " +
-                       std::to_string(stagedTextures_.size()) + " textures queued for GPU upload...");
+                           std::to_string(stagedTextures_.size()) + " textures queued for GPU upload...");
     cpuDone_.store(true, std::memory_order_release);
 }
 
 void WorldRenderer::tickLoad() {
-    if (loaded_ || loadFailed_) return;
+    if (loaded_ || loadFailed_) {
+        return;
+    }
 
     if (cpuFailed_.load(std::memory_order_acquire)) {
         loadFailed_ = true;
-        status_     = failReason_;
+        status_ = failReason_;
         spdlog::error("[WorldRenderer] {}", status_);
         return;
     }
-    if (!cpuDone_.load(std::memory_order_acquire)) return;
+    if (!cpuDone_.load(std::memory_order_acquire)) {
+        return;
+    }
 
     // ── GPU: upload all meshes in one batch (fast — just buffer copies) ───
     if (gpuMeshCursor_ < stagedMeshes_.size()) {
@@ -664,7 +664,7 @@ void WorldRenderer::tickLoad() {
             meshes_.push_back(std::move(wm));
             meshImgIdx_.push_back(sm.imageIndex);
             totalVertices_ += static_cast<int>(sm.vertices.size());
-            totalIndices_  += static_cast<int>(sm.indices.size());
+            totalIndices_ += static_cast<int>(sm.indices.size());
             ++gpuMeshCursor_;
         }
         progress_.store(0.73f, std::memory_order_relaxed);
@@ -721,20 +721,19 @@ void WorldRenderer::tickLoad() {
     if (gpuTexCursor_ < stagedTextures_.size()) {
         const std::size_t total = stagedTextures_.size();
         const auto& st = stagedTextures_[gpuTexCursor_];
-        setActivity(0.73f + 0.20f * ((float)(gpuTexCursor_ + 1) / (float)total),
-                    "Uploading " + st.displayName +
-                    " (" + std::to_string(gpuTexCursor_ + 1) + "/" + std::to_string(total) + ")");
+        setActivity(0.73f + 0.20f * ((float)(gpuTexCursor_ + 1) / (float)total), "Uploading " + st.displayName + " (" +
+                                                                                     std::to_string(gpuTexCursor_ + 1) +
+                                                                                     "/" + std::to_string(total) + ")");
 
         WorldTexture wt = uploadRGBAImage(st.pixels.data(), st.width, st.height);
         if (wt.valid()) {
             texDescSetCache_[st.imageIndex] = makeTextureDescSet(wt.view);
-            textureCache_[st.imageIndex]    = wt;
+            textureCache_[st.imageIndex] = wt;
         } else {
             texDescSetCache_[st.imageIndex] = fallbackDescSet_;
         }
         ++gpuTexCursor_;
-        progress_.store(0.73f + 0.20f * ((float)gpuTexCursor_ /
-                                          (float)std::max(std::size_t{1}, total)),
+        progress_.store(0.73f + 0.20f * ((float)gpuTexCursor_ / (float)std::max(std::size_t{1}, total)),
                         std::memory_order_relaxed);
         return;
     }
@@ -767,7 +766,7 @@ void WorldRenderer::tickLoad() {
             buildHighlightPipeline();
         } catch (const std::exception& ex) {
             loadFailed_ = true;
-            status_     = std::string("Pipeline build failed: ") + ex.what();
+            status_ = std::string("Pipeline build failed: ") + ex.what();
             return;
         }
         gpuPipeDone_ = true;
@@ -779,15 +778,12 @@ void WorldRenderer::tickLoad() {
     staticGeometryBvh_.build(stagedMeshes_);
     staticGeometryBvhDirty_ = false;
     loaded_ = true;
-    status_ = "OK - " + std::to_string(meshes_.size()) + " meshes, " +
-              std::to_string(totalVertices_) + " verts, " +
+    status_ = "OK - " + std::to_string(meshes_.size()) + " meshes, " + std::to_string(totalVertices_) + " verts, " +
               std::to_string(totalIndices_ / 3) + " tris";
     spdlog::info("[WorldRenderer] {}", status_);
 }
 
-bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
-                              const glm::vec3& rayDir,
-                              WorldPickHit& outHit,
+bool WorldRenderer::pickModel(const glm::vec3& rayOrigin, const glm::vec3& rayDir, WorldPickHit& outHit,
                               const WorldPickOptions& options) const {
     if (!loaded_) {
         return false;
@@ -820,13 +816,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
     // Tests one mesh's bounding sphere against the ray, tracking the closest hit seen so far
     // across ALL kinds (static geometry, enemies, towers, ...) -- there is exactly one
     // "closest hit wins" rule, shared by every entity kind.
-    auto testMesh = [&](const WorldMesh& mesh,
-                        const glm::mat4& world,
-                        int meshIndex,
-                        int instanceIndex,
-                        WorldEntityKind kind,
-                        const std::string* instanceGroup,
-                        const std::string* instanceLabel) {
+    auto testMesh = [&](const WorldMesh& mesh, const glm::mat4& world, int meshIndex, int instanceIndex,
+                        WorldEntityKind kind, const std::string* instanceGroup, const std::string* instanceLabel) {
         const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
         const float baseRadius = mesh.localBoundsRadius * maxScaleFromMatrix(world);
         const bool isInstanced = kind != WorldEntityKind::None;
@@ -871,7 +862,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         best.distance = t;
         best.worldPosition = rayOrigin + rayDir * t;
         best.worldNormal = glm::normalize(best.worldPosition - worldCenter);
-        if (!std::isfinite(best.worldNormal.x) || !std::isfinite(best.worldNormal.y) || !std::isfinite(best.worldNormal.z)) {
+        if (!std::isfinite(best.worldNormal.x) || !std::isfinite(best.worldNormal.y) ||
+            !std::isfinite(best.worldNormal.z)) {
             best.worldNormal = glm::vec3(0.0f, 1.0f, 0.0f);
         }
         best.group = (instanceGroup && !instanceGroup->empty()) ? *instanceGroup : mesh.debugGroup;
@@ -897,7 +889,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
             // approximation as before this fix, just resolved against the correct per-prototype
             // animator instead of a single shared one.
             const AnimatedEntityInstanceSet::Instance* inst =
-                (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex)) : nullptr;
+                (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex))
+                                     : nullptr;
             const TemplateAnimator* animator = animatorForPrototype(inst ? inst->prototypeIndex : 0);
             return animator ? animator->resolveNodeTransform(nodeIndex, fallback) : fallback;
         },
@@ -913,7 +906,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
             return fallback;
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
-            const AnimatedEntityInstanceSet::Instance* instance = towerInstances_.instance(static_cast<std::size_t>(instanceIndex));
+            const AnimatedEntityInstanceSet::Instance* instance =
+                towerInstances_.instance(static_cast<std::size_t>(instanceIndex));
             const std::string* instanceGroup = instance ? &instance->debugGroup : nullptr;
             const std::string* instanceLabel = instance ? &instance->debugLabel : nullptr;
             // Towers go through the exact same "instanced entity" path as enemies --
@@ -952,7 +946,8 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
         best.distance = t;
         best.worldPosition = rayOrigin + rayDir * t;
         best.worldNormal = glm::normalize(best.worldPosition - center);
-        if (!std::isfinite(best.worldNormal.x) || !std::isfinite(best.worldNormal.y) || !std::isfinite(best.worldNormal.z)) {
+        if (!std::isfinite(best.worldNormal.x) || !std::isfinite(best.worldNormal.y) ||
+            !std::isfinite(best.worldNormal.z)) {
             best.worldNormal = glm::vec3(0.0f, 1.0f, 0.0f);
         }
         best.group = proxy.group;
@@ -970,8 +965,7 @@ bool WorldRenderer::pickModel(const glm::vec3& rayOrigin,
     return anyHit;
 }
 
-bool WorldRenderer::raycastStaticGeometry(const glm::vec3& rayOrigin,
-                                          const glm::vec3& rayDir,
+bool WorldRenderer::raycastStaticGeometry(const glm::vec3& rayOrigin, const glm::vec3& rayDir,
                                           WorldPickHit& outHit) const {
     if (!loaded_) {
         return false;
@@ -1028,12 +1022,8 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
         return (static_cast<std::uint64_t>(kind) << 32) | static_cast<std::uint32_t>(instanceIndex);
     };
 
-    auto accumulateMesh = [&](const WorldMesh& mesh,
-                              const glm::mat4& world,
-                              int instanceIndex,
-                              WorldEntityKind kind,
-                              const std::string* instanceGroup = nullptr,
-                              const std::string* instanceLabel = nullptr) {
+    auto accumulateMesh = [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, WorldEntityKind kind,
+                              const std::string* instanceGroup = nullptr, const std::string* instanceLabel = nullptr) {
         if (instanceIndex < 0) {
             return;
         }
@@ -1071,7 +1061,8 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
             // approximation as before this fix, just resolved against the correct per-prototype
             // animator instead of a single shared one.
             const AnimatedEntityInstanceSet::Instance* inst =
-                (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex)) : nullptr;
+                (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex))
+                                     : nullptr;
             const TemplateAnimator* animator = animatorForPrototype(inst ? inst->prototypeIndex : 0);
             return animator ? animator->resolveNodeTransform(nodeIndex, fallback) : fallback;
         },
@@ -1093,7 +1084,8 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             (void)meshIndex;
-            const AnimatedEntityInstanceSet::Instance* instance = towerInstances_.instance(static_cast<std::size_t>(instanceIndex));
+            const AnimatedEntityInstanceSet::Instance* instance =
+                towerInstances_.instance(static_cast<std::size_t>(instanceIndex));
             const std::string* instanceGroup = instance ? &instance->debugGroup : nullptr;
             const std::string* instanceLabel = instance ? &instance->debugLabel : nullptr;
             accumulateMesh(mesh, world, instanceIndex, WorldEntityKind::Tower, instanceGroup, instanceLabel);
@@ -1131,7 +1123,7 @@ std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(co
 }
 
 TemplateAnimator* WorldRenderer::sampleEnemyInstanceAnimation(int instanceIndex,
-                                                               const std::vector<AnimatorBaseState>& baseStates) {
+                                                              const std::vector<AnimatorBaseState>& baseStates) {
     const AnimatedEntityInstanceSet::Instance* inst =
         (instanceIndex >= 0) ? animatedEntityInstances_.instance(static_cast<std::size_t>(instanceIndex)) : nullptr;
     const int prototypeIndex = inst ? inst->prototypeIndex : 0;
@@ -1145,8 +1137,8 @@ TemplateAnimator* WorldRenderer::sampleEnemyInstanceAnimation(int instanceIndex,
     // one template's animator using another template's captured base state).
     static const AnimatorBaseState kDefaultBaseState{};
     const bool resolvedDirectly = prototypeIndex >= 0 &&
-        static_cast<std::size_t>(prototypeIndex) < templateAnimators_.size() &&
-        templateAnimators_[static_cast<std::size_t>(prototypeIndex)];
+                                  static_cast<std::size_t>(prototypeIndex) < templateAnimators_.size() &&
+                                  templateAnimators_[static_cast<std::size_t>(prototypeIndex)];
     const std::size_t baseIndex = resolvedDirectly ? static_cast<std::size_t>(prototypeIndex) : 0;
     const AnimatorBaseState& base = (baseIndex < baseStates.size()) ? baseStates[baseIndex] : kDefaultBaseState;
 
@@ -1189,7 +1181,9 @@ TemplateAnimator* WorldRenderer::sampleEnemyInstanceAnimation(int instanceIndex,
 }
 
 void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::mat4& view) {
-    if (!loaded_ || pipeline_ == VK_NULL_HANDLE) return;
+    if (!loaded_ || pipeline_ == VK_NULL_HANDLE) {
+        return;
+    }
 
     const auto now = std::chrono::steady_clock::now();
     float dtSeconds = 0.0f;
@@ -1209,17 +1203,16 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     beginSkinPaletteFrame();
 
     // ── Projection ────────────────────────────────────────────────────────
-    const float aspect = (extent.height > 0)
-                             ? static_cast<float>(extent.width) / static_cast<float>(extent.height)
-                             : 1.0f;
+    const float aspect =
+        (extent.height > 0) ? static_cast<float>(extent.width) / static_cast<float>(extent.height) : 1.0f;
 
     glm::mat4 proj = glm::perspective(glm::radians(60.0f), aspect, 0.05f, 2000.0f);
     proj[1][1] *= -1.0f; // Vulkan Y-flip
 
     // ── Dynamic viewport / scissor ────────────────────────────────────────
     VkViewport viewport{};
-    viewport.width    = static_cast<float>(extent.width);
-    viewport.height   = static_cast<float>(extent.height);
+    viewport.width = static_cast<float>(extent.width);
+    viewport.height = static_cast<float>(extent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -1242,12 +1235,14 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     for (const WorldMesh& mesh : meshes_) {
         const glm::mat4 mvp = proj * view * mesh.modelTransform;
         const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f, 1.0f};
-        vkCmdPushConstants(cmd, pipelineLayout_,
-                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
+        vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(MeshPushConstants), &pc);
 
         VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
-        if (ds) vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 1, &identitySkinOffset);
+        if (ds) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &ds, 1,
+                                    &identitySkinOffset);
+        }
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
         vkCmdBindIndexBuffer(cmd, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
@@ -1265,7 +1260,8 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
     TemplateAnimator* currentAnimator = nullptr;
     animatedEntityInstances_.forEachMeshWorldTransform(
         enemyTemplateMeshes_,
-        [this, &currentInstanceIndex, &activeSkinIndex, &currentAnimator, &baseStates](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+        [this, &currentInstanceIndex, &activeSkinIndex, &currentAnimator, &baseStates](int instanceIndex, int nodeIndex,
+                                                                                       const glm::mat4& fallback) {
             if (instanceIndex != currentInstanceIndex) {
                 currentInstanceIndex = instanceIndex;
                 activeSkinIndex = -2;
@@ -1288,13 +1284,13 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
 
             const glm::mat4 mvp = proj * view * world;
             const MeshPushConstants pc{mvp, world, 1.0f, 1.0f};
-            vkCmdPushConstants(cmd, pipelineLayout_,
-                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
+            vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(MeshPushConstants), &pc);
 
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 1, &enemySkinOffset);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &ds, 1,
+                                        &enemySkinOffset);
             }
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1315,13 +1311,13 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             const AnimatedEntityInstanceSet::Instance* towerInstance = towerInstances_.instance(instanceIndex);
             const float alpha = towerInstance ? towerInstance->alpha : 1.0f;
             const MeshPushConstants pc{mvp, world, alpha, 1.0f};
-            vkCmdPushConstants(cmd, pipelineLayout_,
-                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(MeshPushConstants), &pc);
+            vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(MeshPushConstants), &pc);
 
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 1, &identitySkinOffset);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &ds, 1,
+                                        &identitySkinOffset);
             }
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1330,7 +1326,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         });
 
     if (highlightPipeline_ != VK_NULL_HANDLE && highlightPipelineLayout_ != VK_NULL_HANDLE &&
-        (hoveredEntityKind_ != WorldEntityKind::None || selectedEntityKind_ != WorldEntityKind::None)) {
+        selectedEntityKind_ != WorldEntityKind::None) {
         const glm::mat4 invView = glm::inverse(view);
         const glm::vec3 cameraPos = glm::vec3(invView[3]);
         uint32_t highlightSkinOffset = identitySkinOffset;
@@ -1338,14 +1334,13 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         auto drawHighlightMesh = [&](const WorldMesh& mesh, const glm::mat4& world, const glm::vec4& color) {
             const glm::mat4 mvp = proj * view * world;
             const HighlightPushConstants pc{mvp, world, color, glm::vec4(cameraPos, 1.0f)};
-            vkCmdPushConstants(cmd, highlightPipelineLayout_,
-                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            vkCmdPushConstants(cmd, highlightPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                0, sizeof(HighlightPushConstants), &pc);
 
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        highlightPipelineLayout_, 0, 1, &ds, 1, &highlightSkinOffset);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, highlightPipelineLayout_, 0, 1, &ds, 1,
+                                        &highlightSkinOffset);
             }
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1369,8 +1364,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
                 animatedEntityInstances_.forEachMeshWorldTransform(
                     enemyTemplateMeshes_,
                     [this, &highlightCurrentInstance, &highlightActiveSkin, &highlightAnimator, &baseStates,
-                     targetInstanceIndex](int instanceIndex, int nodeIndex,
-                                                               const glm::mat4& fallback) {
+                     targetInstanceIndex](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
                         if (instanceIndex != targetInstanceIndex) {
                             return glm::mat4(0.0f);
                         }
@@ -1379,7 +1373,8 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
                             highlightActiveSkin = -2;
                             highlightAnimator = sampleEnemyInstanceAnimation(instanceIndex, baseStates);
                         }
-                        return highlightAnimator ? highlightAnimator->resolveNodeTransform(nodeIndex, fallback) : fallback;
+                        return highlightAnimator ? highlightAnimator->resolveNodeTransform(nodeIndex, fallback)
+                                                 : fallback;
                     },
                     [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
                         (void)meshIndex;
@@ -1390,7 +1385,8 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
                         if (mesh.sourceSkinIndex != highlightActiveSkin) {
                             highlightActiveSkin = mesh.sourceSkinIndex;
                             const std::vector<glm::mat4>* jointPalette =
-                                highlightAnimator ? highlightAnimator->skinJointMatricesForSkin(mesh.sourceSkinIndex) : nullptr;
+                                highlightAnimator ? highlightAnimator->skinJointMatricesForSkin(mesh.sourceSkinIndex)
+                                                  : nullptr;
                             if (jointPalette) {
                                 highlightSkinOffset = uploadSkinPalette(*jointPalette);
                             } else {
@@ -1419,11 +1415,8 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             }
         };
 
-        const bool hoverEqualsSelected =
-            hoveredEntityKind_ == selectedEntityKind_ && hoveredInstanceIndex_ == selectedInstanceIndex_;
-        if (hoveredEntityKind_ != WorldEntityKind::None && !hoverEqualsSelected) {
-            drawHighlightInstance(hoveredEntityKind_, hoveredInstanceIndex_, glm::vec4(1.0f, 0.85f, 0.20f, 0.75f));
-        }
+        // Hover no longer gets a whole-model tint -- see PlayLevelScene::drawTowerPlacementOverlay,
+        // which draws a ground-plane ring (tower attack range / enemy footprint circle) instead.
         if (selectedEntityKind_ != WorldEntityKind::None) {
             drawHighlightInstance(selectedEntityKind_, selectedInstanceIndex_, glm::vec4(0.20f, 0.95f, 1.0f, 0.85f));
         }
@@ -1466,10 +1459,8 @@ bool WorldRenderer::computeTowerPrototypeBounds(int prototypeIndex, glm::vec3& o
     return true;
 }
 
-void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
-                                             VkExtent2D extent,
-                                             const std::vector<TowerPreviewPanel>& panels,
-                                             float spinRadians) {
+void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D extent,
+                                             const std::vector<TowerPreviewPanel>& panels, float spinRadians) {
     if (!loaded_ || pipeline_ == VK_NULL_HANDLE || panels.empty()) {
         return;
     }
@@ -1559,8 +1550,8 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
         const float yaw = spinRadians + phase;
         const float camDistance = targetRadius * 1.75f + 0.52f;
         const float camHeight = targetRadius * 0.40f + 0.15f;
-        const glm::vec3 camPos = targetCenter +
-                                  glm::vec3(std::sin(yaw) * camDistance, camHeight, std::cos(yaw) * camDistance);
+        const glm::vec3 camPos =
+            targetCenter + glm::vec3(std::sin(yaw) * camDistance, camHeight, std::cos(yaw) * camDistance);
         const glm::vec3 lookAtPoint = targetCenter + glm::vec3(0.0f, targetRadius * 0.10f, 0.0f);
         const glm::mat4 view = glm::lookAt(camPos, lookAtPoint, glm::vec3(0.0f, 1.0f, 0.0f));
 
@@ -1571,14 +1562,13 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd,
 
             const glm::mat4 mvp = proj * view * mesh.modelTransform;
             const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f, 5.5f};
-            vkCmdPushConstants(cmd, pipelineLayout_,
-                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+            vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(MeshPushConstants), &pc);
 
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipelineLayout_, 0, 1, &ds, 1, &previewSkinOffset);
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &ds, 1,
+                                        &previewSkinOffset);
             }
 
             const VkDeviceSize offset = 0;
@@ -1606,7 +1596,9 @@ void WorldRenderer::release() {
         loadThread_.join();
     }
 
-    if (ctx_.device() == VK_NULL_HANDLE) return;
+    if (ctx_.device() == VK_NULL_HANDLE) {
+        return;
+    }
 
     ctx_.waitIdle();
 
@@ -1629,7 +1621,7 @@ void WorldRenderer::release() {
 
     if (ownDescPool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(ctx_.device(), ownDescPool_, nullptr);
-        ownDescPool_     = VK_NULL_HANDLE;
+        ownDescPool_ = VK_NULL_HANDLE;
         fallbackDescSet_ = VK_NULL_HANDLE;
         texDescSetCache_.clear();
     }
@@ -1652,31 +1644,43 @@ void WorldRenderer::release() {
     }
 
     auto destroyTex = [&](WorldTexture& t) {
-        if (t.view)  vkDestroyImageView(ctx_.device(), t.view, nullptr);
-        if (t.image) vmaDestroyImage(ctx_.allocator(), t.image, t.allocation);
+        if (t.view) {
+            vkDestroyImageView(ctx_.device(), t.view, nullptr);
+        }
+        if (t.image) {
+            vmaDestroyImage(ctx_.allocator(), t.image, t.allocation);
+        }
         t = {};
     };
     destroyTex(fallbackTexture_);
-    for (auto& [idx, tex] : textureCache_) destroyTex(tex);
+    for (auto& [idx, tex] : textureCache_) {
+        destroyTex(tex);
+    }
     textureCache_.clear();
 
     for (WorldMesh& mesh : meshes_) {
-        if (mesh.vertexBuffer != VK_NULL_HANDLE)
+        if (mesh.vertexBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(ctx_.allocator(), mesh.vertexBuffer, mesh.vertexAlloc);
-        if (mesh.indexBuffer != VK_NULL_HANDLE)
+        }
+        if (mesh.indexBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(ctx_.allocator(), mesh.indexBuffer, mesh.indexAlloc);
+        }
     }
     for (WorldMesh& mesh : enemyTemplateMeshes_) {
-        if (mesh.vertexBuffer != VK_NULL_HANDLE)
+        if (mesh.vertexBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(ctx_.allocator(), mesh.vertexBuffer, mesh.vertexAlloc);
-        if (mesh.indexBuffer != VK_NULL_HANDLE)
+        }
+        if (mesh.indexBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(ctx_.allocator(), mesh.indexBuffer, mesh.indexAlloc);
+        }
     }
     for (WorldMesh& mesh : towerTemplateMeshes_) {
-        if (mesh.vertexBuffer != VK_NULL_HANDLE)
+        if (mesh.vertexBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(ctx_.allocator(), mesh.vertexBuffer, mesh.vertexAlloc);
-        if (mesh.indexBuffer != VK_NULL_HANDLE)
+        }
+        if (mesh.indexBuffer != VK_NULL_HANDLE) {
             vmaDestroyBuffer(ctx_.allocator(), mesh.indexBuffer, mesh.indexAlloc);
+        }
     }
     meshes_.clear();
     enemyTemplateMeshes_.clear();
@@ -1705,20 +1709,20 @@ void WorldRenderer::release() {
     gpuMeshCursor_ = 0;
     gpuEnemyMeshCursor_ = 0;
     gpuTowerMeshCursor_ = 0;
-    gpuTexCursor_  = 0;
-    gpuDescsDone_  = false;
-    gpuPipeDone_   = false;
-    cpuDone_.store(false,   std::memory_order_relaxed);
+    gpuTexCursor_ = 0;
+    gpuDescsDone_ = false;
+    gpuPipeDone_ = false;
+    cpuDone_.store(false, std::memory_order_relaxed);
     cpuFailed_.store(false, std::memory_order_relaxed);
-    loaded_        = false;
-    loadFailed_    = false;
+    loaded_ = false;
+    loadFailed_ = false;
     totalVertices_ = 0;
-    totalIndices_  = 0;
+    totalIndices_ = 0;
 }
 // ─── private ──────────────────────────────────────────────────────────────────
 
-VkBuffer WorldRenderer::uploadBuffer(const void* data, VkDeviceSize size,
-                                     VkBufferUsageFlags usage, VmaAllocation& outAlloc) {
+VkBuffer WorldRenderer::uploadBuffer(const void* data, VkDeviceSize size, VkBufferUsageFlags usage,
+                                     VmaAllocation& outAlloc) {
     // Staging
     VmaAllocation stagingAlloc = nullptr;
     VmaAllocationInfo stagingInfo{};
@@ -1744,20 +1748,13 @@ VkBuffer WorldRenderer::uploadBuffer(const void* data, VkDeviceSize size,
     return buffer;
 }
 
-WorldMesh WorldRenderer::uploadMesh(const std::vector<WorldVertex>& vertices,
-                                    const std::vector<uint32_t>& indices) {
+WorldMesh WorldRenderer::uploadMesh(const std::vector<WorldVertex>& vertices, const std::vector<uint32_t>& indices) {
     WorldMesh mesh;
-    mesh.vertexBuffer = uploadBuffer(
-        vertices.data(),
-        vertices.size() * sizeof(WorldVertex),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        mesh.vertexAlloc);
+    mesh.vertexBuffer = uploadBuffer(vertices.data(), vertices.size() * sizeof(WorldVertex),
+                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, mesh.vertexAlloc);
 
-    mesh.indexBuffer = uploadBuffer(
-        indices.data(),
-        indices.size() * sizeof(uint32_t),
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        mesh.indexAlloc);
+    mesh.indexBuffer = uploadBuffer(indices.data(), indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                    mesh.indexAlloc);
 
     mesh.indexCount = static_cast<uint32_t>(indices.size());
     return mesh;
@@ -1778,7 +1775,7 @@ VkShaderModule WorldRenderer::loadSpirv(const std::filesystem::path& path) const
 
     VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     ci.codeSize = size;
-    ci.pCode    = code.data();
+    ci.pCode = code.data();
 
     VkShaderModule module = VK_NULL_HANDLE;
     if (vkCreateShaderModule(ctx_.device(), &ci, nullptr, &module) != VK_SUCCESS) {
@@ -1792,33 +1789,33 @@ void WorldRenderer::buildPipeline() {
     VkShaderModule frag = loadSpirv("assets/shaders/mesh.frag.spv");
 
     VkPipelineShaderStageCreateInfo stages[2]{};
-    stages[0].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
     stages[0].module = vert;
-    stages[0].pName  = "main";
-    stages[1].sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     stages[1].module = frag;
-    stages[1].pName  = "main";
+    stages[1].pName = "main";
 
     // Vertex input: binding 0 — WorldVertex (pos, normal, uv)
     VkVertexInputBindingDescription binding{};
-    binding.binding   = 0;
-    binding.stride    = sizeof(WorldVertex);
+    binding.binding = 0;
+    binding.stride = sizeof(WorldVertex);
     binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
     VkVertexInputAttributeDescription attribs[5]{};
     attribs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(WorldVertex, position)};
     attribs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(WorldVertex, normal)};
-    attribs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT,    offsetof(WorldVertex, uv)};
+    attribs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(WorldVertex, uv)};
     attribs[3] = {3, 0, VK_FORMAT_R16G16B16A16_UINT, offsetof(WorldVertex, joints)};
     attribs[4] = {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(WorldVertex, weights)};
 
     VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertexInput.vertexBindingDescriptionCount   = 1;
-    vertexInput.pVertexBindingDescriptions      = &binding;
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &binding;
     vertexInput.vertexAttributeDescriptionCount = 5;
-    vertexInput.pVertexAttributeDescriptions    = attribs;
+    vertexInput.pVertexAttributeDescriptions = attribs;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1826,14 +1823,14 @@ void WorldRenderer::buildPipeline() {
     // Push constants: mvp (mat4) + model (mat4) + alpha (float)
     VkPushConstantRange pushRange{};
     pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    pushRange.offset     = 0;
-    pushRange.size       = sizeof(MeshPushConstants);
+    pushRange.offset = 0;
+    pushRange.size = sizeof(MeshPushConstants);
 
     VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    layoutInfo.setLayoutCount         = 1;
-    layoutInfo.pSetLayouts            = &textureDescLayout_;
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts = &textureDescLayout_;
     layoutInfo.pushConstantRangeCount = 1;
-    layoutInfo.pPushConstantRanges    = &pushRange;
+    layoutInfo.pPushConstantRanges = &pushRange;
 
     if (vkCreatePipelineLayout(ctx_.device(), &layoutInfo, nullptr, &pipelineLayout_) != VK_SUCCESS) {
         vkDestroyShaderModule(ctx_.device(), vert, nullptr);
@@ -1843,21 +1840,21 @@ void WorldRenderer::buildPipeline() {
 
     VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     viewportState.viewportCount = 1;
-    viewportState.scissorCount  = 1;
+    viewportState.scissorCount = 1;
 
     VkPipelineRasterizationStateCreateInfo rasterizer{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.cullMode    = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.lineWidth   = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth = 1.0f;
 
     VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
     VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depthStencil.depthTestEnable  = VK_TRUE;
+    depthStencil.depthTestEnable = VK_TRUE;
     depthStencil.depthWriteEnable = VK_TRUE;
-    depthStencil.depthCompareOp   = VK_COMPARE_OP_LESS;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
 
     VkPipelineColorBlendAttachmentState blendAttach{};
     blendAttach.blendEnable = VK_TRUE;
@@ -1867,42 +1864,41 @@ void WorldRenderer::buildPipeline() {
     blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
-    blendAttach.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    blendAttach.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     blending.attachmentCount = 1;
-    blending.pAttachments    = &blendAttach;
+    blending.pAttachments = &blendAttach;
 
     VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dynState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dynState.dynamicStateCount = 2;
-    dynState.pDynamicStates    = dynStates;
+    dynState.pDynamicStates = dynStates;
 
     // Dynamic rendering — no VkRenderPass needed
     const VkFormat colorFmt = ctx_.swapchainColorFormat();
     const VkFormat depthFmt = ctx_.depthFormat();
     VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    renderingInfo.colorAttachmentCount    = 1;
+    renderingInfo.colorAttachmentCount = 1;
     renderingInfo.pColorAttachmentFormats = &colorFmt;
-    renderingInfo.depthAttachmentFormat   = depthFmt;
+    renderingInfo.depthAttachmentFormat = depthFmt;
 
     VkGraphicsPipelineCreateInfo pipelineCI{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    pipelineCI.pNext               = &renderingInfo;
-    pipelineCI.stageCount          = 2;
-    pipelineCI.pStages             = stages;
-    pipelineCI.pVertexInputState   = &vertexInput;
+    pipelineCI.pNext = &renderingInfo;
+    pipelineCI.stageCount = 2;
+    pipelineCI.pStages = stages;
+    pipelineCI.pVertexInputState = &vertexInput;
     pipelineCI.pInputAssemblyState = &inputAssembly;
-    pipelineCI.pViewportState      = &viewportState;
+    pipelineCI.pViewportState = &viewportState;
     pipelineCI.pRasterizationState = &rasterizer;
-    pipelineCI.pMultisampleState   = &multisampling;
-    pipelineCI.pDepthStencilState  = &depthStencil;
-    pipelineCI.pColorBlendState    = &blending;
-    pipelineCI.pDynamicState       = &dynState;
-    pipelineCI.layout              = pipelineLayout_;
+    pipelineCI.pMultisampleState = &multisampling;
+    pipelineCI.pDepthStencilState = &depthStencil;
+    pipelineCI.pColorBlendState = &blending;
+    pipelineCI.pDynamicState = &dynState;
+    pipelineCI.layout = pipelineLayout_;
 
-    VkResult result = vkCreateGraphicsPipelines(
-        ctx_.device(), VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline_);
+    VkResult result = vkCreateGraphicsPipelines(ctx_.device(), VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &pipeline_);
 
     vkDestroyShaderModule(ctx_.device(), vert, nullptr);
     vkDestroyShaderModule(ctx_.device(), frag, nullptr);
@@ -1990,8 +1986,8 @@ void WorldRenderer::buildHighlightPipeline() {
     blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
-    blendAttach.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    blendAttach.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     blending.attachmentCount = 1;

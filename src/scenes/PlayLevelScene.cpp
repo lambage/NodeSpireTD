@@ -2,8 +2,6 @@
 
 #include "LuaStateBootstrap.hpp"
 #include "VulkanContext.hpp"
-#include "scenes/EnemySpawnFactory.hpp"
-#include "scenes/LevelDefinitionLoader.hpp"
 #include "scenes/SceneSharedState.hpp"
 #include "scenes/TowerPlacementRules.hpp"
 #include "utility/WorldRenderer.hpp"
@@ -11,8 +9,6 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <algorithm>
 #include <array>
-#include <cctype>
-#include <string_view>
 #include <cmath>
 #include <filesystem>
 #include <glm/geometric.hpp>
@@ -49,9 +45,8 @@ bool isProjectAssetPath(const std::filesystem::path& path) {
     return normalized.rfind("assets/", 0) == 0;
 }
 
-int findEnemyPrototypeIndex(const WorldAssetSpec& assetSpec,
-                           const EnemyLoadController& enemyLoadController,
-                           const std::string& enemyId) {
+int findEnemyPrototypeIndex(const WorldAssetSpec& assetSpec, const EnemyLoadController& enemyLoadController,
+                            const std::string& enemyId) {
     const EnemyArchetype* archetype = enemyLoadController.findArchetype(enemyId);
     if (!archetype || archetype->modelPath.empty()) {
         return 0;
@@ -218,7 +213,7 @@ bool parseTowerPoolGroup(const std::string& group, std::string& outTowerId, int&
 }
 
 const playlevel::PlacedTower* findPlacedTowerByPoolKeyImpl(const std::vector<playlevel::PlacedTower>& placedTowers,
-                                                            const std::string& towerId, int poolIndex) {
+                                                           const std::string& towerId, int poolIndex) {
     if (towerId.empty() || poolIndex < 0) {
         return nullptr;
     }
@@ -239,8 +234,8 @@ const playlevel::PlacedTower* findPlacedTowerByPoolKeyImpl(const std::vector<pla
 int computeTowerTotalSpent(const TowerArchetype& archetype, const playlevel::PlacedTower& placedTower) {
     int totalSpent = std::max(0, archetype.cost);
     for (const TowerArchetype::UpgradeNode& node : archetype.upgradeNodes) {
-        const int currentLevel = static_cast<int>(std::count(placedTower.unlockedUpgradeNodeIds.begin(),
-                                                              placedTower.unlockedUpgradeNodeIds.end(), node.id));
+        const int currentLevel = static_cast<int>(
+            std::count(placedTower.unlockedUpgradeNodeIds.begin(), placedTower.unlockedUpgradeNodeIds.end(), node.id));
         const int maxLevel = static_cast<int>(node.upgradeLevels.size());
         for (int levelIndex = 0; levelIndex < currentLevel && levelIndex < maxLevel; ++levelIndex) {
             totalSpent += std::max(0, node.upgradeLevels[static_cast<std::size_t>(levelIndex)].cost);
@@ -272,8 +267,8 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
 
     bootstrap_.resetRuntimeState(gameplayState_, towerLoadController_, enemyLoadController_, towerPlacementController_,
                                  placedTowers_, activeProjectiles_, nextEnemyRuntimeId_, activeEnemies_,
-                                 waveController_, routeController_, selectedEnemyRuntimeId_, pickingController_,
-                                 state, selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
+                                 waveController_, routeController_, selectedEnemyRuntimeId_, pickingController_, state,
+                                 selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
                                  worldAssetSpec_);
     pendingCommands_.clear();
     placementRegions_.clear();
@@ -316,17 +311,19 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
 
     applyPendingGameplayCommands();
     updateWaveSimulation(dt);
-    PlayLevelFrameCoordinator::Context frameContext{
-        worldRenderer_.get(), placementRegions_, pickingController_, cameraController_, activeEnemies_,
-        selectedEnemyRuntimeId_, towerPlacementController_.hasActiveSelection(), lastRenderExtent_};
+    PlayLevelFrameCoordinator::Context frameContext{worldRenderer_.get(),
+                                                    placementRegions_,
+                                                    pickingController_,
+                                                    cameraController_,
+                                                    activeEnemies_,
+                                                    selectedEnemyRuntimeId_,
+                                                    towerPlacementController_.hasActiveSelection(),
+                                                    lastRenderExtent_};
     const bool isLoaded = frameCoordinator_.run(
         frameContext,
-        { [this]() { updateRouteFromWorld(); },
-          [this]() { syncTowerInstanceTransforms(); },
-          [this]() { syncPlacedTowerModels(); },
-          [this](float deltaTime) { updateCamera(deltaTime); },
-          [this]() { updateTowerPlacementFromInput(); },
-          [this]() { return buildViewMatrix(); } },
+        {[this]() { updateRouteFromWorld(); }, [this]() { syncTowerInstanceTransforms(); },
+         [this]() { syncPlacedTowerModels(); }, [this](float deltaTime) { updateCamera(deltaTime); },
+         [this]() { updateTowerPlacementFromInput(); }, [this]() { return buildViewMatrix(); }},
         dt);
 
     luaOnRender(state, scriptRef_, dt);
@@ -397,7 +394,7 @@ const TowerArchetype* PlayLevelScene::selectedTowerArchetype() const {
 }
 
 const PlayLevelScene::PlacedTower* PlayLevelScene::findPlacedTowerByPoolKey(const std::string& towerId,
-                                                                             int poolIndex) const {
+                                                                            int poolIndex) const {
     return findPlacedTowerByPoolKeyImpl(placedTowers_, towerId, poolIndex);
 }
 
@@ -406,7 +403,7 @@ PlayLevelScene::PlacedTower* PlayLevelScene::findPlacedTowerByPoolKey(const std:
 }
 
 const TowerArchetype::UpgradeNode* PlayLevelScene::findUpgradeNodeById(const TowerArchetype& archetype,
-                                                                        const std::string& nodeId) const {
+                                                                       const std::string& nodeId) const {
     auto it = std::find_if(archetype.upgradeNodes.begin(), archetype.upgradeNodes.end(),
                            [&nodeId](const TowerArchetype::UpgradeNode& node) { return node.id == nodeId; });
     return (it != archetype.upgradeNodes.end()) ? &(*it) : nullptr;
@@ -484,8 +481,8 @@ std::string PlayLevelScene::validateTowerUpgradeUnlock(const TowerArchetype& arc
     }
 
     auto levelForNode = [&placedTower](const std::string& id) {
-        return static_cast<int>(std::count(placedTower.unlockedUpgradeNodeIds.begin(),
-                                           placedTower.unlockedUpgradeNodeIds.end(), id));
+        return static_cast<int>(
+            std::count(placedTower.unlockedUpgradeNodeIds.begin(), placedTower.unlockedUpgradeNodeIds.end(), id));
     };
     auto hasUnlocked = [&levelForNode](const std::string& id) { return levelForNode(id) > 0; };
 
@@ -563,8 +560,8 @@ bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::str
         return false;
     }
 
-    const int currentLevel = static_cast<int>(std::count(placedTower.unlockedUpgradeNodeIds.begin(),
-                                                         placedTower.unlockedUpgradeNodeIds.end(), node->id));
+    const int currentLevel = static_cast<int>(
+        std::count(placedTower.unlockedUpgradeNodeIds.begin(), placedTower.unlockedUpgradeNodeIds.end(), node->id));
     const TowerArchetype::UpgradeNode::UpgradeLevel* nextLevel = getUpgradeLevelData(*node, currentLevel);
     if (!nextLevel) {
         outReason = "upgrade level data is invalid";
@@ -589,8 +586,7 @@ bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::str
     int chainTargetCount = placedTower.chainTargetCount;
     int ricochetCount = placedTower.ricochetCount;
     applyTowerUpgradeEffects(*archetype, placedTower, attackDamage, attackRange, attackSpeed, projectileSpeed,
-                             splashRadius, chainRange, ricochetRange, projectileCount, chainTargetCount,
-                             ricochetCount);
+                             splashRadius, chainRange, ricochetRange, projectileCount, chainTargetCount, ricochetCount);
 
     placedTower.attackDamage = attackDamage;
     placedTower.attackRange = attackRange;
@@ -626,9 +622,9 @@ bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::str
 
 std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
                                                    int footprintSampleCount) const {
-    const TowerPlacementRules::Context placementContext{gameplayState_, placedTowers_, worldRenderer_.get(),
-                                                        placementRegions_, maxTowerPlacementSlopeDegrees_,
-                                                        pathCorridorHalfWidth_};
+    const TowerPlacementRules::Context placementContext{
+        gameplayState_,        placedTowers_, worldRenderer_.get(), placementRegions_, maxTowerPlacementSlopeDegrees_,
+        pathCorridorHalfWidth_};
     return TowerPlacementRules::validatePlacement(placementContext, archetype, worldPos, footprintSampleCount,
                                                   towerPlacementPreviewResolver_.lastTerrainSample());
 }
@@ -652,9 +648,9 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
     if (!selected) {
         towerPlacementPreviewResolver_.reset();
     }
-    const TowerPlacementRules::Context placementContext{gameplayState_, placedTowers_, worldRenderer_.get(),
-                                                        placementRegions_, maxTowerPlacementSlopeDegrees_,
-                                                        pathCorridorHalfWidth_};
+    const TowerPlacementRules::Context placementContext{
+        gameplayState_,        placedTowers_, worldRenderer_.get(), placementRegions_, maxTowerPlacementSlopeDegrees_,
+        pathCorridorHalfWidth_};
     const auto validatePlacement = [this, selected, &placementContext](const glm::vec3& worldPos,
                                                                        int footprintSampleCount,
                                                                        const PlacementTerrainSample& terrainSample) {
@@ -665,7 +661,8 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
                                                       terrainSample);
     };
     towerPlacementController_.updatePlacementFromInput(
-        selected != nullptr, [this, selected, &placementContext, &validatePlacement](glm::vec3& outHit) {
+        selected != nullptr,
+        [this, selected, &placementContext, &validatePlacement](glm::vec3& outHit) {
             const auto result = towerPlacementPreviewResolver_.resolve(
                 selected,
                 [this, &placementContext]() {
@@ -702,18 +699,15 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
             if (requestSpendMoney(static_cast<float>(selected->cost))) {
                 const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
                 const int towerPrototypeIndex = towerLoadController_.templatePrototypeIndex(selected->id);
-                const int projectilePrototypeIndex = towerLoadController_.projectileTemplatePrototypeIndex(selected->id);
-                placedTowers_.push_back(PlacedTower{selected->id, worldPos,
-                                                    towerPrototypeIndex, projectilePrototypeIndex,
-                                                    selected->attackDamage,
-                                                    selected->armorPiercing,
-                                                    selected->attackRange, attackIntervalSeconds, 0.0f,
-                                                    selected->projectileSpeed, selected->splashRadius,
-                                                    selected->chainRange, selected->ricochetRange,
-                                                    std::max(1, selected->projectileCount),
-                                                    std::max(1, selected->chainTargetCount),
-                                                    std::max(0, selected->ricochetCount), selected->cost,
-                                                    selected->damageType, selected->defaultTargetingMode});
+                const int projectilePrototypeIndex =
+                    towerLoadController_.projectileTemplatePrototypeIndex(selected->id);
+                placedTowers_.push_back(
+                    PlacedTower{selected->id, worldPos, towerPrototypeIndex, projectilePrototypeIndex,
+                                selected->attackDamage, selected->armorPiercing, selected->attackRange,
+                                attackIntervalSeconds, 0.0f, selected->projectileSpeed, selected->splashRadius,
+                                selected->chainRange, selected->ricochetRange, std::max(1, selected->projectileCount),
+                                std::max(1, selected->chainTargetCount), std::max(0, selected->ricochetCount),
+                                selected->cost, selected->damageType, selected->defaultTargetingMode});
                 towerPlacementController_.cancelPlacement();
                 towerPlacementPreviewResolver_.reset();
                 lastPlacementValidationReason_.clear();
@@ -769,8 +763,8 @@ void PlayLevelScene::syncPlacedTowerModels() {
         }
 
         const int prototypeIndex = (placed.towerPrototypeIndex >= 0)
-            ? placed.towerPrototypeIndex
-            : towerLoadController_.templatePrototypeIndex(placed.towerId);
+                                       ? placed.towerPrototypeIndex
+                                       : towerLoadController_.templatePrototypeIndex(placed.towerId);
         if (prototypeIndex < 0) {
             continue;
         }
@@ -829,8 +823,8 @@ void PlayLevelScene::syncPlacedTowerModels() {
     for (std::size_t i = 0; i < activeProjectiles_.size(); ++i) {
         const ActiveProjectile& projectile = activeProjectiles_[i];
         const int prototypeIndex = (projectile.prototypeIndex >= 0)
-            ? projectile.prototypeIndex
-            : towerLoadController_.projectileTemplatePrototypeIndex(projectile.towerId);
+                                       ? projectile.prototypeIndex
+                                       : towerLoadController_.projectileTemplatePrototypeIndex(projectile.towerId);
         if (prototypeIndex < 0) {
             continue;
         }
@@ -1017,6 +1011,40 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
         }
     }
 
+    // Hover feedback replaces the old whole-model yellow tint: towers show their attack-range
+    // ring (yellow, since blue is reserved for the selected tower's ring above) and enemies show
+    // a simple ground circle -- both only when the hovered entity isn't already the selected one.
+    const auto& hover = pickingController_.hoverSelection();
+    const bool hoverEqualsSelected = hover.entityKind == pickingController_.selectedSelection().entityKind &&
+                                     hover.instanceIndex == pickingController_.selectedSelection().instanceIndex &&
+                                     pickingController_.selectedSelection().valid;
+    if (hover.valid && !hoverEqualsSelected) {
+        if (hover.entityKind == WorldEntityKind::Tower) {
+            std::string hoverTowerId;
+            int hoverTowerPoolIndex = -1;
+            parseTowerPoolGroup(hover.group, hoverTowerId, hoverTowerPoolIndex);
+            if (!hoverTowerId.empty() && hoverTowerPoolIndex >= 0) {
+                int perTypeIndex = 0;
+                for (const PlacedTower& tower : placedTowers_) {
+                    if (tower.towerId != hoverTowerId) {
+                        continue;
+                    }
+                    if (perTypeIndex == hoverTowerPoolIndex) {
+                        drawWorldRing(tower.position, std::max(0.5f, tower.attackRange), IM_COL32(255, 220, 60, 165),
+                                      64, 2.0f);
+                        break;
+                    }
+                    ++perTypeIndex;
+                }
+            }
+        } else if (hover.entityKind == WorldEntityKind::Enemy && hover.instanceIndex >= 0 &&
+                   static_cast<std::size_t>(hover.instanceIndex) < activeEnemies_.size()) {
+            const ActiveEnemy& enemy = activeEnemies_[static_cast<std::size_t>(hover.instanceIndex)];
+            const glm::vec3 enemyPos = sampleRoutePosition(enemy.distanceAlongPath);
+            drawWorldRing(enemyPos, std::max(0.35f, 0.5f * enemy.renderScale), IM_COL32(255, 220, 60, 165), 48, 2.0f);
+        }
+    }
+
     const TowerArchetype* selected = selectedTowerArchetype();
     const auto& placementState = towerPlacementController_.state();
     if (!selected || !placementState.hasHit) {
@@ -1063,12 +1091,13 @@ void PlayLevelScene::drawPlacementBoundsOverlay() const {
         bool valid[8];
         for (int i = 0; i < 8; ++i) {
             float depthAbs = 0.0f;
-            valid[i] = projectWorldToScreen(corners[i], view, proj, displaySize, renderSize, screen[i], depthAbs, nullptr);
+            valid[i] =
+                projectWorldToScreen(corners[i], view, proj, displaySize, renderSize, screen[i], depthAbs, nullptr);
         }
         constexpr int kEdges[12][2] = {
-            {0, 1}, {1, 2}, {2, 3}, {3, 0},  // bottom face
-            {4, 5}, {5, 6}, {6, 7}, {7, 4},  // top face
-            {0, 4}, {1, 5}, {2, 6}, {3, 7},  // verticals
+            {0, 1}, {1, 2}, {2, 3}, {3, 0}, // bottom face
+            {4, 5}, {5, 6}, {6, 7}, {7, 4}, // top face
+            {0, 4}, {1, 5}, {2, 6}, {3, 7}, // verticals
         };
         for (const auto& edge : kEdges) {
             if (valid[edge[0]] && valid[edge[1]]) {
@@ -1092,14 +1121,12 @@ void PlayLevelScene::drawPlacementBoundsOverlay() const {
         const glm::vec3& mn = region.boundsMin;
         const glm::vec3& mx = region.boundsMax;
         const std::array<glm::vec3, 8> corners = {
-            glm::vec3(mn.x, mn.y, mn.z), glm::vec3(mx.x, mn.y, mn.z),
-            glm::vec3(mx.x, mn.y, mx.z), glm::vec3(mn.x, mn.y, mx.z),
-            glm::vec3(mn.x, mx.y, mn.z), glm::vec3(mx.x, mx.y, mn.z),
+            glm::vec3(mn.x, mn.y, mn.z), glm::vec3(mx.x, mn.y, mn.z), glm::vec3(mx.x, mn.y, mx.z),
+            glm::vec3(mn.x, mn.y, mx.z), glm::vec3(mn.x, mx.y, mn.z), glm::vec3(mx.x, mx.y, mn.z),
             glm::vec3(mx.x, mx.y, mx.z), glm::vec3(mn.x, mx.y, mx.z),
         };
-        const ImU32 regionColor = (region.type == TowerPlacementRegionType::Water)
-                                      ? IM_COL32(80, 160, 255, 200)
-                                      : IM_COL32(255, 200, 60, 200);
+        const ImU32 regionColor = (region.type == TowerPlacementRegionType::Water) ? IM_COL32(80, 160, 255, 200)
+                                                                                   : IM_COL32(255, 200, 60, 200);
         drawBoxWireframe(corners, regionColor);
     }
 }
@@ -1181,50 +1208,49 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         return;
     }
 
-    waveController_.updateWaveSpawning(
-        gameplayState_, dt, countAliveEnemies(), [this](const std::string& enemyId) {
-            const EnemyArchetype* archetype = enemyLoadController_.findArchetype(enemyId);
-            const float health = archetype ? archetype->health : 1.0f;
-            const float shield = archetype ? archetype->shield : 0.0f;
-            const float armor = archetype ? archetype->armor : 0.0f;
-            const float moveSpeed = archetype ? archetype->moveSpeed : 1.0f;
-            const float rewardMoney = archetype ? archetype->rewardMoney : 0.0f;
-            const float renderScale = archetype ? archetype->renderScale : 1.0f;
-            const float baseDamage = archetype ? archetype->baseDamage : 5.0f;
-            const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
-            const auto resistances = archetype
-                ? archetype->resistances
-                : std::unordered_map<playlevel::DamageType, float, playlevel::DamageTypeHash>{};
+    waveController_.updateWaveSpawning(gameplayState_, dt, countAliveEnemies(), [this](const std::string& enemyId) {
+        const EnemyArchetype* archetype = enemyLoadController_.findArchetype(enemyId);
+        const float health = archetype ? archetype->health : 1.0f;
+        const float shield = archetype ? archetype->shield : 0.0f;
+        const float armor = archetype ? archetype->armor : 0.0f;
+        const float moveSpeed = archetype ? archetype->moveSpeed : 1.0f;
+        const float rewardMoney = archetype ? archetype->rewardMoney : 0.0f;
+        const float renderScale = archetype ? archetype->renderScale : 1.0f;
+        const float baseDamage = archetype ? archetype->baseDamage : 5.0f;
+        const float facingYawOffsetDegrees = archetype ? archetype->facingYawOffsetDegrees : 0.0f;
+        const auto resistances = archetype
+                                     ? archetype->resistances
+                                     : std::unordered_map<playlevel::DamageType, float, playlevel::DamageTypeHash>{};
 
-            const float clampedHealth = std::max(1.0f, health);
-            const float clampedShield = std::max(0.0f, shield);
-            ActiveEnemy enemy{enemyId,
-                             nextEnemyRuntimeId_++,
-                             0.0f,
-                             clampedHealth,
-                             clampedHealth,
-                             clampedShield,
-                             clampedShield,
-                             std::max(0.0f, armor),
-                             resistances,
-                             std::max(0.05f, moveSpeed),
-                             std::max(0.0f, rewardMoney),
-                             std::max(1.0f, baseDamage),
-                             std::max(0.01f, renderScale),
-                             facingYawOffsetDegrees};
-            // Data-driven clip names (see EnemyArchetype::idleClipName/walkingClipName/deathClipName)
-            // -- defaults match the Idle/Walking/Death convention when an archetype doesn't specify.
-            if (archetype) {
-                enemy.idleClipName = archetype->idleClipName;
-                enemy.walkingClipName = archetype->walkingClipName;
-                enemy.deathClipName = archetype->deathClipName;
-            }
-            // Resolved once at spawn time rather than re-derived every frame: which animated
-            // template (and therefore which independent TemplateAnimator/skeleton) this enemy's
-            // own model maps to. See ActiveEnemy::templatePrototypeIndex.
-            enemy.templatePrototypeIndex = findEnemyPrototypeIndex(worldAssetSpec_, enemyLoadController_, enemyId);
-            activeEnemies_.push_back(std::move(enemy));
-        });
+        const float clampedHealth = std::max(1.0f, health);
+        const float clampedShield = std::max(0.0f, shield);
+        ActiveEnemy enemy{enemyId,
+                          nextEnemyRuntimeId_++,
+                          0.0f,
+                          clampedHealth,
+                          clampedHealth,
+                          clampedShield,
+                          clampedShield,
+                          std::max(0.0f, armor),
+                          resistances,
+                          std::max(0.05f, moveSpeed),
+                          std::max(0.0f, rewardMoney),
+                          std::max(1.0f, baseDamage),
+                          std::max(0.01f, renderScale),
+                          facingYawOffsetDegrees};
+        // Data-driven clip names (see EnemyArchetype::idleClipName/walkingClipName/deathClipName)
+        // -- defaults match the Idle/Walking/Death convention when an archetype doesn't specify.
+        if (archetype) {
+            enemy.idleClipName = archetype->idleClipName;
+            enemy.walkingClipName = archetype->walkingClipName;
+            enemy.deathClipName = archetype->deathClipName;
+        }
+        // Resolved once at spawn time rather than re-derived every frame: which animated
+        // template (and therefore which independent TemplateAnimator/skeleton) this enemy's
+        // own model maps to. See ActiveEnemy::templatePrototypeIndex.
+        enemy.templatePrototypeIndex = findEnemyPrototypeIndex(worldAssetSpec_, enemyLoadController_, enemyId);
+        activeEnemies_.push_back(std::move(enemy));
+    });
 
     combatController_.advanceEnemies(dt, routeController_.totalLength(), activeEnemies_,
                                      [this](float baseDamage) { requestDamageBase(baseDamage); });
@@ -1678,9 +1704,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             std::string selectedTowerId;
             int selectedPoolIndex = -1;
-            const bool hasTowerSelection =
-                self->pickingController_.selectedSelection().valid &&
-                parseTowerPoolGroup(self->pickingController_.selectedSelection().group, selectedTowerId, selectedPoolIndex);
+            const bool hasTowerSelection = self->pickingController_.selectedSelection().valid &&
+                                           parseTowerPoolGroup(self->pickingController_.selectedSelection().group,
+                                                               selectedTowerId, selectedPoolIndex);
 
             if (!hasTowerSelection) {
                 lua_pushboolean(L, 0);
@@ -1836,17 +1862,16 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 const TowerArchetype::UpgradeNode& node = archetype->upgradeNodes[i];
                 lua_newtable(L);
 
-                const int currentLevel = static_cast<int>(std::count(placedTower->unlockedUpgradeNodeIds.begin(),
-                                                                      placedTower->unlockedUpgradeNodeIds.end(),
-                                                                      node.id));
+                const int currentLevel = static_cast<int>(std::count(
+                    placedTower->unlockedUpgradeNodeIds.begin(), placedTower->unlockedUpgradeNodeIds.end(), node.id));
                 const bool unlocked = currentLevel > 0;
                 const int maxLevel = getUpgradeMaxLevel(node);
                 const bool canLevelUp = currentLevel < maxLevel;
                 const TowerArchetype::UpgradeNode::UpgradeLevel* nextLevel =
                     canLevelUp ? getUpgradeLevelData(node, currentLevel) : nullptr;
                 const std::string reason = canLevelUp
-                    ? self->validateTowerUpgradeUnlock(*archetype, *placedTower, node.id)
-                    : std::string("upgrade is at max level");
+                                               ? self->validateTowerUpgradeUnlock(*archetype, *placedTower, node.id)
+                                               : std::string("upgrade is at max level");
                 const bool canUnlock = canLevelUp && reason.empty();
                 const TowerArchetype::UpgradeEffects previewEffects =
                     nextLevel ? nextLevel->effects : TowerArchetype::UpgradeEffects{};
@@ -2008,9 +2033,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             std::string selectedTowerId;
             int selectedPoolIndex = -1;
-            const bool hasTowerSelection =
-                self->pickingController_.selectedSelection().valid &&
-                parseTowerPoolGroup(self->pickingController_.selectedSelection().group, selectedTowerId, selectedPoolIndex);
+            const bool hasTowerSelection = self->pickingController_.selectedSelection().valid &&
+                                           parseTowerPoolGroup(self->pickingController_.selectedSelection().group,
+                                                               selectedTowerId, selectedPoolIndex);
             if (!hasTowerSelection) {
                 return pushCommandResult(L, false, "select a placed tower");
             }
@@ -2040,9 +2065,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             std::string selectedTowerId;
             int selectedPoolIndex = -1;
-            const bool hasTowerSelection =
-                self->pickingController_.selectedSelection().valid &&
-                parseTowerPoolGroup(self->pickingController_.selectedSelection().group, selectedTowerId, selectedPoolIndex);
+            const bool hasTowerSelection = self->pickingController_.selectedSelection().valid &&
+                                           parseTowerPoolGroup(self->pickingController_.selectedSelection().group,
+                                                               selectedTowerId, selectedPoolIndex);
             if (!hasTowerSelection) {
                 return pushCommandResult(L, false, "select a placed tower");
             }
@@ -2066,9 +2091,9 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             std::string selectedTowerId;
             int selectedPoolIndex = -1;
-            const bool hasTowerSelection =
-                self->pickingController_.selectedSelection().valid &&
-                parseTowerPoolGroup(self->pickingController_.selectedSelection().group, selectedTowerId, selectedPoolIndex);
+            const bool hasTowerSelection = self->pickingController_.selectedSelection().valid &&
+                                           parseTowerPoolGroup(self->pickingController_.selectedSelection().group,
+                                                               selectedTowerId, selectedPoolIndex);
             if (!hasTowerSelection) {
                 return pushCommandResult(L, false, "select a placed tower");
             }
@@ -2104,7 +2129,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
 
             const int removedTowerIndex = matchingIndex;
             std::size_t projectileWriteIndex = 0;
-            for (std::size_t projectileIndex = 0; projectileIndex < self->activeProjectiles_.size(); ++projectileIndex) {
+            for (std::size_t projectileIndex = 0; projectileIndex < self->activeProjectiles_.size();
+                 ++projectileIndex) {
                 ActiveProjectile projectile = self->activeProjectiles_[projectileIndex];
                 if (projectile.sourceTowerPoolIndex == removedTowerIndex) {
                     continue;
