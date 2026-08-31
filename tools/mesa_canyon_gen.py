@@ -33,6 +33,7 @@ STRATA_EDGE = 0.28
 # path runs along Y through the canyon; river is offset to one side of the path
 PATH_Y_MIN = -40.0
 PATH_Y_MAX = 40.0
+MARKER_STEP = 2.0  # route marker spacing; 2m keeps chord sag under ~3cm on the tightest bend
 RIVER_OFFSET_X = -7.0
 RIVER_HALF_WIDTH = 2.2
 RIVER_DEPTH = 1.0
@@ -229,14 +230,27 @@ def build_markers():
         if name == "Start" or name == "End" or name.startswith("Waypoint_"):
             bpy.data.objects.remove(bpy.data.objects[name], do_unlink=True)
 
-    marker_ys = [PATH_Y_MIN, -20.0, 0.0, 20.0, PATH_Y_MAX]
-    names = ["Start", "Waypoint_1", "Waypoint_2", "Waypoint_3", "End"]
-    for name, y in zip(names, marker_ys):
+    # engine walks route points in straight lines, so sample the meandering centerline densely
+    # enough that the chords stay on the painted path and follow the terrain height
+    marker_ys = []
+    y = PATH_Y_MIN
+    while y < PATH_Y_MAX - 1e-4:
+        marker_ys.append(y)
+        y += MARKER_STEP
+    marker_ys.append(PATH_Y_MAX)
+
+    for i, y in enumerate(marker_ys):
+        if i == 0:
+            name = "Start"
+        elif i == len(marker_ys) - 1:
+            name = "End"
+        else:
+            name = f"Waypoint_{i}"
         x = centerline_x(y)
         h, _mask = height_and_mask(x, y)
         empty = bpy.data.objects.new(name, None)
         empty.empty_display_type = 'PLAIN_AXES'
-        empty.empty_display_size = 1.5
+        empty.empty_display_size = 0.6
         empty.location = (x, y, h + 0.05)
         bpy.context.collection.objects.link(empty)
 

@@ -1,10 +1,9 @@
 import bpy
 
-names = ["MesaCanyon", "MesaRiver", "MesaPathPreview", "Start", "Waypoint_1", "Waypoint_2", "Waypoint_3", "End"]
+names = ["MesaCanyon", "MesaRiver", "MesaPathPreview", "Start", "End"]
 bpy.ops.object.select_all(action='DESELECT')
-for n in names:
-    obj = bpy.data.objects.get(n)
-    if obj:
+for obj in bpy.data.objects:
+    if obj.name in names or obj.name.startswith("Waypoint_"):
         obj.select_set(True)
 
 out_path = "E:/projects/NodeSpireTD/assets/levels/mesa_canyon/mesa_canyon_map.glb"
