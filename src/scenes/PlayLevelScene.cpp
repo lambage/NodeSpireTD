@@ -991,6 +991,15 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
         }
     };
 
+    // Selected/hovered attack-range and footprint indicators are real Vulkan ground-plane discs
+    // (see WorldRenderer::GroundCircle) rather than a screen-space ImGui overlay, so terrain hills
+    // and closer enemies/towers correctly occlude them instead of them always painting on top.
+    std::vector<GroundCircle> groundCircles;
+    constexpr float kGroundCircleYOffset = 0.22f;
+    constexpr glm::vec4 kSelectedColor(0.294f, 0.686f, 1.0f, 0.45f);
+    constexpr glm::vec4 kSelectedOutlineColor(0.294f, 0.686f, 1.0f, 1.0f);
+    constexpr glm::vec4 kHoverColor(1.0f, 0.863f, 0.235f, 0.25f);
+
     std::string selectedTowerId;
     int selectedTowerPoolIndex = -1;
     if (pickingController_.selectedSelection().valid) {
@@ -1004,7 +1013,8 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
                 continue;
             }
             if (perTypeIndex == selectedTowerPoolIndex) {
-                drawWorldRing(tower.position, std::max(0.5f, tower.attackRange), IM_COL32(75, 175, 255, 165), 64, 2.0f);
+                groundCircles.push_back({tower.position + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
+                                        std::max(0.5f, tower.attackRange), kSelectedColor, kSelectedOutlineColor});
                 break;
             }
             ++perTypeIndex;
@@ -1012,8 +1022,8 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
     }
 
     // Hover feedback replaces the old whole-model yellow tint: towers show their attack-range
-    // ring (yellow, since blue is reserved for the selected tower's ring above) and enemies show
-    // a simple ground circle -- both only when the hovered entity isn't already the selected one.
+    // circle (yellow, since blue is reserved for the selected tower's circle above) and enemies
+    // show a simple ground circle -- both only when the hovered entity isn't already selected.
     const auto& hover = pickingController_.hoverSelection();
     const bool hoverEqualsSelected = hover.entityKind == pickingController_.selectedSelection().entityKind &&
                                      hover.instanceIndex == pickingController_.selectedSelection().instanceIndex &&
@@ -1030,8 +1040,8 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
                         continue;
                     }
                     if (perTypeIndex == hoverTowerPoolIndex) {
-                        drawWorldRing(tower.position, std::max(0.5f, tower.attackRange), IM_COL32(255, 220, 60, 165),
-                                      64, 2.0f);
+                        groundCircles.push_back({tower.position + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
+                                                std::max(0.5f, tower.attackRange), kHoverColor});
                         break;
                     }
                     ++perTypeIndex;
@@ -1041,8 +1051,13 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
                    static_cast<std::size_t>(hover.instanceIndex) < activeEnemies_.size()) {
             const ActiveEnemy& enemy = activeEnemies_[static_cast<std::size_t>(hover.instanceIndex)];
             const glm::vec3 enemyPos = sampleRoutePosition(enemy.distanceAlongPath);
-            drawWorldRing(enemyPos, std::max(0.35f, 0.5f * enemy.renderScale), IM_COL32(255, 220, 60, 165), 48, 2.0f);
+            groundCircles.push_back({enemyPos + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
+                                    std::max(0.35f, 0.5f * enemy.renderScale), kHoverColor});
         }
+    }
+
+    if (worldRenderer_) {
+        worldRenderer_->setGroundCircles(std::move(groundCircles));
     }
 
     const TowerArchetype* selected = selectedTowerArchetype();

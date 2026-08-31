@@ -109,6 +109,18 @@ struct TowerPreviewPanel {
     float height = 0.0f;
 };
 
+// A translucent ground-plane disc (tower attack range / enemy footprint indicator), rendered
+// with depth test against the already-drawn terrain/enemies/towers so it doesn't paint over
+// occluding geometry like a screen-space overlay would.
+struct GroundCircle {
+    glm::vec3 center{0.0f};
+    float radius = 1.0f;
+    glm::vec4 color{1.0f};
+    // Solid rim drawn near the disc's edge -- alpha 0 (the default) draws no outline, letting
+    // hover circles stay a plain fill while selection gets a crisp ring on top of the same fill.
+    glm::vec4 outlineColor{0.0f};
+};
+
 class WorldRenderer {
   public:
     explicit WorldRenderer(lua_State* L, VulkanContext& ctx);
@@ -175,6 +187,10 @@ class WorldRenderer {
     bool setWorldModelTransformByDebugGroup(const std::string& debugGroup, const glm::mat4& transform);
     void setHighlightedInstances(WorldEntityKind hoveredKind, int hoveredInstanceIndex,
                                  WorldEntityKind selectedKind, int selectedInstanceIndex);
+    // Replaces the full set of ground circles drawn this frame (see GroundCircle) -- callers
+    // should call this once per frame with the currently-desired circles, same pattern as
+    // setTowerInstanceTransforms().
+    void setGroundCircles(std::vector<GroundCircle> circles);
     void setEnemyInstanceTransforms(const std::vector<glm::mat4>& transforms) { setAnimatedEntityInstanceTransforms(transforms); }
     void setEnemyInstances(std::vector<AnimatedEntityInstanceSet::Instance> instances) { setAnimatedEntityInstances(std::move(instances)); }
     int enemyAnimationClipIndexByName(const std::string& clipName, int templatePrototypeIndex = 0) const { return templateAnimationClipIndexByName(clipName, templatePrototypeIndex); }
@@ -223,6 +239,14 @@ class WorldRenderer {
     VkPipeline            pipeline_          = VK_NULL_HANDLE;
     VkPipelineLayout      highlightPipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline            highlightPipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout      groundCirclePipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline            groundCirclePipeline_ = VK_NULL_HANDLE;
+    // Unit disc (radius 1, centered at origin, XZ plane) built once; per-circle placement is
+    // done entirely via the model matrix in the push constants, no per-circle geometry needed.
+    VkBuffer              groundCircleVertexBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation         groundCircleVertexAlloc_  = nullptr;
+    uint32_t              groundCircleVertexCount_  = 0;
+    std::vector<GroundCircle> groundCircles_;
 
     // Textures
     VkSampler        sampler_         = VK_NULL_HANDLE;
@@ -347,6 +371,8 @@ class WorldRenderer {
 
     void buildPipeline();
     void buildHighlightPipeline();
+    void buildGroundCirclePipeline();
+    void buildGroundCircleGeometry();
     void createSamplerLayoutAndPool();
     WorldTexture    uploadRGBAImage(const uint8_t* pixels, uint32_t w, uint32_t h);
     VkDescriptorSet makeTextureDescSet(VkImageView view);

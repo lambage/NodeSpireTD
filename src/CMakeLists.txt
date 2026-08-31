@@ -123,15 +123,21 @@ if(GLSLC_EXECUTABLE)
             "${SHADER_SRC}/mesh.frag.spv"
             "${SHADER_SRC}/highlight.vert.spv"
             "${SHADER_SRC}/highlight.frag.spv"
+            "${SHADER_SRC}/groundCircle.vert.spv"
+            "${SHADER_SRC}/groundCircle.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.vert" -o "${SHADER_SRC}/mesh.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.frag" -o "${SHADER_SRC}/mesh.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.vert" -o "${SHADER_SRC}/highlight.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.frag" -o "${SHADER_SRC}/highlight.frag.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/groundCircle.vert" -o "${SHADER_SRC}/groundCircle.vert.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/groundCircle.frag" -o "${SHADER_SRC}/groundCircle.frag.spv"
         DEPENDS
             "${SHADER_SRC}/mesh.vert"
             "${SHADER_SRC}/mesh.frag"
             "${SHADER_SRC}/highlight.vert"
             "${SHADER_SRC}/highlight.frag"
+            "${SHADER_SRC}/groundCircle.vert"
+            "${SHADER_SRC}/groundCircle.frag"
         COMMENT "Compiling mesh shaders"
     )
     add_custom_target(MeshShaders DEPENDS
@@ -139,8 +145,11 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/mesh.frag.spv"
         "${SHADER_SRC}/highlight.vert.spv"
         "${SHADER_SRC}/highlight.frag.spv"
+        "${SHADER_SRC}/groundCircle.vert.spv"
+        "${SHADER_SRC}/groundCircle.frag.spv"
     )
     add_dependencies(NodeSpireTD MeshShaders)
+
 else()
     message(WARNING "glslc not found — pre-compile mesh.vert/frag to .spv manually and place in assets/shaders/")
 endif()

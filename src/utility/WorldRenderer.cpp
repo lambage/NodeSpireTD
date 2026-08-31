@@ -31,6 +31,12 @@ struct MeshPushConstants {
     float previewLightBoost;
 };
 
+struct GroundCirclePushConstants {
+    glm::mat4 mvp;
+    glm::vec4 color;
+    glm::vec4 outlineColor;
+};
+
 VkBuffer createStagingBuffer(VmaAllocator allocator, VkDeviceSize size, VmaAllocation& outAlloc,
                              VmaAllocationInfo& outInfo) {
     VkBufferCreateInfo bufInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -472,6 +478,10 @@ void WorldRenderer::setHighlightedInstances(WorldEntityKind hoveredKind, int hov
     selectedInstanceIndex_ = selectedInstanceIndex;
 }
 
+void WorldRenderer::setGroundCircles(std::vector<GroundCircle> circles) {
+    groundCircles_ = std::move(circles);
+}
+
 bool WorldRenderer::hasTemplateAnimation() const {
     // Coarse "is there any animated enemy content at all" gate used before per-instance work --
     // deliberately not per-template, since callers use this only to decide whether to bother.
@@ -764,6 +774,8 @@ void WorldRenderer::tickLoad() {
         try {
             buildPipeline();
             buildHighlightPipeline();
+            buildGroundCirclePipeline();
+            buildGroundCircleGeometry();
         } catch (const std::exception& ex) {
             loadFailed_ = true;
             status_ = std::string("Pipeline build failed: ") + ex.what();
@@ -1249,6 +1261,26 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
         vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
     }
 
+    // Ground circles (tower attack-range / enemy footprint indicators) draw here -- after
+    // terrain (so hills/cliffs correctly occlude them) but before enemy/tower instances (so those
+    // still draw on top of a circle at their own feet instead of getting painted over by it).
+    if (!groundCircles_.empty() && groundCirclePipeline_ != VK_NULL_HANDLE && groundCircleVertexBuffer_ != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, groundCirclePipeline_);
+        const VkDeviceSize circleOffset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &groundCircleVertexBuffer_, &circleOffset);
+        for (const GroundCircle& circle : groundCircles_) {
+            const glm::mat4 model = glm::scale(
+                glm::translate(glm::mat4{1.0f}, circle.center), glm::vec3(circle.radius, 1.0f, circle.radius));
+            const GroundCirclePushConstants pc{proj * view * model, circle.color, circle.outlineColor};
+            vkCmdPushConstants(cmd, groundCirclePipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(GroundCirclePushConstants), &pc);
+            vkCmdDraw(cmd, groundCircleVertexCount_, 1, 0, 0);
+        }
+        // Restore the mesh pipeline -- the enemy/tower instance draws below assume it's still bound.
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    }
+
     // Snapshot each template's own globally-active clip/time/composite state once per frame,
     // before any per-instance override below mutates its animator -- restored per-non-overridden-
     // instance and again for every animator once this frame's draws are done.
@@ -1617,6 +1649,20 @@ void WorldRenderer::release() {
     if (highlightPipelineLayout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(ctx_.device(), highlightPipelineLayout_, nullptr);
         highlightPipelineLayout_ = VK_NULL_HANDLE;
+    }
+    if (groundCirclePipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_.device(), groundCirclePipeline_, nullptr);
+        groundCirclePipeline_ = VK_NULL_HANDLE;
+    }
+    if (groundCirclePipelineLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_.device(), groundCirclePipelineLayout_, nullptr);
+        groundCirclePipelineLayout_ = VK_NULL_HANDLE;
+    }
+    if (groundCircleVertexBuffer_ != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(ctx_.allocator(), groundCircleVertexBuffer_, groundCircleVertexAlloc_);
+        groundCircleVertexBuffer_ = VK_NULL_HANDLE;
+        groundCircleVertexAlloc_ = nullptr;
+        groundCircleVertexCount_ = 0;
     }
 
     if (ownDescPool_ != VK_NULL_HANDLE) {
@@ -2028,4 +2074,143 @@ void WorldRenderer::buildHighlightPipeline() {
     if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to create highlight graphics pipeline.");
     }
+}
+
+void WorldRenderer::buildGroundCirclePipeline() {
+    VkShaderModule vert = loadSpirv("assets/shaders/groundCircle.vert.spv");
+    VkShaderModule frag = loadSpirv("assets/shaders/groundCircle.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag;
+    stages[1].pName = "main";
+
+    // Vertex input: unit-disc position only (vec3, XZ plane).
+    VkVertexInputBindingDescription binding{};
+    binding.binding = 0;
+    binding.stride = sizeof(glm::vec3);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attrib{};
+    attrib = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 1;
+    vertexInput.pVertexAttributeDescriptions = &attrib;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(GroundCirclePushConstants);
+
+    VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layoutInfo.setLayoutCount = 0;
+    layoutInfo.pSetLayouts = nullptr;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
+
+    if (vkCreatePipelineLayout(ctx_.device(), &layoutInfo, nullptr, &groundCirclePipelineLayout_) != VK_SUCCESS) {
+        vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+        vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+        throw std::runtime_error("Failed to create ground circle pipeline layout.");
+    }
+
+    VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    // No culling: the disc is a flat ground decal, seen from above or (rarely) from below.
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // Depth-tested against everything already drawn (terrain) so hills/cliffs occlude it, but no
+    // depth write so it never occludes enemies/towers drawn afterward -- see render().
+    VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkPipelineColorBlendAttachmentState blendAttach{};
+    blendAttach.blendEnable = VK_TRUE;
+    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.colorBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blending.attachmentCount = 1;
+    blending.pAttachments = &blendAttach;
+
+    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynState.dynamicStateCount = 2;
+    dynState.pDynamicStates = dynStates;
+
+    const VkFormat colorFmt = ctx_.swapchainColorFormat();
+    const VkFormat depthFmt = ctx_.depthFormat();
+    VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachmentFormats = &colorFmt;
+    renderingInfo.depthAttachmentFormat = depthFmt;
+
+    VkGraphicsPipelineCreateInfo pipelineCI{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipelineCI.pNext = &renderingInfo;
+    pipelineCI.stageCount = 2;
+    pipelineCI.pStages = stages;
+    pipelineCI.pVertexInputState = &vertexInput;
+    pipelineCI.pInputAssemblyState = &inputAssembly;
+    pipelineCI.pViewportState = &viewportState;
+    pipelineCI.pRasterizationState = &rasterizer;
+    pipelineCI.pMultisampleState = &multisampling;
+    pipelineCI.pDepthStencilState = &depthStencil;
+    pipelineCI.pColorBlendState = &blending;
+    pipelineCI.pDynamicState = &dynState;
+    pipelineCI.layout = groundCirclePipelineLayout_;
+
+    VkResult result =
+        vkCreateGraphicsPipelines(ctx_.device(), VK_NULL_HANDLE, 1, &pipelineCI, nullptr, &groundCirclePipeline_);
+
+    vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+    vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create ground circle graphics pipeline.");
+    }
+}
+
+void WorldRenderer::buildGroundCircleGeometry() {
+    constexpr int kSegments = 48;
+    std::vector<glm::vec3> verts;
+    verts.reserve(static_cast<std::size_t>(kSegments) * 3);
+    for (int i = 0; i < kSegments; ++i) {
+        const float a0 = (static_cast<float>(i) / static_cast<float>(kSegments)) * 6.2831853071795864769f;
+        const float a1 = (static_cast<float>(i + 1) / static_cast<float>(kSegments)) * 6.2831853071795864769f;
+        verts.emplace_back(0.0f, 0.0f, 0.0f);
+        verts.emplace_back(std::cos(a0), 0.0f, std::sin(a0));
+        verts.emplace_back(std::cos(a1), 0.0f, std::sin(a1));
+    }
+
+    groundCircleVertexBuffer_ = uploadBuffer(verts.data(), verts.size() * sizeof(glm::vec3),
+                                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, groundCircleVertexAlloc_);
+    groundCircleVertexCount_ = static_cast<uint32_t>(verts.size());
 }
