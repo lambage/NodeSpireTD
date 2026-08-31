@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -22,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace {
@@ -296,6 +298,45 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         }
     };
 
+    // Rapid-prototyping fallback: materials with only a baseColorFactor (no texture) get a tiny
+    // synthesized solid-color texture instead of falling back to plain white. Final art should
+    // still ship real baseColorTexture images -- this just keeps early/placeholder maps readable.
+    std::unordered_map<std::uint32_t, std::size_t> colorTextureCache;
+    auto getOrCreateColorTexture = [&](const fastgltf::math::nvec4& factor) -> std::size_t {
+        const auto toByte = [](float v) -> std::uint8_t {
+            return static_cast<std::uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+        };
+        const std::uint8_t r = toByte(factor[0]);
+        const std::uint8_t g = toByte(factor[1]);
+        const std::uint8_t b = toByte(factor[2]);
+        const std::uint8_t a = toByte(factor[3]);
+        const std::uint32_t packed = (static_cast<std::uint32_t>(r) << 24) |
+                                      (static_cast<std::uint32_t>(g) << 16) |
+                                      (static_cast<std::uint32_t>(b) << 8) | a;
+
+        auto cacheIt = colorTextureCache.find(packed);
+        if (cacheIt != colorTextureCache.end()) {
+            return cacheIt->second;
+        }
+
+        const std::size_t key = hashCombine(0x501074C010ULL, packed);
+        WorldStagedTexture st;
+        st.imageIndex = key;
+        st.displayName = "solid_color_fallback";
+        st.width = 2;
+        st.height = 2;
+        st.pixels.assign(2 * 2 * 4, 0);
+        for (std::size_t p = 0; p < 4; ++p) {
+            st.pixels[p * 4 + 0] = r;
+            st.pixels[p * 4 + 1] = g;
+            st.pixels[p * 4 + 2] = b;
+            st.pixels[p * 4 + 3] = a;
+        }
+        outResult.textures.push_back(std::move(st));
+        colorTextureCache[packed] = key;
+        return key;
+    };
+
     auto processPrimitive = [&](const fastgltf::Asset& srcAsset,
                                 std::string_view assetId,
                                 const fastgltf::Primitive& primitive,
@@ -412,6 +453,15 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                 const auto tIdx = mat.pbrData.baseColorTexture->textureIndex;
                 if (tIdx < srcAsset.textures.size() && srcAsset.textures[tIdx].imageIndex.has_value()) {
                     imgKey = makeTextureKey(assetId, *srcAsset.textures[tIdx].imageIndex);
+                }
+            } else {
+                const auto& factor = mat.pbrData.baseColorFactor;
+                constexpr float kEps = 1.0f / 255.0f;
+                const bool isDefaultWhite = std::abs(factor[0] - 1.0f) < kEps &&
+                                            std::abs(factor[1] - 1.0f) < kEps &&
+                                            std::abs(factor[2] - 1.0f) < kEps;
+                if (!isDefaultWhite) {
+                    imgKey = getOrCreateColorTexture(factor);
                 }
             }
         }

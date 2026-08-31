@@ -134,45 +134,6 @@ bool raySphereIntersect(const glm::vec3& rayOrigin,
     return false;
 }
 
-bool rayTriangleIntersect(const glm::vec3& rayOrigin,
-                          const glm::vec3& rayDir,
-                          const glm::vec3& v0,
-                          const glm::vec3& v1,
-                          const glm::vec3& v2,
-                          float& outT,
-                          glm::vec3& outBary) {
-    constexpr float kEpsilon = 1e-7f;
-    const glm::vec3 edge1 = v1 - v0;
-    const glm::vec3 edge2 = v2 - v0;
-    const glm::vec3 h = glm::cross(rayDir, edge2);
-    const float a = glm::dot(edge1, h);
-    if (std::abs(a) < kEpsilon) {
-        return false; // ray parallel to triangle plane
-    }
-
-    const float f = 1.0f / a;
-    const glm::vec3 s = rayOrigin - v0;
-    const float u = f * glm::dot(s, h);
-    if (u < 0.0f || u > 1.0f) {
-        return false;
-    }
-
-    const glm::vec3 q = glm::cross(s, edge1);
-    const float v = f * glm::dot(rayDir, q);
-    if (v < 0.0f || u + v > 1.0f) {
-        return false;
-    }
-
-    const float t = f * glm::dot(edge2, q);
-    if (t <= kEpsilon) {
-        return false;
-    }
-
-    outT = t;
-    outBary = glm::vec3(1.0f - u - v, u, v);
-    return true;
-}
-
 } // namespace
 
 // ─── texture helpers ──────────────────────────────────────────────────────────
@@ -661,6 +622,7 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     }
 
     stagedMeshes_ = std::move(loadResult.worldMeshes);
+    staticGeometryBvhDirty_ = true;
     stagedEnemyMeshes_ = std::move(loadResult.templateMeshes);
     stagedTowerMeshes_ = std::move(loadResult.towerTemplateMeshes);
     stagedTextures_ = std::move(loadResult.textures);
@@ -814,6 +776,8 @@ void WorldRenderer::tickLoad() {
     }
 
     // All done!
+    staticGeometryBvh_.build(stagedMeshes_);
+    staticGeometryBvhDirty_ = false;
     loaded_ = true;
     status_ = "OK - " + std::to_string(meshes_.size()) + " meshes, " +
               std::to_string(totalVertices_) + " verts, " +
@@ -1013,81 +977,33 @@ bool WorldRenderer::raycastStaticGeometry(const glm::vec3& rayOrigin,
         return false;
     }
 
-    bool anyHit = false;
-    float bestT = std::numeric_limits<float>::max();
+    if (staticGeometryBvhDirty_) {
+        staticGeometryBvh_.build(stagedMeshes_);
+        staticGeometryBvhDirty_ = false;
+    }
+
+    StaticGeometryBVH::Hit hit;
+    if (!staticGeometryBvh_.raycast(rayOrigin, rayDir, hit)) {
+        return false;
+    }
+
     WorldPickHit best{};
-
-    for (const WorldStagedMesh& mesh : stagedMeshes_) {
-        const glm::mat4& world = mesh.modelTransform;
-
-        // Broad phase: quickly reject meshes whose world-space proxy sphere is not hit by the
-        // ray. This avoids expensive per-triangle transforms/intersections, which become very
-        // costly for shallow camera rays crossing many props/terrain chunks.
-        const glm::vec3 worldCenter = glm::vec3(world * glm::vec4(mesh.localBoundsCenter, 1.0f));
-        const float worldRadius = std::max(0.05f, mesh.localBoundsRadius * std::max(0.01f, maxScaleFromMatrix(world)));
-        float sphereT = 0.0f;
-        if (!raySphereIntersect(rayOrigin, rayDir, worldCenter, worldRadius, sphereT)) {
-            continue;
-        }
-        if (sphereT >= bestT) {
-            continue;
-        }
-
-        const glm::mat4 invWorld = glm::inverse(world);
-        const glm::vec3 localRayOrigin = glm::vec3(invWorld * glm::vec4(rayOrigin, 1.0f));
-        const glm::vec3 localRayDir = glm::vec3(invWorld * glm::vec4(rayDir, 0.0f));
-        const float localRayDirLenSq = glm::dot(localRayDir, localRayDir);
-        if (localRayDirLenSq <= 1e-10f) {
-            continue;
-        }
-
-        const glm::mat3 normalMat = glm::mat3(glm::transpose(glm::inverse(world)));
-
-        for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
-            const glm::vec3 v0 = mesh.vertices[mesh.indices[i]].position;
-            const glm::vec3 v1 = mesh.vertices[mesh.indices[i + 1]].position;
-            const glm::vec3 v2 = mesh.vertices[mesh.indices[i + 2]].position;
-
-            float tLocal = 0.0f;
-            glm::vec3 bary{};
-            if (!rayTriangleIntersect(localRayOrigin, localRayDir, v0, v1, v2, tLocal, bary)) {
-                continue;
-            }
-
-            const glm::vec3 localHit = localRayOrigin + (localRayDir * tLocal);
-            const glm::vec3 worldHit = glm::vec3(world * glm::vec4(localHit, 1.0f));
-            const float tWorld = glm::dot(worldHit - rayOrigin, rayDir);
-            if (tWorld <= 1e-4f || tWorld >= bestT) {
-                continue;
-            }
-
-            anyHit = true;
-            bestT = tWorld;
-            best.hit = true;
-            best.distance = tWorld;
-            best.worldPosition = worldHit;
-
-            const glm::vec3 n0 = normalMat * mesh.vertices[mesh.indices[i]].normal;
-            const glm::vec3 n1 = normalMat * mesh.vertices[mesh.indices[i + 1]].normal;
-            const glm::vec3 n2 = normalMat * mesh.vertices[mesh.indices[i + 2]].normal;
-            glm::vec3 normal = glm::normalize(bary.x * n0 + bary.y * n1 + bary.z * n2);
-            if (!std::isfinite(normal.x) || !std::isfinite(normal.y) || !std::isfinite(normal.z)) {
-                normal = glm::vec3(0.0f, 1.0f, 0.0f);
-            }
-            best.worldNormal = normal;
-            best.group = mesh.debugGroup;
-            best.label = mesh.debugLabel;
-            best.meshIndex = -1;
-            best.nodeIndex = mesh.sourceNodeIndex;
-            best.skinIndex = mesh.sourceSkinIndex;
-            best.instanceIndex = -1;
-        }
+    best.hit = true;
+    best.distance = hit.distance;
+    best.worldPosition = hit.position;
+    best.worldNormal = hit.normal;
+    best.meshIndex = -1;
+    best.instanceIndex = -1;
+    if (hit.meshIndex < stagedMeshes_.size()) {
+        const WorldStagedMesh& mesh = stagedMeshes_[hit.meshIndex];
+        best.group = mesh.debugGroup;
+        best.label = mesh.debugLabel;
+        best.nodeIndex = mesh.sourceNodeIndex;
+        best.skinIndex = mesh.sourceSkinIndex;
     }
 
-    if (anyHit) {
-        outHit = best;
-    }
-    return anyHit;
+    outHit = best;
+    return true;
 }
 
 std::vector<WorldPickDebugSphere> WorldRenderer::buildDynamicPickDebugSpheres(const WorldPickOptions& options) const {
@@ -1780,6 +1696,8 @@ void WorldRenderer::release() {
 
     // Reset async state
     stagedMeshes_.clear();
+    staticGeometryBvh_.clear();
+    staticGeometryBvhDirty_ = true;
     stagedEnemyMeshes_.clear();
     stagedTowerMeshes_.clear();
     stagedTextures_.clear();

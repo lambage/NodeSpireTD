@@ -13,6 +13,7 @@ add_executable(NodeSpireTD
     LuaStateBootstrap.cpp
     utility/GameImageButton.cpp
     utility/GameButton.cpp
+    utility/StaticGeometryBVH.cpp
     utility/TemplateAnimator.cpp
     utility/VulkanTexture.cpp
     utility/WorldAssetLoader.cpp

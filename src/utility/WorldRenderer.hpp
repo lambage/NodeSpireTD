@@ -2,6 +2,7 @@
 
 #include "VulkanContext.hpp"
 #include "utility/AnimatedEntityInstanceSet.hpp"
+#include "utility/StaticGeometryBVH.hpp"
 #include "utility/WorldAssetLoader.hpp"
 #include "utility/WorldGeometryTypes.hpp"
 #include "utility/TemplateAnimationDebugInfo.hpp"
@@ -243,6 +244,9 @@ class WorldRenderer {
 
     // Written by background thread before cpuDone_, read by main thread after.
     std::vector<WorldStagedMesh>    stagedMeshes_;
+    // Built lazily on the first placement raycast after a level load; static geometry never moves.
+    mutable StaticGeometryBVH       staticGeometryBvh_;
+    mutable bool                    staticGeometryBvhDirty_ = true;
     std::vector<WorldStagedMesh>    stagedEnemyMeshes_;
     std::vector<WorldStagedMesh>    stagedTowerMeshes_;
     std::vector<WorldStagedTexture> stagedTextures_;
