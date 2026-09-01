@@ -30,18 +30,6 @@ function(nodespire_stage_runtime_dependencies targetName)
     endif()
 endfunction()
 
-if(BUILD_TESTING)
-    add_executable(NodeSpireMatchProtocolTests
-        multiplayer/LocalMatchHost.cpp
-        multiplayer/MatchProtocolAdapter.cpp
-        multiplayer/MatchProtocolAdapterTests.cpp
-    )
-    target_include_directories(NodeSpireMatchProtocolTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(NodeSpireMatchProtocolTests PRIVATE NodeSpireMatchProtocol)
-    add_test(NAME NodeSpireMatchProtocolTests COMMAND NodeSpireMatchProtocolTests)
-    nodespire_stage_runtime_dependencies(NodeSpireMatchProtocolTests)
-endif()
-
 add_executable(NodeSpireTD 
     main.cpp
     AppController.cpp
@@ -128,9 +116,6 @@ target_link_libraries(NodeSpireTD PRIVATE
 nodespire_stage_runtime_dependencies(NodeSpireTD)
 
 set(NODESPIRE_INSTALL_TARGETS NodeSpireTD)
-if(TARGET NodeSpireMatchProtocolTests)
-    list(APPEND NODESPIRE_INSTALL_TARGETS NodeSpireMatchProtocolTests)
-endif()
 
 install(TARGETS ${NODESPIRE_INSTALL_TARGETS}
     RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies

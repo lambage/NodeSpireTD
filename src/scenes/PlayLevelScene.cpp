@@ -26,6 +26,42 @@ constexpr float kTowerHiddenY = -10000.0f;
 constexpr float kTowerGhostAlpha = 0.45f;
 constexpr multiplayer::PlayerId kLocalHostPlayerId = 1;
 
+multiplayer::TowerTargetingMode toMultiplayerTargetingMode(playlevel::TowerTargetingMode mode) {
+    switch (mode) {
+    case playlevel::TowerTargetingMode::First:
+        return multiplayer::TowerTargetingMode::First;
+    case playlevel::TowerTargetingMode::Last:
+        return multiplayer::TowerTargetingMode::Last;
+    case playlevel::TowerTargetingMode::Nearest:
+        return multiplayer::TowerTargetingMode::Nearest;
+    case playlevel::TowerTargetingMode::Random:
+        return multiplayer::TowerTargetingMode::Random;
+    case playlevel::TowerTargetingMode::HighestHp:
+        return multiplayer::TowerTargetingMode::HighestHp;
+    case playlevel::TowerTargetingMode::LowestHp:
+        return multiplayer::TowerTargetingMode::LowestHp;
+    }
+    return multiplayer::TowerTargetingMode::First;
+}
+
+playlevel::TowerTargetingMode toGameplayTargetingMode(multiplayer::TowerTargetingMode mode) {
+    switch (mode) {
+    case multiplayer::TowerTargetingMode::First:
+        return playlevel::TowerTargetingMode::First;
+    case multiplayer::TowerTargetingMode::Last:
+        return playlevel::TowerTargetingMode::Last;
+    case multiplayer::TowerTargetingMode::Nearest:
+        return playlevel::TowerTargetingMode::Nearest;
+    case multiplayer::TowerTargetingMode::Random:
+        return playlevel::TowerTargetingMode::Random;
+    case multiplayer::TowerTargetingMode::HighestHp:
+        return playlevel::TowerTargetingMode::HighestHp;
+    case multiplayer::TowerTargetingMode::LowestHp:
+        return playlevel::TowerTargetingMode::LowestHp;
+    }
+    return playlevel::TowerTargetingMode::First;
+}
+
 // Last-resort default clip name, used only for the one-time Idle-on-load initialization when no
 // enemy archetype is registered yet to supply EnemyArchetype::idleClipName. Every other clip
 // decision (Walking, Death) is sourced per-enemy from ActiveEnemy::walkingClipName/deathClipName
@@ -701,19 +737,7 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
                 return;
             }
 
-            if (requestSpendMoney(static_cast<float>(selected->cost))) {
-                const float attackIntervalSeconds = 1.0f / std::max(0.01f, selected->attackSpeed);
-                const int towerPrototypeIndex = towerLoadController_.templatePrototypeIndex(selected->id);
-                const int projectilePrototypeIndex =
-                    towerLoadController_.projectileTemplatePrototypeIndex(selected->id);
-                placedTowers_.push_back(
-                    PlacedTower{selected->id, worldPos, towerPrototypeIndex, projectilePrototypeIndex,
-                                selected->attackDamage, selected->armorPiercing, selected->attackRange,
-                                attackIntervalSeconds, 0.0f, selected->projectileSpeed, selected->splashRadius,
-                                selected->chainRange, selected->ricochetRange, std::max(1, selected->projectileCount),
-                                std::max(1, selected->chainTargetCount), std::max(0, selected->ricochetCount),
-                                selected->cost, selected->damageType, selected->defaultTargetingMode, 0.0f, {},
-                                nextTowerRuntimeId_++, 1});
+            if (processLocalTowerPlacementCommand(*selected, worldPos)) {
                 towerPlacementController_.cancelPlacement();
                 towerPlacementPreviewResolver_.reset();
                 lastPlacementValidationReason_.clear();
@@ -1207,6 +1231,163 @@ void PlayLevelScene::processLocalStartWaveCommand() {
     if (!serializedResult) {
         spdlog::error("PlayLevelScene: failed to serialize local start-wave result.");
     }
+}
+
+bool PlayLevelScene::processLocalTowerPlacementCommand(const TowerArchetype& archetype, const glm::vec3& worldPos) {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = kLocalHostPlayerId;
+    command.sequence = nextLocalCommandSequence_++;
+    command.payload = multiplayer::PlaceTowerCommand{archetype.id, {worldPos.x, worldPos.y, worldPos.z}};
+
+    const auto serializedCommand = multiplayer::MatchProtocolAdapter::serializePlayerCommand(command);
+    if (!serializedCommand) {
+        spdlog::error("PlayLevelScene: failed to serialize local tower-placement command.");
+        return false;
+    }
+
+    bool applied = false;
+    const auto serializedResult = localMatchHost_.processCommand(
+        *serializedCommand, simulationTick_, [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
+                                         -> std::optional<multiplayer::CommandRejectionReason> {
+            const auto* placementCommand = std::get_if<multiplayer::PlaceTowerCommand>(&receivedCommand.payload);
+            if (!placementCommand || placementCommand->towerArchetypeId.empty()) {
+                return multiplayer::CommandRejectionReason::InvalidPayload;
+            }
+            if (gameplayState_.matchStatus != MatchStatus::Running) {
+                return multiplayer::CommandRejectionReason::MatchNotRunning;
+            }
+
+            const TowerArchetype* requestedArchetype = towerLoadController_.findArchetype(placementCommand->towerArchetypeId);
+            if (!requestedArchetype) {
+                return multiplayer::CommandRejectionReason::UnknownTowerArchetype;
+            }
+
+            const glm::vec3 requestedPosition{placementCommand->requestedPosition.x, placementCommand->requestedPosition.y,
+                                              placementCommand->requestedPosition.z};
+            constexpr int kConfirmFootprintSampleCount = 8;
+            if (!validateTowerPlacement(*requestedArchetype, requestedPosition, kConfirmFootprintSampleCount).empty()) {
+                return multiplayer::CommandRejectionReason::InvalidPlacement;
+            }
+            if (!requestSpendMoney(static_cast<float>(requestedArchetype->cost))) {
+                return multiplayer::CommandRejectionReason::InsufficientFunds;
+            }
+
+            const float attackIntervalSeconds = 1.0f / std::max(0.01f, requestedArchetype->attackSpeed);
+            const int towerPrototypeIndex = towerLoadController_.templatePrototypeIndex(requestedArchetype->id);
+            const int projectilePrototypeIndex = towerLoadController_.projectileTemplatePrototypeIndex(requestedArchetype->id);
+            placedTowers_.push_back(
+                PlacedTower{requestedArchetype->id, requestedPosition, towerPrototypeIndex, projectilePrototypeIndex,
+                            requestedArchetype->attackDamage, requestedArchetype->armorPiercing, requestedArchetype->attackRange,
+                            attackIntervalSeconds, 0.0f, requestedArchetype->projectileSpeed, requestedArchetype->splashRadius,
+                            requestedArchetype->chainRange, requestedArchetype->ricochetRange,
+                            std::max(1, requestedArchetype->projectileCount),
+                            std::max(1, requestedArchetype->chainTargetCount),
+                            std::max(0, requestedArchetype->ricochetCount), requestedArchetype->cost,
+                            requestedArchetype->damageType, requestedArchetype->defaultTargetingMode, 0.0f, {},
+                            nextTowerRuntimeId_++, receivedCommand.playerId});
+            applied = true;
+            return std::nullopt;
+        });
+    if (!serializedResult) {
+        spdlog::error("PlayLevelScene: failed to serialize local tower-placement result.");
+    }
+    return applied;
+}
+
+bool PlayLevelScene::processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId towerRuntimeId,
+                                                      const std::string& nodeId) {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = kLocalHostPlayerId;
+    command.sequence = nextLocalCommandSequence_++;
+    command.payload = multiplayer::UpgradeTowerCommand{towerRuntimeId, nodeId};
+
+    const auto serializedCommand = multiplayer::MatchProtocolAdapter::serializePlayerCommand(command);
+    if (!serializedCommand) {
+        spdlog::error("PlayLevelScene: failed to serialize local tower-upgrade command.");
+        return false;
+    }
+
+    bool applied = false;
+    const auto serializedResult = localMatchHost_.processCommand(
+        *serializedCommand, simulationTick_, [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
+                                         -> std::optional<multiplayer::CommandRejectionReason> {
+            const auto* upgradeCommand = std::get_if<multiplayer::UpgradeTowerCommand>(&receivedCommand.payload);
+            if (!upgradeCommand || upgradeCommand->upgradeNodeId.empty()) {
+                return multiplayer::CommandRejectionReason::InvalidPayload;
+            }
+            if (gameplayState_.matchStatus != MatchStatus::Running) {
+                return multiplayer::CommandRejectionReason::MatchNotRunning;
+            }
+
+            const auto towerIt = std::find_if(placedTowers_.begin(), placedTowers_.end(),
+                                              [towerRuntimeId = upgradeCommand->towerRuntimeId](const PlacedTower& tower) {
+                                                  return tower.runtimeId == towerRuntimeId;
+                                              });
+            if (towerIt == placedTowers_.end()) {
+                return multiplayer::CommandRejectionReason::UnknownTower;
+            }
+            if (towerIt->ownerPlayerId != receivedCommand.playerId) {
+                return multiplayer::CommandRejectionReason::TowerNotOwnedByPlayer;
+            }
+
+            std::string reason;
+            if (!unlockTowerUpgrade(*towerIt, upgradeCommand->upgradeNodeId, reason)) {
+                return reason == "insufficient funds" ? multiplayer::CommandRejectionReason::InsufficientFunds
+                                                       : multiplayer::CommandRejectionReason::UpgradeUnavailable;
+            }
+            applied = true;
+            return std::nullopt;
+        });
+    if (!serializedResult) {
+        spdlog::error("PlayLevelScene: failed to serialize local tower-upgrade result.");
+    }
+    return applied;
+}
+
+bool PlayLevelScene::processLocalTowerTargetingCommand(multiplayer::TowerRuntimeId towerRuntimeId,
+                                                        playlevel::TowerTargetingMode targetingMode) {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = kLocalHostPlayerId;
+    command.sequence = nextLocalCommandSequence_++;
+    command.payload = multiplayer::SetTowerTargetingCommand{towerRuntimeId, toMultiplayerTargetingMode(targetingMode)};
+
+    const auto serializedCommand = multiplayer::MatchProtocolAdapter::serializePlayerCommand(command);
+    if (!serializedCommand) {
+        spdlog::error("PlayLevelScene: failed to serialize local tower-targeting command.");
+        return false;
+    }
+
+    bool applied = false;
+    const auto serializedResult = localMatchHost_.processCommand(
+        *serializedCommand, simulationTick_, [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
+                                         -> std::optional<multiplayer::CommandRejectionReason> {
+            const auto* targetingCommand = std::get_if<multiplayer::SetTowerTargetingCommand>(&receivedCommand.payload);
+            if (!targetingCommand) {
+                return multiplayer::CommandRejectionReason::InvalidPayload;
+            }
+            if (gameplayState_.matchStatus != MatchStatus::Running) {
+                return multiplayer::CommandRejectionReason::MatchNotRunning;
+            }
+
+            const auto towerIt = std::find_if(placedTowers_.begin(), placedTowers_.end(),
+                                              [towerRuntimeId = targetingCommand->towerRuntimeId](const PlacedTower& tower) {
+                                                  return tower.runtimeId == towerRuntimeId;
+                                              });
+            if (towerIt == placedTowers_.end()) {
+                return multiplayer::CommandRejectionReason::UnknownTower;
+            }
+            if (towerIt->ownerPlayerId != receivedCommand.playerId) {
+                return multiplayer::CommandRejectionReason::TowerNotOwnedByPlayer;
+            }
+
+            towerIt->targetingMode = toGameplayTargetingMode(targetingCommand->targetingMode);
+            applied = true;
+            return std::nullopt;
+        });
+    if (!serializedResult) {
+        spdlog::error("PlayLevelScene: failed to serialize local tower-targeting result.");
+    }
+    return applied;
 }
 
 bool PlayLevelScene::updateRouteFromWorld() {
@@ -2108,9 +2289,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 return pushCommandResult(L, false, "tower state not found");
             }
 
-            std::string reason;
-            const bool unlocked = self->unlockTowerUpgrade(*placedTower, nodeId, reason);
-            return pushCommandResult(L, unlocked, reason.c_str());
+            const bool accepted = self->processLocalTowerUpgradeCommand(placedTower->runtimeId, nodeId);
+            return pushCommandResult(L, accepted, accepted ? "unlocked" : "host rejected upgrade");
         },
         1);
     lua_setfield(L_, gameplayTable, "requestSelectedTowerUpgrade");
@@ -2140,8 +2320,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 return pushCommandResult(L, false, "tower state not found");
             }
 
-            placedTower->targetingMode = parsedMode;
-            return pushCommandResult(L, true, "targeting mode updated");
+            const bool accepted = self->processLocalTowerTargetingCommand(placedTower->runtimeId, parsedMode);
+            return pushCommandResult(L, accepted, accepted ? "targeting mode updated" : "host rejected targeting mode");
         },
         1);
     lua_setfield(L_, gameplayTable, "requestSelectedTowerTargetingMode");

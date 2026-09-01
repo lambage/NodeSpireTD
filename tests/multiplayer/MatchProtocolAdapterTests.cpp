@@ -5,6 +5,7 @@
 #include "nodespire/multiplayer/v1/match.pb.h"
 
 #include <cassert>
+#include <gtest/gtest.h>
 #include <string>
 #include <variant>
 
@@ -18,6 +19,35 @@ multiplayer::PlayerCommandRequest startWaveCommand(multiplayer::PlayerId playerI
     return command;
 }
 
+multiplayer::PlayerCommandRequest targetingCommand(multiplayer::PlayerId playerId,
+                                                    multiplayer::CommandSequence sequence,
+                                                    multiplayer::TowerRuntimeId towerRuntimeId) {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = playerId;
+    command.sequence = sequence;
+    command.payload = multiplayer::SetTowerTargetingCommand{towerRuntimeId, multiplayer::TowerTargetingMode::Nearest};
+    return command;
+}
+
+multiplayer::PlayerCommandRequest upgradeCommand(multiplayer::PlayerId playerId,
+                                                  multiplayer::CommandSequence sequence,
+                                                  multiplayer::TowerRuntimeId towerRuntimeId) {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = playerId;
+    command.sequence = sequence;
+    command.payload = multiplayer::UpgradeTowerCommand{towerRuntimeId, "quickdraw_rig"};
+    return command;
+}
+
+multiplayer::PlayerCommandRequest placementCommand(multiplayer::PlayerId playerId,
+                                                    multiplayer::CommandSequence sequence) {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = playerId;
+    command.sequence = sequence;
+    command.payload = multiplayer::PlaceTowerCommand{"archer_hut", {1.0f, 2.0f, 3.0f}};
+    return command;
+}
+
 nodespire::multiplayer::v1::PlayerCommandResult parseResult(const std::optional<std::string>& bytes) {
     assert(bytes.has_value());
     nodespire::multiplayer::v1::PlayerCommandResult result;
@@ -25,7 +55,7 @@ nodespire::multiplayer::v1::PlayerCommandResult parseResult(const std::optional<
     return result;
 }
 
-void testRoundTrip() {
+TEST(MatchProtocolAdapter, RoundTripsStartWaveCommand) {
     const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(startWaveCommand(7, 3));
     assert(encoded.has_value());
 
@@ -37,7 +67,7 @@ void testRoundTrip() {
     assert(std::holds_alternative<multiplayer::StartWaveCommand>(decoded.command->payload));
 }
 
-void testMissingCommandIsRejected() {
+TEST(MatchProtocolAdapter, RejectsMissingCommand) {
     nodespire::multiplayer::v1::PlayerCommandRequest wireCommand;
     wireCommand.set_protocol_version(multiplayer::kMatchProtocolVersion);
     wireCommand.set_player_id(7);
@@ -50,7 +80,7 @@ void testMissingCommandIsRejected() {
     assert(decoded.error == multiplayer::CommandDecodeError::CommandNotSet);
 }
 
-void testOversizedProtocolVersionIsRejected() {
+TEST(MatchProtocolAdapter, RejectsOversizedProtocolVersion) {
     nodespire::multiplayer::v1::PlayerCommandRequest wireCommand;
     wireCommand.set_protocol_version(65536);
     wireCommand.set_player_id(7);
@@ -64,7 +94,7 @@ void testOversizedProtocolVersionIsRejected() {
     assert(decoded.error == multiplayer::CommandDecodeError::ProtocolVersionOutOfRange);
 }
 
-void testInvalidTargetingModeIsRejected() {
+TEST(MatchProtocolAdapter, RejectsInvalidTargetingMode) {
     nodespire::multiplayer::v1::PlayerCommandRequest wireCommand;
     auto* targeting = wireCommand.mutable_set_tower_targeting();
     targeting->set_tower_runtime_id(42);
@@ -77,7 +107,7 @@ void testInvalidTargetingModeIsRejected() {
     assert(decoded.error == multiplayer::CommandDecodeError::InvalidTargetingMode);
 }
 
-void testHostRejectsUnknownAndReplay() {
+TEST(LocalHostCommandGate, RejectsUnknownPlayerAndReplay) {
     multiplayer::LocalHostCommandGate host;
     const auto unknownPlayerResult = host.validateAndApply(startWaveCommand(7, 1), 11, {});
     assert(std::holds_alternative<multiplayer::CommandRejected>(unknownPlayerResult));
@@ -94,7 +124,7 @@ void testHostRejectsUnknownAndReplay() {
            multiplayer::CommandRejectionReason::DuplicateOrOutOfOrderSequence);
 }
 
-void testRejectedCommandCannotReplay() {
+TEST(LocalHostCommandGate, RejectsReplayOfRejectedCommand) {
     multiplayer::LocalHostCommandGate host;
     assert(host.registerPlayer(7));
 
@@ -109,7 +139,7 @@ void testRejectedCommandCannotReplay() {
            multiplayer::CommandRejectionReason::DuplicateOrOutOfOrderSequence);
 }
 
-void testLoopbackHostAppliesAcceptedCommandOnce() {
+TEST(LocalMatchHost, AppliesAcceptedCommandOnce) {
     multiplayer::LocalMatchHost host;
     assert(host.registerPlayer(7));
     const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(startWaveCommand(7, 1));
@@ -137,7 +167,7 @@ void testLoopbackHostAppliesAcceptedCommandOnce() {
     assert(commandCount == 1);
 }
 
-void testLoopbackHostRejectsInvalidAndUnknownPayloads() {
+TEST(LocalMatchHost, RejectsInvalidAndUnknownPayloads) {
     multiplayer::LocalMatchHost host;
     const auto malformedResult = parseResult(host.processCommand("not a protobuf command", 11, {}));
     assert(malformedResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kRejected);
@@ -151,15 +181,67 @@ void testLoopbackHostRejectsInvalidAndUnknownPayloads() {
     assert(unknownPlayerResult.rejected().reason() == nodespire::multiplayer::v1::PlayerCommandRejected::UNKNOWN_PLAYER);
 }
 
-} // namespace
+TEST(LocalMatchHost, EnforcesTowerOwnership) {
+    constexpr multiplayer::PlayerId kTowerOwner = 7;
+    constexpr multiplayer::TowerRuntimeId kTowerRuntimeId = 42;
+    multiplayer::LocalMatchHost host;
+    assert(host.registerPlayer(kTowerOwner));
+    assert(host.registerPlayer(8));
 
-int main() {
-    testRoundTrip();
-    testMissingCommandIsRejected();
-    testOversizedProtocolVersionIsRejected();
-    testInvalidTargetingModeIsRejected();
-    testHostRejectsUnknownAndReplay();
-    testRejectedCommandCannotReplay();
-    testLoopbackHostAppliesAcceptedCommandOnce();
-    testLoopbackHostRejectsInvalidAndUnknownPayloads();
+    const auto ownedCommand = multiplayer::MatchProtocolAdapter::serializePlayerCommand(
+        targetingCommand(kTowerOwner, 1, kTowerRuntimeId));
+    const auto ownedResult = parseResult(host.processCommand(
+        *ownedCommand, 11, [](const multiplayer::PlayerCommandRequest& receivedCommand) {
+            const auto* targeting = std::get_if<multiplayer::SetTowerTargetingCommand>(&receivedCommand.payload);
+            assert(targeting != nullptr);
+            assert(targeting->towerRuntimeId == kTowerRuntimeId);
+            assert(targeting->targetingMode == multiplayer::TowerTargetingMode::Nearest);
+            return std::optional<multiplayer::CommandRejectionReason>{};
+        }));
+    assert(ownedResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kAccepted);
+
+    const auto unownedCommand = multiplayer::MatchProtocolAdapter::serializePlayerCommand(targetingCommand(8, 1, kTowerRuntimeId));
+    const auto unownedResult = parseResult(host.processCommand(
+        *unownedCommand, 12, [](const multiplayer::PlayerCommandRequest&) {
+            return std::optional{multiplayer::CommandRejectionReason::TowerNotOwnedByPlayer};
+        }));
+    assert(unownedResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kRejected);
+    assert(unownedResult.rejected().reason() ==
+           nodespire::multiplayer::v1::PlayerCommandRejected::TOWER_NOT_OWNED_BY_PLAYER);
 }
+
+TEST(LocalMatchHost, ReceivesOnlyTowerUpgradeIntent) {
+    multiplayer::LocalMatchHost host;
+    assert(host.registerPlayer(7));
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(upgradeCommand(7, 1, 42));
+
+    const auto wireResult = parseResult(host.processCommand(
+        *encoded, 11, [](const multiplayer::PlayerCommandRequest& receivedCommand) {
+            const auto* upgrade = std::get_if<multiplayer::UpgradeTowerCommand>(&receivedCommand.payload);
+            assert(upgrade != nullptr);
+            assert(upgrade->towerRuntimeId == 42);
+            assert(upgrade->upgradeNodeId == "quickdraw_rig");
+            return std::optional<multiplayer::CommandRejectionReason>{};
+        }));
+    assert(wireResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kAccepted);
+}
+
+TEST(LocalMatchHost, ReceivesOnlyTowerPlacementIntent) {
+    multiplayer::LocalMatchHost host;
+    assert(host.registerPlayer(7));
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(placementCommand(7, 1));
+
+    const auto wireResult = parseResult(host.processCommand(
+        *encoded, 11, [](const multiplayer::PlayerCommandRequest& receivedCommand) {
+            const auto* placement = std::get_if<multiplayer::PlaceTowerCommand>(&receivedCommand.payload);
+            assert(placement != nullptr);
+            assert(placement->towerArchetypeId == "archer_hut");
+            assert(placement->requestedPosition.x == 1.0f);
+            assert(placement->requestedPosition.y == 2.0f);
+            assert(placement->requestedPosition.z == 3.0f);
+            return std::optional<multiplayer::CommandRejectionReason>{};
+        }));
+    assert(wireResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kAccepted);
+}
+
+} // namespace

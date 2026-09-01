@@ -146,6 +146,10 @@ class PlayLevelScene final : public GameScene {
     std::string validateStartWaveRequest() const;
     void applyPendingGameplayCommands();
     void processLocalStartWaveCommand();
+    bool processLocalTowerPlacementCommand(const TowerArchetype& archetype, const glm::vec3& worldPos);
+    bool processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId towerRuntimeId, const std::string& nodeId);
+    bool processLocalTowerTargetingCommand(multiplayer::TowerRuntimeId towerRuntimeId,
+                         playlevel::TowerTargetingMode targetingMode);
     void updateWaveSimulation(float dt);
     // One-time initialization: seeds every registered enemy archetype's own template animator
     // with its own Idle clip (only if that model has a clip by that name -- a no-op fallback
