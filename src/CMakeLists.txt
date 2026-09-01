@@ -25,6 +25,28 @@ add_library(NodeSpireMatchProtocol STATIC
 target_include_directories(NodeSpireMatchProtocol PUBLIC "${NODESPIRE_PROTO_GENERATED_DIR}")
 target_link_libraries(NodeSpireMatchProtocol PUBLIC protobuf::libprotobuf)
 
+function(nodespire_stage_runtime_dependencies targetName)
+    if(WIN32)
+        add_custom_command(TARGET ${targetName} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:${targetName}>
+                    $<TARGET_RUNTIME_DLLS:${targetName}>
+            COMMAND_EXPAND_LISTS
+            COMMENT "Staging runtime dependencies for ${targetName}"
+        )
+    endif()
+endfunction()
+
+if(BUILD_TESTING)
+    add_executable(NodeSpireMatchProtocolTests
+        multiplayer/MatchProtocolAdapter.cpp
+        multiplayer/MatchProtocolAdapterTests.cpp
+    )
+    target_include_directories(NodeSpireMatchProtocolTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(NodeSpireMatchProtocolTests PRIVATE NodeSpireMatchProtocol)
+    add_test(NAME NodeSpireMatchProtocolTests COMMAND NodeSpireMatchProtocolTests)
+    nodespire_stage_runtime_dependencies(NodeSpireMatchProtocolTests)
+endif()
+
 add_executable(NodeSpireTD 
     main.cpp
     AppController.cpp
@@ -106,14 +128,23 @@ target_link_libraries(NodeSpireTD PRIVATE
     Vulkan::Vulkan
 )
 
-if(WIN32)
-    add_custom_command(TARGET NodeSpireTD POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:protobuf::libprotobuf>
-                $<TARGET_FILE_DIR:NodeSpireTD>
-        COMMENT "Copying the Protobuf runtime beside NodeSpireTD"
-    )
+nodespire_stage_runtime_dependencies(NodeSpireTD)
+
+set(NODESPIRE_INSTALL_TARGETS NodeSpireTD)
+if(TARGET NodeSpireMatchProtocolTests)
+    list(APPEND NODESPIRE_INSTALL_TARGETS NodeSpireMatchProtocolTests)
 endif()
+
+install(TARGETS ${NODESPIRE_INSTALL_TARGETS}
+    RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+    RUNTIME DESTINATION "."
+)
+install(RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+    DESTINATION "."
+    PRE_EXCLUDE_REGEXES "api-ms-win-.*" "ext-ms-win-.*"
+    POST_EXCLUDE_REGEXES ".*[\\/]system32[\\/].*"
+)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ".")
 
 # ── Lua metadata generation for LuaLS ─────────────────────────────────────────
 find_package(Python3 COMPONENTS Interpreter QUIET)
