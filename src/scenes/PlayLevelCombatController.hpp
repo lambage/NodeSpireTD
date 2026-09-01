@@ -1,5 +1,6 @@
 #pragma once
 
+#include "multiplayer/MatchProtocol.hpp"
 #include "scenes/DamageTypes.hpp"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -94,6 +95,8 @@ struct PlacedTower {
     TowerTargetingMode targetingMode = TowerTargetingMode::First;
     float totalDamageDealt = 0.0f;
     std::vector<std::string> unlockedUpgradeNodeIds;
+    multiplayer::TowerRuntimeId runtimeId = 0;
+    multiplayer::PlayerId ownerPlayerId = 0;
 };
 
 struct ActiveProjectile {

@@ -63,6 +63,25 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 
 FetchContent_Declare(
+    protobuf
+    GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+    GIT_TAG        v30.2
+    GIT_SHALLOW    ON
+    GIT_SUBMODULES_RECURSE TRUE
+)
+
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+# Static Protobuf builds force Abseil to /MT[d] upstream, which conflicts with
+# NodeSpireTD's /MD[d] runtime. Shared Protobuf keeps the dependency graph aligned.
+set(protobuf_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "" FORCE)
+set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(protobuf)
+
+FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
     GIT_TAG        1.0.3

@@ -266,7 +266,7 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     registerLuaGameplayApi();
 
     bootstrap_.resetRuntimeState(gameplayState_, towerLoadController_, enemyLoadController_, towerPlacementController_,
-                                 placedTowers_, activeProjectiles_, nextEnemyRuntimeId_, activeEnemies_,
+                                 placedTowers_, activeProjectiles_, nextTowerRuntimeId_, nextEnemyRuntimeId_, activeEnemies_,
                                  waveController_, routeController_, selectedEnemyRuntimeId_, pickingController_, state,
                                  selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
                                  worldAssetSpec_);
@@ -707,7 +707,8 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
                                 attackIntervalSeconds, 0.0f, selected->projectileSpeed, selected->splashRadius,
                                 selected->chainRange, selected->ricochetRange, std::max(1, selected->projectileCount),
                                 std::max(1, selected->chainTargetCount), std::max(0, selected->ricochetCount),
-                                selected->cost, selected->damageType, selected->defaultTargetingMode});
+                                selected->cost, selected->damageType, selected->defaultTargetingMode, 0.0f, {},
+                                nextTowerRuntimeId_++, 1});
                 towerPlacementController_.cancelPlacement();
                 towerPlacementPreviewResolver_.reset();
                 lastPlacementValidationReason_.clear();

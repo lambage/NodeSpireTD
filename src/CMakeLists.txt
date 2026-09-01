@@ -1,5 +1,30 @@
 cmake_minimum_required(VERSION 3.31.6)
 
+set(NODESPIRE_PROTO_ROOT "${CMAKE_SOURCE_DIR}/proto")
+set(NODESPIRE_MATCH_PROTO "${NODESPIRE_PROTO_ROOT}/nodespire/multiplayer/v1/match.proto")
+set(NODESPIRE_PROTO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(NODESPIRE_MATCH_PROTO_SOURCE "${NODESPIRE_PROTO_GENERATED_DIR}/nodespire/multiplayer/v1/match.pb.cc")
+set(NODESPIRE_MATCH_PROTO_HEADER "${NODESPIRE_PROTO_GENERATED_DIR}/nodespire/multiplayer/v1/match.pb.h")
+
+add_custom_command(
+    OUTPUT "${NODESPIRE_MATCH_PROTO_SOURCE}" "${NODESPIRE_MATCH_PROTO_HEADER}"
+    COMMAND $<TARGET_FILE:protoc>
+    ARGS --cpp_out=${NODESPIRE_PROTO_GENERATED_DIR}
+         --proto_path=${NODESPIRE_PROTO_ROOT}
+         "${NODESPIRE_MATCH_PROTO}"
+    DEPENDS "${NODESPIRE_MATCH_PROTO}" protoc
+    COMMENT "Generating C++ multiplayer protocol bindings"
+    VERBATIM
+)
+
+add_library(NodeSpireMatchProtocol STATIC
+    "${NODESPIRE_MATCH_PROTO_SOURCE}"
+    "${NODESPIRE_MATCH_PROTO_HEADER}"
+)
+
+target_include_directories(NodeSpireMatchProtocol PUBLIC "${NODESPIRE_PROTO_GENERATED_DIR}")
+target_link_libraries(NodeSpireMatchProtocol PUBLIC protobuf::libprotobuf)
+
 add_executable(NodeSpireTD 
     main.cpp
     AppController.cpp
@@ -68,6 +93,7 @@ target_include_directories(NodeSpireTD PRIVATE
 target_link_libraries(NodeSpireTD PRIVATE 
     glm::glm
     nlohmann_json::nlohmann_json
+    NodeSpireMatchProtocol
     fastgltf
     lua
     sfml-graphics
@@ -79,6 +105,15 @@ target_link_libraries(NodeSpireTD PRIVATE
     vk-bootstrap
     Vulkan::Vulkan
 )
+
+if(WIN32)
+    add_custom_command(TARGET NodeSpireTD POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:protobuf::libprotobuf>
+                $<TARGET_FILE_DIR:NodeSpireTD>
+        COMMENT "Copying the Protobuf runtime beside NodeSpireTD"
+    )
+endif()
 
 # ── Lua metadata generation for LuaLS ─────────────────────────────────────────
 find_package(Python3 COMPONENTS Interpreter QUIET)

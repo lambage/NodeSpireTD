@@ -61,6 +61,7 @@ class PlayLevelScene final : public GameScene {
     PlayLevelCombatController combatController_{};
     std::vector<PlacedTower> placedTowers_;
     std::vector<ActiveProjectile> activeProjectiles_;
+    std::uint64_t nextTowerRuntimeId_ = 1;
     std::uint64_t nextEnemyRuntimeId_ = 1;
     PlayLevelWaveController waveController_{};
     std::vector<ActiveEnemy> activeEnemies_;

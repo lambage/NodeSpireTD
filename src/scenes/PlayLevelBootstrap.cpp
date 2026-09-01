@@ -55,7 +55,8 @@ void preloadEnemyArchetypes(EnemyLoadController& enemyLoadController) {
 void PlayLevelBootstrap::resetRuntimeState(
     PlayLevelState& gameplayState, TowerLoadController& towerLoadController, EnemyLoadController& enemyLoadController,
     PlayLevelTowerPlacementController& towerPlacementController, std::vector<playlevel::PlacedTower>& placedTowers,
-    std::vector<playlevel::ActiveProjectile>& activeProjectiles, std::uint64_t& nextEnemyRuntimeId,
+    std::vector<playlevel::ActiveProjectile>& activeProjectiles, std::uint64_t& nextTowerRuntimeId,
+    std::uint64_t& nextEnemyRuntimeId,
     std::vector<playlevel::ActiveEnemy>& activeEnemies, PlayLevelWaveController& waveController,
     PlayLevelRouteController& routeController, std::uint64_t& selectedEnemyRuntimeId,
     PlayLevelPickingController& pickingController, const SceneSharedState& state,
@@ -67,6 +68,7 @@ void PlayLevelBootstrap::resetRuntimeState(
     towerPlacementController.reset();
     placedTowers.clear();
     activeProjectiles.clear();
+    nextTowerRuntimeId = 1;
     nextEnemyRuntimeId = 1;
     activeEnemies.clear();
     waveController.clearAll();

@@ -22,7 +22,7 @@ Each client owns only presentation and input: camera, rendering, UI, and audiovi
 
 Single player remains a local host with one local client through the same command-validation boundary.
 
-The simulation will advance in fixed ticks. The host assigns stable runtime identifiers for players, towers, enemies, and projectiles. Network messages use explicit, versioned serialization rather than raw C++ structures.
+The simulation will advance in fixed ticks. The host assigns stable runtime identifiers for players, towers, enemies, and projectiles. Network messages use Protobuf schemas with explicit, versioned fields rather than raw C++ structures.
 
 The transport is hidden behind a narrow interface. Stage 1 uses an in-process loopback implementation. Stage 2 uses a reliable LAN IPv4 implementation. A Steam networking implementation can later satisfy the same interface.
 
@@ -60,6 +60,6 @@ Clients interpolate replicated visual state, but do not authoritatively award re
 
 1. Extract a fixed-tick `MatchSimulation` from `PlayLevelScene`; add player balances, tower ownership, stable IDs, and host command validation with loopback tests.
 2. Refactor local tower placement, upgrades, targeting, and wave start to issue player intent commands. Preserve single-player through local host authority.
-3. Define explicit packet serialization and a loopback host/client harness. Add snapshot application and visual interpolation.
+3. Define Protobuf packet serialization and a loopback host/client harness. Add snapshot application and visual interpolation.
 4. Add reliable LAN IPv4 transport, host/join lobby controls, connection lifecycle, content-manifest handshake, and reconnection snapshots.
 5. Implement a Steam transport adapter behind the established transport interface.
