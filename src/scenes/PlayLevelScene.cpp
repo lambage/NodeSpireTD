@@ -1525,7 +1525,15 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         activeEnemies_, activeProjectiles_);
 
     combatController_.collectDefeatedEnemies(
-        activeEnemies_, [this](float rewardMoney) { creditPlayerMoney(kLocalHostPlayerId, rewardMoney); },
+        activeEnemies_, [this](float rewardMoney, multiplayer::TowerRuntimeId towerRuntimeId) {
+            const auto towerIt = std::find_if(placedTowers_.begin(), placedTowers_.end(),
+                                              [towerRuntimeId](const PlacedTower& tower) {
+                                                  return tower.runtimeId == towerRuntimeId;
+                                              });
+            const multiplayer::PlayerId rewardPlayerId =
+                towerIt != placedTowers_.end() ? towerIt->ownerPlayerId : kLocalHostPlayerId;
+            creditPlayerMoney(rewardPlayerId, rewardMoney);
+        },
         [this]() { gameplayState_.enemiesDefeated += 1; });
     reconcileSelectedEnemyAfterSimulation();
 

@@ -71,6 +71,7 @@ struct ActiveEnemy {
     // TemplateAnimator::setPlaybackTimeSeconds() wraps this modulo the clip's duration, so a
     // continuously-growing value here loops correctly without any extra bookkeeping.
     float walkAnimElapsedSeconds = 0.0f;
+    multiplayer::TowerRuntimeId lastDamagingTowerRuntimeId = 0;
 };
 
 struct PlacedTower {
@@ -114,6 +115,7 @@ struct ActiveProjectile {
     int chainTargetCount = 1;
     int remainingRicochetCount = 0;
     int sourceTowerPoolIndex = -1;
+    multiplayer::TowerRuntimeId sourceTowerRuntimeId = 0;
     std::uint64_t targetEnemyRuntimeId = 0;
     std::uint64_t lastHitEnemyRuntimeId = 0;
 };
@@ -140,7 +142,7 @@ class PlayLevelCombatController {
                            std::vector<playlevel::ActiveProjectile>& activeProjectiles) const;
 
     void collectDefeatedEnemies(std::vector<playlevel::ActiveEnemy>& activeEnemies,
-                                const std::function<void(float)>& onRewardGranted,
+                                const std::function<void(float, multiplayer::TowerRuntimeId)>& onRewardGranted,
                                 const std::function<void()>& onEnemyDefeated) const;
 
     // Advances enemies already in the Dying state and removes ones whose Death clip has finished
