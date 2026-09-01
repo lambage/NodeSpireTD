@@ -58,15 +58,17 @@ class PlayLevelScene final : public GameScene {
     using ActiveProjectile = playlevel::ActiveProjectile;
 
     std::unique_ptr<WorldRenderer> worldRenderer_;
-    PlayLevelState gameplayState_{};
+    multiplayer::MatchSimulation matchSimulation_{};
+    PlayLevelState& gameplayState_;
     PlayLevelTowerPlacementController towerPlacementController_{};
-    PlayLevelCombatController combatController_{};
-    std::vector<PlacedTower> placedTowers_;
-    std::vector<ActiveProjectile> activeProjectiles_;
-    std::uint64_t nextTowerRuntimeId_ = 1;
-    std::uint64_t nextEnemyRuntimeId_ = 1;
-    PlayLevelWaveController waveController_{};
-    std::vector<ActiveEnemy> activeEnemies_;
+    PlayLevelCombatController& combatController_;
+    std::vector<PlacedTower>& placedTowers_;
+    std::vector<ActiveProjectile>& activeProjectiles_;
+    std::uint64_t& nextTowerRuntimeId_;
+    std::uint64_t& nextEnemyRuntimeId_;
+    std::uint64_t& nextProjectileRuntimeId_;
+    PlayLevelWaveController& waveController_;
+    std::vector<ActiveEnemy>& activeEnemies_;
     std::filesystem::path selectedMapAssetPath_;
     std::filesystem::path selectedLevelScriptPath_;
     std::string selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
@@ -74,7 +76,6 @@ class PlayLevelScene final : public GameScene {
     PlayLevelRouteController routeController_{};
     std::vector<GameplayCommand> pendingCommands_;
     multiplayer::LocalMatchHost localMatchHost_{};
-    multiplayer::MatchSimulation matchSimulation_{};
     multiplayer::CommandSequence nextLocalCommandSequence_ = 1;
     std::string loadStatus_;
     PlayLevelBootstrap bootstrap_{};

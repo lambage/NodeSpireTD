@@ -1,5 +1,6 @@
 #include "multiplayer/PlayerAccounts.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace multiplayer {
@@ -47,6 +48,18 @@ bool PlayerAccounts::credit(PlayerId playerId, float amount) {
     }
     accountIt->second += amount;
     return true;
+}
+
+std::vector<PlayerAccounts::Balance> PlayerAccounts::balances() const {
+    std::vector<Balance> result;
+    result.reserve(balances_.size());
+    for (const auto& [playerId, amount] : balances_) {
+        result.push_back({playerId, amount});
+    }
+    std::sort(result.begin(), result.end(), [](const Balance& left, const Balance& right) {
+        return left.playerId < right.playerId;
+    });
+    return result;
 }
 
 } // namespace multiplayer

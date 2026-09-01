@@ -42,9 +42,12 @@ add_executable(NodeSpireTD
     VulkanContext.cpp
     LuaStateBootstrap.cpp
     multiplayer/FixedTickClock.cpp
+    multiplayer/LoopbackMatchSession.cpp
+    multiplayer/LoopbackTransport.cpp
     multiplayer/LocalMatchHost.cpp
     multiplayer/MatchSimulation.cpp
     multiplayer/MatchProtocolAdapter.cpp
+    multiplayer/MatchSnapshotBuilder.cpp
     multiplayer/PlayerAccounts.cpp
     utility/GameImageButton.cpp
     utility/GameButton.cpp

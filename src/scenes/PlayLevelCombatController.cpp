@@ -123,7 +123,8 @@ void PlayLevelCombatController::updateTowerAttacks(
     const std::function<glm::vec3(float)>& sampleRoutePosition,
     std::vector<playlevel::PlacedTower>& placedTowers,
     const std::vector<playlevel::ActiveEnemy>& activeEnemies,
-    std::vector<playlevel::ActiveProjectile>& activeProjectiles) const {
+    std::vector<playlevel::ActiveProjectile>& activeProjectiles,
+    std::uint64_t& nextProjectileRuntimeId) const {
     for (int towerIndex = 0; towerIndex < static_cast<int>(placedTowers.size()); ++towerIndex) {
         playlevel::PlacedTower& tower = placedTowers[static_cast<std::size_t>(towerIndex)];
         tower.attackCooldownRemainingSeconds = std::max(0.0f, tower.attackCooldownRemainingSeconds - dt);
@@ -234,6 +235,7 @@ void PlayLevelCombatController::updateTowerAttacks(
             projectile.sourceTowerRuntimeId = tower.runtimeId;
             projectile.targetEnemyRuntimeId = targetEnemy.runtimeId;
             projectile.lastHitEnemyRuntimeId = 0;
+            projectile.runtimeId = nextProjectileRuntimeId++;
             activeProjectiles.push_back(std::move(projectile));
         }
 

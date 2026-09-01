@@ -22,3 +22,35 @@ TEST(MatchSimulation, OwnsPerPlayerBalancesAndFixedTickProgress) {
     EXPECT_EQ(observedTick, 1);
     EXPECT_EQ(simulation.currentTick(), 1);
 }
+
+TEST(MatchSimulation, OwnsAndResetsRuntimeEntityStorage) {
+    multiplayer::MatchSimulation simulation;
+    simulation.placedTowers().push_back({});
+    simulation.activeProjectiles().push_back({});
+    simulation.activeEnemies().push_back({});
+    simulation.nextTowerRuntimeId() = 42;
+    simulation.nextEnemyRuntimeId() = 99;
+    simulation.nextProjectileRuntimeId() = 123;
+
+    simulation.reset();
+
+    EXPECT_TRUE(simulation.placedTowers().empty());
+    EXPECT_TRUE(simulation.activeProjectiles().empty());
+    EXPECT_TRUE(simulation.activeEnemies().empty());
+    EXPECT_EQ(simulation.nextTowerRuntimeId(), 1);
+    EXPECT_EQ(simulation.nextEnemyRuntimeId(), 1);
+    EXPECT_EQ(simulation.nextProjectileRuntimeId(), 1);
+}
+
+TEST(MatchSimulation, OwnsAndResetsMatchAndWaveState) {
+    multiplayer::MatchSimulation simulation;
+    simulation.gameplayState().baseHealth = 20.0f;
+    simulation.gameplayState().currentWave = 5;
+    simulation.waveController().definitionsMutable().push_back({});
+
+    simulation.reset();
+
+    EXPECT_FLOAT_EQ(simulation.gameplayState().baseHealth, 100.0f);
+    EXPECT_EQ(simulation.gameplayState().currentWave, 1);
+    EXPECT_EQ(simulation.waveController().waveCount(), 0U);
+}

@@ -16,7 +16,12 @@
 #include <imgui.h>
 #include <spdlog/spdlog.h>
 
-PlayLevelScene::PlayLevelScene() : GameScene(), towerLoadController_(L_), enemyLoadController_(L_) {}
+PlayLevelScene::PlayLevelScene()
+        : GameScene(), gameplayState_(matchSimulation_.gameplayState()), placedTowers_(matchSimulation_.placedTowers()),
+    combatController_(matchSimulation_.combatController()), activeProjectiles_(matchSimulation_.activeProjectiles()),
+    nextTowerRuntimeId_(matchSimulation_.nextTowerRuntimeId()), nextEnemyRuntimeId_(matchSimulation_.nextEnemyRuntimeId()),
+    nextProjectileRuntimeId_(matchSimulation_.nextProjectileRuntimeId()), waveController_(matchSimulation_.waveController()),
+    activeEnemies_(matchSimulation_.activeEnemies()), towerLoadController_(L_), enemyLoadController_(L_) {}
 PlayLevelScene::~PlayLevelScene() = default;
 
 namespace {
@@ -1521,7 +1526,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
 
     combatController_.updateTowerAttacks(
         dt, [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); }, placedTowers_,
-        activeEnemies_, activeProjectiles_);
+        activeEnemies_, activeProjectiles_, nextProjectileRuntimeId_);
 
     combatController_.updateProjectiles(
         dt, [this](float distanceAlongPath) { return sampleRoutePosition(distanceAlongPath); }, placedTowers_,

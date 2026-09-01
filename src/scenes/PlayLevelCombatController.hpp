@@ -118,6 +118,7 @@ struct ActiveProjectile {
     multiplayer::TowerRuntimeId sourceTowerRuntimeId = 0;
     std::uint64_t targetEnemyRuntimeId = 0;
     std::uint64_t lastHitEnemyRuntimeId = 0;
+    std::uint64_t runtimeId = 0;
 };
 
 } // namespace playlevel
@@ -133,7 +134,8 @@ class PlayLevelCombatController {
                             const std::function<glm::vec3(float)>& sampleRoutePosition,
                             std::vector<playlevel::PlacedTower>& placedTowers,
                             const std::vector<playlevel::ActiveEnemy>& activeEnemies,
-                            std::vector<playlevel::ActiveProjectile>& activeProjectiles) const;
+                            std::vector<playlevel::ActiveProjectile>& activeProjectiles,
+                            std::uint64_t& nextProjectileRuntimeId) const;
 
     void updateProjectiles(float dt,
                            const std::function<glm::vec3(float)>& sampleRoutePosition,
