@@ -1,6 +1,6 @@
 #pragma once
 #include "multiplayer/LocalMatchHost.hpp"
-#include "multiplayer/PlayerAccounts.hpp"
+#include "multiplayer/MatchSimulation.hpp"
 #include "scenes/EnemyLoadController.hpp"
 #include "scenes/PlayLevelBootstrap.hpp"
 #include "scenes/GameScene.hpp"
@@ -74,9 +74,8 @@ class PlayLevelScene final : public GameScene {
     PlayLevelRouteController routeController_{};
     std::vector<GameplayCommand> pendingCommands_;
     multiplayer::LocalMatchHost localMatchHost_{};
-    multiplayer::PlayerAccounts playerAccounts_{};
+    multiplayer::MatchSimulation matchSimulation_{};
     multiplayer::CommandSequence nextLocalCommandSequence_ = 1;
-    multiplayer::SimulationTick simulationTick_ = 0;
     std::string loadStatus_;
     PlayLevelBootstrap bootstrap_{};
     PlayLevelFrameCoordinator frameCoordinator_{};
@@ -151,6 +150,7 @@ class PlayLevelScene final : public GameScene {
     void syncEnemyInstanceTransforms();
     std::string validateStartWaveRequest() const;
     void applyPendingGameplayCommands();
+    void advanceAuthoritativeSimulation(float elapsedSeconds);
     void processLocalStartWaveCommand();
     bool processLocalTowerPlacementCommand(const TowerArchetype& archetype, const glm::vec3& worldPos);
     bool processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId towerRuntimeId, const std::string& nodeId);

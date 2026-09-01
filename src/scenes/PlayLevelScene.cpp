@@ -310,11 +310,10 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     pendingCommands_.clear();
     localMatchHost_ = {};
     localMatchHost_.registerPlayer(kLocalHostPlayerId);
-    playerAccounts_ = {};
-    playerAccounts_.registerPlayer(kLocalHostPlayerId, gameplayState_.playerMoney);
+    matchSimulation_.reset();
+    matchSimulation_.registerPlayer(kLocalHostPlayerId, gameplayState_.playerMoney);
     syncLocalPlayerMoney();
     nextLocalCommandSequence_ = 1;
-    simulationTick_ = 0;
     placementRegions_.clear();
     towerPlacementPreviewResolver_.reset();
     lastPlacementValidationReason_.clear();
@@ -353,8 +352,7 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
     towerPreviewPanels_.clear();
     towerPreviewSpinRadians_ = std::fmod(towerPreviewSpinRadians_ + dt * 0.55f, 6.2831853071795864769f);
 
-    applyPendingGameplayCommands();
-    updateWaveSimulation(dt);
+    advanceAuthoritativeSimulation(dt);
     PlayLevelFrameCoordinator::Context frameContext{worldRenderer_.get(),
                                                     placementRegions_,
                                                     pickingController_,
@@ -384,7 +382,7 @@ bool PlayLevelScene::requestSpendMoney(float amount) {
 }
 
 bool PlayLevelScene::spendPlayerMoney(multiplayer::PlayerId playerId, float amount) {
-    if (amount <= 0 || gameplayState_.matchStatus != MatchStatus::Running || !playerAccounts_.debit(playerId, amount)) {
+    if (amount <= 0 || gameplayState_.matchStatus != MatchStatus::Running || !matchSimulation_.debitPlayer(playerId, amount)) {
         return false;
     }
     syncLocalPlayerMoney();
@@ -392,7 +390,7 @@ bool PlayLevelScene::spendPlayerMoney(multiplayer::PlayerId playerId, float amou
 }
 
 bool PlayLevelScene::creditPlayerMoney(multiplayer::PlayerId playerId, float amount) {
-    if (!playerAccounts_.credit(playerId, amount)) {
+    if (!matchSimulation_.creditPlayer(playerId, amount)) {
         return false;
     }
     syncLocalPlayerMoney();
@@ -400,7 +398,7 @@ bool PlayLevelScene::creditPlayerMoney(multiplayer::PlayerId playerId, float amo
 }
 
 void PlayLevelScene::syncLocalPlayerMoney() {
-    gameplayState_.playerMoney = playerAccounts_.balance(kLocalHostPlayerId);
+    gameplayState_.playerMoney = matchSimulation_.playerBalance(kLocalHostPlayerId);
 }
 
 bool PlayLevelScene::requestDamageBase(float amount) {
@@ -590,7 +588,7 @@ std::string PlayLevelScene::validateTowerUpgradeUnlock(const TowerArchetype& arc
         }
     }
 
-    if (nextLevel->cost > 0 && playerAccounts_.balance(playerId) < static_cast<float>(nextLevel->cost)) {
+    if (nextLevel->cost > 0 && matchSimulation_.playerBalance(playerId) < static_cast<float>(nextLevel->cost)) {
         return "insufficient funds";
     }
 
@@ -1221,6 +1219,13 @@ void PlayLevelScene::applyPendingGameplayCommands() {
     pendingCommands_.clear();
 }
 
+void PlayLevelScene::advanceAuthoritativeSimulation(float elapsedSeconds) {
+    matchSimulation_.advance(elapsedSeconds, [this](multiplayer::SimulationTick, float tickSeconds) {
+        applyPendingGameplayCommands();
+        updateWaveSimulation(tickSeconds);
+    });
+}
+
 void PlayLevelScene::processLocalStartWaveCommand() {
     multiplayer::PlayerCommandRequest command;
     command.playerId = kLocalHostPlayerId;
@@ -1234,7 +1239,7 @@ void PlayLevelScene::processLocalStartWaveCommand() {
     }
 
     const auto serializedResult = localMatchHost_.processCommand(
-        *serializedCommand, simulationTick_, [this](const multiplayer::PlayerCommandRequest& receivedCommand)
+        *serializedCommand, matchSimulation_.currentTick(), [this](const multiplayer::PlayerCommandRequest& receivedCommand)
                                          -> std::optional<multiplayer::CommandRejectionReason> {
             if (!std::holds_alternative<multiplayer::StartWaveCommand>(receivedCommand.payload)) {
                 return multiplayer::CommandRejectionReason::InvalidPayload;
@@ -1263,7 +1268,7 @@ bool PlayLevelScene::processLocalTowerPlacementCommand(const TowerArchetype& arc
 
     bool applied = false;
     const auto serializedResult = localMatchHost_.processCommand(
-        *serializedCommand, simulationTick_, [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
+        *serializedCommand, matchSimulation_.currentTick(), [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
                                          -> std::optional<multiplayer::CommandRejectionReason> {
             const auto* placementCommand = std::get_if<multiplayer::PlaceTowerCommand>(&receivedCommand.payload);
             if (!placementCommand || placementCommand->towerArchetypeId.empty()) {
@@ -1325,7 +1330,7 @@ bool PlayLevelScene::processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId
 
     bool applied = false;
     const auto serializedResult = localMatchHost_.processCommand(
-        *serializedCommand, simulationTick_, [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
+        *serializedCommand, matchSimulation_.currentTick(), [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
                                          -> std::optional<multiplayer::CommandRejectionReason> {
             const auto* upgradeCommand = std::get_if<multiplayer::UpgradeTowerCommand>(&receivedCommand.payload);
             if (!upgradeCommand || upgradeCommand->upgradeNodeId.empty()) {
@@ -1375,7 +1380,7 @@ bool PlayLevelScene::processLocalTowerTargetingCommand(multiplayer::TowerRuntime
 
     bool applied = false;
     const auto serializedResult = localMatchHost_.processCommand(
-        *serializedCommand, simulationTick_, [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
+        *serializedCommand, matchSimulation_.currentTick(), [this, &applied](const multiplayer::PlayerCommandRequest& receivedCommand)
                                          -> std::optional<multiplayer::CommandRejectionReason> {
             const auto* targetingCommand = std::get_if<multiplayer::SetTowerTargetingCommand>(&receivedCommand.payload);
             if (!targetingCommand) {
@@ -1458,8 +1463,6 @@ std::string PlayLevelScene::validateStartWaveRequest() const {
 }
 
 void PlayLevelScene::updateWaveSimulation(float dt) {
-    ++simulationTick_;
-
     // One-time idle-clip seeding for every registered archetype's template (see
     // updateEnemyAnimationState) -- a no-op on every call after the first.
     updateEnemyAnimationState();

@@ -41,7 +41,9 @@ add_executable(NodeSpireTD
     Scenes.cpp
     VulkanContext.cpp
     LuaStateBootstrap.cpp
+    multiplayer/FixedTickClock.cpp
     multiplayer/LocalMatchHost.cpp
+    multiplayer/MatchSimulation.cpp
     multiplayer/MatchProtocolAdapter.cpp
     multiplayer/PlayerAccounts.cpp
     utility/GameImageButton.cpp
