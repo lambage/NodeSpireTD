@@ -291,9 +291,7 @@ void PlayLevelPickingController::updateSelectionFromMouse(const WorldRenderer* w
     } else if (selection.valid) {
         clearSelection("hit non-selectable model");
     } else {
-        selectedEntityKind_ = WorldEntityKind::None;
-        selectedInstanceIndex_ = -1;
-        status_ = "no model hit at cursor";
+        clearSelection("no model hit at cursor");
     }
 }
 

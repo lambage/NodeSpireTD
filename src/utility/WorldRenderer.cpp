@@ -1447,11 +1447,8 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             }
         };
 
-        // Hover no longer gets a whole-model tint -- see PlayLevelScene::drawTowerPlacementOverlay,
-        // which draws a ground-plane ring (tower attack range / enemy footprint circle) instead.
-        if (selectedEntityKind_ != WorldEntityKind::None) {
-            drawHighlightInstance(selectedEntityKind_, selectedInstanceIndex_, glm::vec4(0.20f, 0.95f, 1.0f, 0.85f));
-        }
+        // Selection is now indicated only by ground circles (see PlayLevelScene::drawTowerPlacementOverlay)
+        // rather than a shiny mesh tint, so no highlight drawing is needed here.
     }
 
     restoreAnimatorBaseStates(baseStates);

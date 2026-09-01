@@ -1348,14 +1348,10 @@ function M.render(state, dt, elapsed)
     local isMouseClicked = ImGui and ImGui["IsMouseClicked"]
     local imguiMouseButton = _G["ImGuiMouseButton"]
     if isMouseClicked and imguiMouseButton and imguiMouseButton.Right then
-        if isMouseClicked(imguiMouseButton.Right, false) and hasActiveSelection() then
-            Gameplay.clearDebugSelection()
-            lastResult = "Tower selection cleared"
-        elseif isMouseClicked(imguiMouseButton.Right, false) and hasActivePlacement() then
+        if isMouseClicked(imguiMouseButton.Right, false) and hasActivePlacement() then
             Gameplay.cancelTowerPlacement()
             lastResult = "Tower placement cancelled"
         end
-        
     end
 
     if ImGui.IsKeyPressed and ImGuiKey and ImGuiKey.Escape then

@@ -16,7 +16,7 @@ void main() {
 
     // Solid rim near the disc's edge, used to mark the selected circle -- outlineColor.a is 0
     // for plain (hover) circles, so this contributes nothing for those.
-    const float rimMask = clamp(smoothstep(0.80, 0.88, dist) - smoothstep(0.94, 1.0, dist), 0.0, 1.0);
+    const float rimMask = clamp(smoothstep(0.94, 0.95, dist) - smoothstep(0.99, 1.0, dist), 0.0, 1.0);
     const vec4 outline = vec4(pc.outlineColor.rgb, pc.outlineColor.a * rimMask);
 
     const vec3 rgb = mix(fill.rgb, outline.rgb, outline.a);

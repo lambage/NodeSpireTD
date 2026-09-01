@@ -1021,6 +1021,18 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
         }
     }
 
+    // Add selection circle for selected enemy.
+    if (pickingController_.selectedSelection().valid && 
+        pickingController_.selectedEntityKind() == WorldEntityKind::Enemy) {
+        const int selectedEnemyIdx = pickingController_.selectedInstanceIndex();
+        if (selectedEnemyIdx >= 0 && static_cast<std::size_t>(selectedEnemyIdx) < activeEnemies_.size()) {
+            const ActiveEnemy& enemy = activeEnemies_[static_cast<std::size_t>(selectedEnemyIdx)];
+            const glm::vec3 enemyPos = sampleRoutePosition(enemy.distanceAlongPath);
+            groundCircles.push_back({enemyPos + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
+                                    std::max(0.35f, 0.5f * enemy.renderScale), kSelectedColor, kSelectedOutlineColor});
+        }
+    }
+
     // Hover feedback replaces the old whole-model yellow tint: towers show their attack-range
     // circle (yellow, since blue is reserved for the selected tower's circle above) and enemies
     // show a simple ground circle -- both only when the hovered entity isn't already selected.
