@@ -1,5 +1,6 @@
 #pragma once
 #include "multiplayer/LocalMatchHost.hpp"
+#include "multiplayer/PlayerAccounts.hpp"
 #include "scenes/EnemyLoadController.hpp"
 #include "scenes/PlayLevelBootstrap.hpp"
 #include "scenes/GameScene.hpp"
@@ -73,6 +74,7 @@ class PlayLevelScene final : public GameScene {
     PlayLevelRouteController routeController_{};
     std::vector<GameplayCommand> pendingCommands_;
     multiplayer::LocalMatchHost localMatchHost_{};
+    multiplayer::PlayerAccounts playerAccounts_{};
     multiplayer::CommandSequence nextLocalCommandSequence_ = 1;
     multiplayer::SimulationTick simulationTick_ = 0;
     std::string loadStatus_;
@@ -129,8 +131,12 @@ class PlayLevelScene final : public GameScene {
                                   float& outRicochetRange, int& outProjectileCount, int& outChainTargetCount,
                                   int& outRicochetCount) const;
     std::string validateTowerUpgradeUnlock(const TowerArchetype& archetype, const PlacedTower& placedTower,
-                         const std::string& nodeId) const;
-    bool unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId, std::string& outReason);
+                                           const std::string& nodeId, multiplayer::PlayerId playerId) const;
+    bool unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId, multiplayer::PlayerId playerId,
+                            std::string& outReason);
+    bool spendPlayerMoney(multiplayer::PlayerId playerId, float amount);
+    bool creditPlayerMoney(multiplayer::PlayerId playerId, float amount);
+    void syncLocalPlayerMoney();
     void clearActiveSelectionForTowerPlacement(const char* reason);
     void updateTowerPlacementFromInput();
     glm::mat4 buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const;

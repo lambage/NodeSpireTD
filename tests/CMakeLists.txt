@@ -2,8 +2,10 @@ include(GoogleTest)
 
 add_executable(NodeSpireMatchProtocolTests
     multiplayer/MatchProtocolAdapterTests.cpp
+    multiplayer/PlayerAccountsTests.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/LocalMatchHost.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/MatchProtocolAdapter.cpp
+    ${CMAKE_SOURCE_DIR}/src/multiplayer/PlayerAccounts.cpp
 )
 
 target_include_directories(NodeSpireMatchProtocolTests PRIVATE "${CMAKE_SOURCE_DIR}/src")

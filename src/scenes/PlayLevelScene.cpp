@@ -310,6 +310,9 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     pendingCommands_.clear();
     localMatchHost_ = {};
     localMatchHost_.registerPlayer(kLocalHostPlayerId);
+    playerAccounts_ = {};
+    playerAccounts_.registerPlayer(kLocalHostPlayerId, gameplayState_.playerMoney);
+    syncLocalPlayerMoney();
     nextLocalCommandSequence_ = 1;
     simulationTick_ = 0;
     placementRegions_.clear();
@@ -377,15 +380,27 @@ void PlayLevelScene::render(SceneSharedState& state, float dt) {
 }
 
 bool PlayLevelScene::requestSpendMoney(float amount) {
-    if (amount <= 0 || gameplayState_.matchStatus != MatchStatus::Running) {
-        return false;
-    }
-    if (gameplayState_.playerMoney < amount) {
-        return false;
-    }
+    return spendPlayerMoney(kLocalHostPlayerId, amount);
+}
 
-    gameplayState_.playerMoney -= amount;
+bool PlayLevelScene::spendPlayerMoney(multiplayer::PlayerId playerId, float amount) {
+    if (amount <= 0 || gameplayState_.matchStatus != MatchStatus::Running || !playerAccounts_.debit(playerId, amount)) {
+        return false;
+    }
+    syncLocalPlayerMoney();
     return true;
+}
+
+bool PlayLevelScene::creditPlayerMoney(multiplayer::PlayerId playerId, float amount) {
+    if (!playerAccounts_.credit(playerId, amount)) {
+        return false;
+    }
+    syncLocalPlayerMoney();
+    return true;
+}
+
+void PlayLevelScene::syncLocalPlayerMoney() {
+    gameplayState_.playerMoney = playerAccounts_.balance(kLocalHostPlayerId);
 }
 
 bool PlayLevelScene::requestDamageBase(float amount) {
@@ -511,7 +526,7 @@ void PlayLevelScene::applyTowerUpgradeEffects(const TowerArchetype& archetype, c
 }
 
 std::string PlayLevelScene::validateTowerUpgradeUnlock(const TowerArchetype& archetype, const PlacedTower& placedTower,
-                                                       const std::string& nodeId) const {
+                                                       const std::string& nodeId, multiplayer::PlayerId playerId) const {
     if (gameplayState_.matchStatus != MatchStatus::Running) {
         return "match is not running";
     }
@@ -575,21 +590,22 @@ std::string PlayLevelScene::validateTowerUpgradeUnlock(const TowerArchetype& arc
         }
     }
 
-    if (nextLevel->cost > 0 && gameplayState_.playerMoney < static_cast<float>(nextLevel->cost)) {
+    if (nextLevel->cost > 0 && playerAccounts_.balance(playerId) < static_cast<float>(nextLevel->cost)) {
         return "insufficient funds";
     }
 
     return {};
 }
 
-bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId, std::string& outReason) {
+bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId,
+                                        multiplayer::PlayerId playerId, std::string& outReason) {
     const TowerArchetype* archetype = towerLoadController_.findArchetype(placedTower.towerId);
     if (!archetype) {
         outReason = "tower archetype not found";
         return false;
     }
 
-    const std::string reason = validateTowerUpgradeUnlock(*archetype, placedTower, nodeId);
+    const std::string reason = validateTowerUpgradeUnlock(*archetype, placedTower, nodeId, playerId);
     if (!reason.empty()) {
         outReason = reason;
         return false;
@@ -609,7 +625,7 @@ bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::str
         return false;
     }
 
-    if (nextLevel->cost > 0 && !requestSpendMoney(static_cast<float>(nextLevel->cost))) {
+    if (nextLevel->cost > 0 && !spendPlayerMoney(playerId, static_cast<float>(nextLevel->cost))) {
         outReason = "insufficient funds";
         return false;
     }
@@ -1268,7 +1284,7 @@ bool PlayLevelScene::processLocalTowerPlacementCommand(const TowerArchetype& arc
             if (!validateTowerPlacement(*requestedArchetype, requestedPosition, kConfirmFootprintSampleCount).empty()) {
                 return multiplayer::CommandRejectionReason::InvalidPlacement;
             }
-            if (!requestSpendMoney(static_cast<float>(requestedArchetype->cost))) {
+            if (!spendPlayerMoney(receivedCommand.playerId, static_cast<float>(requestedArchetype->cost))) {
                 return multiplayer::CommandRejectionReason::InsufficientFunds;
             }
 
@@ -1331,7 +1347,7 @@ bool PlayLevelScene::processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId
             }
 
             std::string reason;
-            if (!unlockTowerUpgrade(*towerIt, upgradeCommand->upgradeNodeId, reason)) {
+            if (!unlockTowerUpgrade(*towerIt, upgradeCommand->upgradeNodeId, receivedCommand.playerId, reason)) {
                 return reason == "insufficient funds" ? multiplayer::CommandRejectionReason::InsufficientFunds
                                                        : multiplayer::CommandRejectionReason::UpgradeUnavailable;
             }
@@ -1509,7 +1525,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         activeEnemies_, activeProjectiles_);
 
     combatController_.collectDefeatedEnemies(
-        activeEnemies_, [this](float rewardMoney) { gameplayState_.playerMoney += rewardMoney; },
+        activeEnemies_, [this](float rewardMoney) { creditPlayerMoney(kLocalHostPlayerId, rewardMoney); },
         [this]() { gameplayState_.enemiesDefeated += 1; });
     reconcileSelectedEnemyAfterSimulation();
 
@@ -2114,7 +2130,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 const TowerArchetype::UpgradeNode::UpgradeLevel* nextLevel =
                     canLevelUp ? getUpgradeLevelData(node, currentLevel) : nullptr;
                 const std::string reason = canLevelUp
-                                               ? self->validateTowerUpgradeUnlock(*archetype, *placedTower, node.id)
+                                               ? self->validateTowerUpgradeUnlock(*archetype, *placedTower, node.id,
+                                                                                   kLocalHostPlayerId)
                                                : std::string("upgrade is at max level");
                 const bool canUnlock = canLevelUp && reason.empty();
                 const TowerArchetype::UpgradeEffects previewEffects =
@@ -2366,7 +2383,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
             const PlacedTower& towerToSell = self->placedTowers_[static_cast<std::size_t>(matchingIndex)];
             const int totalSpent = computeTowerTotalSpent(*archetype, towerToSell);
             const int refund = std::max(0, static_cast<int>(std::floor(static_cast<float>(totalSpent) * 0.8f)));
-            self->gameplayState_.playerMoney += static_cast<float>(refund);
+            self->creditPlayerMoney(towerToSell.ownerPlayerId, static_cast<float>(refund));
 
             self->placedTowers_.erase(self->placedTowers_.begin() + matchingIndex);
 

@@ -43,6 +43,7 @@ add_executable(NodeSpireTD
     LuaStateBootstrap.cpp
     multiplayer/LocalMatchHost.cpp
     multiplayer/MatchProtocolAdapter.cpp
+    multiplayer/PlayerAccounts.cpp
     utility/GameImageButton.cpp
     utility/GameButton.cpp
     utility/StaticGeometryBVH.cpp
