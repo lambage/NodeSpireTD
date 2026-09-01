@@ -45,7 +45,7 @@ local function UiTextWrapped(text)
 end
 
 local function targetingModeDisplayName(mode)
-    local raw = tostring(mode or "nearest")
+    local raw = tostring(mode or "first")
     if raw == "first" then
         return "First"
     elseif raw == "last" then
@@ -59,7 +59,7 @@ local function targetingModeDisplayName(mode)
     elseif raw == "lowest_hp" then
         return "Lowest HP"
     end
-    return "Nearest"
+    return "First"
 end
 
 local function isShiftHeld()
@@ -1189,7 +1189,7 @@ local function drawTowerUpgradeWindow(gs)
 
             ImGui.SameLine()
             local targetModes = { "first", "last", "nearest", "random", "highest_hp", "lowest_hp" }
-            local currentTargetMode = tostring(state.targetingMode or "nearest")
+            local currentTargetMode = tostring(state.targetingMode or "first")
             local currentTargetIndex = 3
             for i = 1, #targetModes do
                 if targetModes[i] == currentTargetMode then

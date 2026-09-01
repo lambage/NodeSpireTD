@@ -91,7 +91,7 @@ struct PlacedTower {
     int ricochetCount = 0;
     int cost = 0;
     DamageType damageType = DamageType::Physical;
-    TowerTargetingMode targetingMode = TowerTargetingMode::Nearest;
+    TowerTargetingMode targetingMode = TowerTargetingMode::First;
     float totalDamageDealt = 0.0f;
     std::vector<std::string> unlockedUpgradeNodeIds;
 };

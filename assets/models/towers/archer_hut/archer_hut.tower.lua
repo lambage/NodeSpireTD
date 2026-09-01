@@ -19,7 +19,7 @@ return {
         health = 35,
         cost = 150,
         damageType = DamageType.Physical,
-        targetMode = "nearest",
+        targetMode = "first",
         armorPiercing = 1.0,
         attackDamage = 20,
         attackRange = 5.0,
