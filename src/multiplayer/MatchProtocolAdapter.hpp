@@ -29,6 +29,7 @@ class MatchProtocolAdapter {
 
     static std::optional<std::string> serializePlayerCommand(const PlayerCommandRequest& command);
     static DecodedPlayerCommand decodePlayerCommand(std::string_view payload);
+    static std::optional<std::string> serializePlayerCommandResult(const PlayerCommandResult& result);
 };
 
 } // namespace multiplayer

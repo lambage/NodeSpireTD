@@ -10,6 +10,7 @@ namespace {
 
 using WireCommand = nodespire::multiplayer::v1::PlayerCommandRequest;
 using WireTargetingMode = nodespire::multiplayer::v1::TowerTargetingMode;
+using WireCommandRejectionReason = nodespire::multiplayer::v1::PlayerCommandRejected::Reason;
 
 std::optional<WireTargetingMode> toWireTargetingMode(TowerTargetingMode mode) {
     switch (mode) {
@@ -50,6 +51,38 @@ std::optional<TowerTargetingMode> fromWireTargetingMode(WireTargetingMode mode) 
 
 DecodedPlayerCommand rejectDecode(CommandDecodeError error) {
     return {.command = std::nullopt, .error = error};
+}
+
+WireCommandRejectionReason toWireRejectionReason(CommandRejectionReason reason) {
+    switch (reason) {
+    case CommandRejectionReason::UnsupportedProtocolVersion:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::PROTOCOL_VERSION_UNSUPPORTED;
+    case CommandRejectionReason::UnknownPlayer:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::UNKNOWN_PLAYER;
+    case CommandRejectionReason::DuplicateOrOutOfOrderSequence:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::DUPLICATE_OR_OUT_OF_ORDER_SEQUENCE;
+    case CommandRejectionReason::MatchNotRunning:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::MATCH_NOT_RUNNING;
+    case CommandRejectionReason::UnknownTowerArchetype:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::UNKNOWN_TOWER_ARCHETYPE;
+    case CommandRejectionReason::UnknownTower:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::UNKNOWN_TOWER;
+    case CommandRejectionReason::TowerNotOwnedByPlayer:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::TOWER_NOT_OWNED_BY_PLAYER;
+    case CommandRejectionReason::InvalidPlacement:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::INVALID_PLACEMENT;
+    case CommandRejectionReason::InsufficientFunds:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::INSUFFICIENT_FUNDS;
+    case CommandRejectionReason::UpgradeUnavailable:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::UPGRADE_UNAVAILABLE;
+    case CommandRejectionReason::InvalidTargetingMode:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::INVALID_TARGETING_MODE;
+    case CommandRejectionReason::WaveCannotStart:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::WAVE_CANNOT_START;
+    case CommandRejectionReason::InvalidPayload:
+        return nodespire::multiplayer::v1::PlayerCommandRejected::INVALID_PAYLOAD;
+    }
+    return nodespire::multiplayer::v1::PlayerCommandRejected::REASON_UNSPECIFIED;
 }
 
 } // namespace
@@ -148,6 +181,29 @@ DecodedPlayerCommand MatchProtocolAdapter::decodePlayerCommand(std::string_view 
     }
 
     return {.command = std::move(command), .error = CommandDecodeError::None};
+}
+
+std::optional<std::string> MatchProtocolAdapter::serializePlayerCommandResult(const PlayerCommandResult& result) {
+    nodespire::multiplayer::v1::PlayerCommandResult wireResult;
+    std::visit(
+        [&wireResult](const auto& commandResult) {
+            using Result = std::decay_t<decltype(commandResult)>;
+            if constexpr (std::is_same_v<Result, CommandAccepted>) {
+                auto* accepted = wireResult.mutable_accepted();
+                accepted->set_player_id(commandResult.playerId);
+                accepted->set_sequence(commandResult.sequence);
+                accepted->set_applied_at_tick(commandResult.appliedAtTick);
+            } else {
+                auto* rejected = wireResult.mutable_rejected();
+                rejected->set_player_id(commandResult.playerId);
+                rejected->set_sequence(commandResult.sequence);
+                rejected->set_reason(toWireRejectionReason(commandResult.reason));
+            }
+        },
+        result);
+
+    std::string bytes;
+    return wireResult.SerializeToString(&bytes) ? std::optional{std::move(bytes)} : std::nullopt;
 }
 
 } // namespace multiplayer

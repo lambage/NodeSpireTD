@@ -24,6 +24,7 @@ namespace {
 constexpr float kDebugOverlayFovRadians = glm::radians(60.0f);
 constexpr float kTowerHiddenY = -10000.0f;
 constexpr float kTowerGhostAlpha = 0.45f;
+constexpr multiplayer::PlayerId kLocalHostPlayerId = 1;
 
 // Last-resort default clip name, used only for the one-time Idle-on-load initialization when no
 // enemy archetype is registered yet to supply EnemyArchetype::idleClipName. Every other clip
@@ -271,6 +272,10 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
                                  selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
                                  worldAssetSpec_);
     pendingCommands_.clear();
+    localMatchHost_ = {};
+    localMatchHost_.registerPlayer(kLocalHostPlayerId);
+    nextLocalCommandSequence_ = 1;
+    simulationTick_ = 0;
     placementRegions_.clear();
     towerPlacementPreviewResolver_.reset();
     lastPlacementValidationReason_.clear();
@@ -1169,11 +1174,39 @@ void PlayLevelScene::applyPendingGameplayCommands() {
             requestDamageBase(cmd.amount);
             break;
         case GameplayCommandType::StartWave:
-            requestStartWave();
+            processLocalStartWaveCommand();
             break;
         }
     }
     pendingCommands_.clear();
+}
+
+void PlayLevelScene::processLocalStartWaveCommand() {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = kLocalHostPlayerId;
+    command.sequence = nextLocalCommandSequence_++;
+    command.payload = multiplayer::StartWaveCommand{};
+
+    const auto serializedCommand = multiplayer::MatchProtocolAdapter::serializePlayerCommand(command);
+    if (!serializedCommand) {
+        spdlog::error("PlayLevelScene: failed to serialize local start-wave command.");
+        return;
+    }
+
+    const auto serializedResult = localMatchHost_.processCommand(
+        *serializedCommand, simulationTick_, [this](const multiplayer::PlayerCommandRequest& receivedCommand)
+                                         -> std::optional<multiplayer::CommandRejectionReason> {
+            if (!std::holds_alternative<multiplayer::StartWaveCommand>(receivedCommand.payload)) {
+                return multiplayer::CommandRejectionReason::InvalidPayload;
+            }
+            if (!validateStartWaveRequest().empty() || !requestStartWave()) {
+                return multiplayer::CommandRejectionReason::WaveCannotStart;
+            }
+            return std::nullopt;
+        });
+    if (!serializedResult) {
+        spdlog::error("PlayLevelScene: failed to serialize local start-wave result.");
+    }
 }
 
 bool PlayLevelScene::updateRouteFromWorld() {
@@ -1228,6 +1261,8 @@ std::string PlayLevelScene::validateStartWaveRequest() const {
 }
 
 void PlayLevelScene::updateWaveSimulation(float dt) {
+    ++simulationTick_;
+
     // One-time idle-clip seeding for every registered archetype's template (see
     // updateEnemyAnimationState) -- a no-op on every call after the first.
     updateEnemyAnimationState();

@@ -1,4 +1,5 @@
 #include "multiplayer/LocalHostCommandGate.hpp"
+#include "multiplayer/LocalMatchHost.hpp"
 #include "multiplayer/MatchProtocolAdapter.hpp"
 
 #include "nodespire/multiplayer/v1/match.pb.h"
@@ -15,6 +16,13 @@ multiplayer::PlayerCommandRequest startWaveCommand(multiplayer::PlayerId playerI
     command.sequence = sequence;
     command.payload = multiplayer::StartWaveCommand{};
     return command;
+}
+
+nodespire::multiplayer::v1::PlayerCommandResult parseResult(const std::optional<std::string>& bytes) {
+    assert(bytes.has_value());
+    nodespire::multiplayer::v1::PlayerCommandResult result;
+    assert(result.ParseFromString(*bytes));
+    return result;
 }
 
 void testRoundTrip() {
@@ -101,6 +109,48 @@ void testRejectedCommandCannotReplay() {
            multiplayer::CommandRejectionReason::DuplicateOrOutOfOrderSequence);
 }
 
+void testLoopbackHostAppliesAcceptedCommandOnce() {
+    multiplayer::LocalMatchHost host;
+    assert(host.registerPlayer(7));
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(startWaveCommand(7, 1));
+    int commandCount = 0;
+
+    const auto response = host.processCommand(*encoded, 11, [&commandCount](const multiplayer::PlayerCommandRequest&) {
+        ++commandCount;
+        return std::optional<multiplayer::CommandRejectionReason>{};
+    });
+    const auto wireResult = parseResult(response);
+    assert(wireResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kAccepted);
+    assert(wireResult.accepted().player_id() == 7);
+    assert(wireResult.accepted().sequence() == 1);
+    assert(wireResult.accepted().applied_at_tick() == 11);
+    assert(commandCount == 1);
+
+    const auto replayResponse = host.processCommand(*encoded, 12, [&commandCount](const multiplayer::PlayerCommandRequest&) {
+        ++commandCount;
+        return std::optional<multiplayer::CommandRejectionReason>{};
+    });
+    const auto replayResult = parseResult(replayResponse);
+    assert(replayResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kRejected);
+    assert(replayResult.rejected().reason() ==
+           nodespire::multiplayer::v1::PlayerCommandRejected::DUPLICATE_OR_OUT_OF_ORDER_SEQUENCE);
+    assert(commandCount == 1);
+}
+
+void testLoopbackHostRejectsInvalidAndUnknownPayloads() {
+    multiplayer::LocalMatchHost host;
+    const auto malformedResult = parseResult(host.processCommand("not a protobuf command", 11, {}));
+    assert(malformedResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kRejected);
+    assert(malformedResult.rejected().reason() == nodespire::multiplayer::v1::PlayerCommandRejected::INVALID_PAYLOAD);
+
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(startWaveCommand(7, 1));
+    const auto unknownPlayerResult = parseResult(host.processCommand(*encoded, 11, {}));
+    assert(unknownPlayerResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kRejected);
+    assert(unknownPlayerResult.rejected().player_id() == 7);
+    assert(unknownPlayerResult.rejected().sequence() == 1);
+    assert(unknownPlayerResult.rejected().reason() == nodespire::multiplayer::v1::PlayerCommandRejected::UNKNOWN_PLAYER);
+}
+
 } // namespace
 
 int main() {
@@ -110,4 +160,6 @@ int main() {
     testInvalidTargetingModeIsRejected();
     testHostRejectsUnknownAndReplay();
     testRejectedCommandCannotReplay();
+    testLoopbackHostAppliesAcceptedCommandOnce();
+    testLoopbackHostRejectsInvalidAndUnknownPayloads();
 }

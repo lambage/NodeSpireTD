@@ -3,23 +3,17 @@ cmake_minimum_required(VERSION 3.31.6)
 set(NODESPIRE_PROTO_ROOT "${CMAKE_SOURCE_DIR}/proto")
 set(NODESPIRE_MATCH_PROTO "${NODESPIRE_PROTO_ROOT}/nodespire/multiplayer/v1/match.proto")
 set(NODESPIRE_PROTO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set(NODESPIRE_MATCH_PROTO_SOURCE "${NODESPIRE_PROTO_GENERATED_DIR}/nodespire/multiplayer/v1/match.pb.cc")
-set(NODESPIRE_MATCH_PROTO_HEADER "${NODESPIRE_PROTO_GENERATED_DIR}/nodespire/multiplayer/v1/match.pb.h")
 
-add_custom_command(
-    OUTPUT "${NODESPIRE_MATCH_PROTO_SOURCE}" "${NODESPIRE_MATCH_PROTO_HEADER}"
-    COMMAND $<TARGET_FILE:protoc>
-    ARGS --cpp_out=${NODESPIRE_PROTO_GENERATED_DIR}
-         --proto_path=${NODESPIRE_PROTO_ROOT}
-         "${NODESPIRE_MATCH_PROTO}"
-    DEPENDS "${NODESPIRE_MATCH_PROTO}" protoc
-    COMMENT "Generating C++ multiplayer protocol bindings"
-    VERBATIM
-)
+include("${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake")
 
-add_library(NodeSpireMatchProtocol STATIC
-    "${NODESPIRE_MATCH_PROTO_SOURCE}"
-    "${NODESPIRE_MATCH_PROTO_HEADER}"
+add_library(NodeSpireMatchProtocol STATIC)
+
+protobuf_generate(
+    TARGET NodeSpireMatchProtocol
+    LANGUAGE cpp
+    PROTOS "${NODESPIRE_MATCH_PROTO}"
+    IMPORT_DIRS "${NODESPIRE_PROTO_ROOT}"
+    PROTOC_OUT_DIR "${NODESPIRE_PROTO_GENERATED_DIR}"
 )
 
 target_include_directories(NodeSpireMatchProtocol PUBLIC "${NODESPIRE_PROTO_GENERATED_DIR}")
@@ -38,6 +32,7 @@ endfunction()
 
 if(BUILD_TESTING)
     add_executable(NodeSpireMatchProtocolTests
+        multiplayer/LocalMatchHost.cpp
         multiplayer/MatchProtocolAdapter.cpp
         multiplayer/MatchProtocolAdapterTests.cpp
     )
@@ -58,6 +53,8 @@ add_executable(NodeSpireTD
     Scenes.cpp
     VulkanContext.cpp
     LuaStateBootstrap.cpp
+    multiplayer/LocalMatchHost.cpp
+    multiplayer/MatchProtocolAdapter.cpp
     utility/GameImageButton.cpp
     utility/GameButton.cpp
     utility/StaticGeometryBVH.cpp

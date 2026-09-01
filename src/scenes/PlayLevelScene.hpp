@@ -1,4 +1,5 @@
 #pragma once
+#include "multiplayer/LocalMatchHost.hpp"
 #include "scenes/EnemyLoadController.hpp"
 #include "scenes/PlayLevelBootstrap.hpp"
 #include "scenes/GameScene.hpp"
@@ -71,6 +72,9 @@ class PlayLevelScene final : public GameScene {
     WorldAssetSpec worldAssetSpec_{};
     PlayLevelRouteController routeController_{};
     std::vector<GameplayCommand> pendingCommands_;
+    multiplayer::LocalMatchHost localMatchHost_{};
+    multiplayer::CommandSequence nextLocalCommandSequence_ = 1;
+    multiplayer::SimulationTick simulationTick_ = 0;
     std::string loadStatus_;
     PlayLevelBootstrap bootstrap_{};
     PlayLevelFrameCoordinator frameCoordinator_{};
@@ -141,6 +145,7 @@ class PlayLevelScene final : public GameScene {
     void syncEnemyInstanceTransforms();
     std::string validateStartWaveRequest() const;
     void applyPendingGameplayCommands();
+    void processLocalStartWaveCommand();
     void updateWaveSimulation(float dt);
     // One-time initialization: seeds every registered enemy archetype's own template animator
     // with its own Idle clip (only if that model has a clip by that name -- a no-op fallback

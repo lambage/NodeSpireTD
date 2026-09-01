@@ -105,6 +105,7 @@ message PlayerCommandRejected {
     UPGRADE_UNAVAILABLE = 10;
     INVALID_TARGETING_MODE = 11;
     WAVE_CANNOT_START = 12;
+    INVALID_PAYLOAD = 13;
   }
 
   uint64 player_id = 1;

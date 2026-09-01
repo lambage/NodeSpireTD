@@ -69,6 +69,7 @@ enum class CommandRejectionReason : std::uint8_t {
     UpgradeUnavailable,
     InvalidTargetingMode,
     WaveCannotStart,
+    InvalidPayload,
 };
 
 struct CommandAccepted {
