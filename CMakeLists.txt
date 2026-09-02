@@ -87,6 +87,20 @@ set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(protobuf)
 
+FetchContent_Declare(
+    Boost
+    GIT_REPOSITORY https://github.com/boostorg/boost.git
+    GIT_TAG        boost-1.87.0
+    GIT_SHALLOW    ON
+    GIT_SUBMODULES_RECURSE TRUE
+)
+
+# Only Asio (and its System dependency) are needed for the LAN match transport.
+set(BOOST_INCLUDE_LIBRARIES asio system)
+set(BOOST_ENABLE_CMAKE ON)
+
+FetchContent_MakeAvailable(Boost)
+
 if(BUILD_TESTING)
     FetchContent_Declare(
         googletest

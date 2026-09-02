@@ -17,7 +17,13 @@ protobuf_generate(
 )
 
 target_include_directories(NodeSpireMatchProtocol PUBLIC "${NODESPIRE_PROTO_GENERATED_DIR}")
-target_link_libraries(NodeSpireMatchProtocol PUBLIC protobuf::libprotobuf)
+target_link_libraries(NodeSpireMatchProtocol PUBLIC protobuf::libprotobuf Boost::asio)
+
+if(WIN32)
+    # Asio needs Winsock and a target Windows version for its socket backend.
+    target_compile_definitions(NodeSpireMatchProtocol PUBLIC _WIN32_WINNT=0x0601)
+    target_link_libraries(NodeSpireMatchProtocol PUBLIC ws2_32 mswsock)
+endif()
 
 function(nodespire_stage_runtime_dependencies targetName)
     if(WIN32)
@@ -42,6 +48,9 @@ add_executable(NodeSpireTD
     VulkanContext.cpp
     LuaStateBootstrap.cpp
     multiplayer/FixedTickClock.cpp
+    multiplayer/LanFramedConnection.cpp
+    multiplayer/LanMatchClient.cpp
+    multiplayer/LanMatchTransport.cpp
     multiplayer/LoopbackMatchSession.cpp
     multiplayer/LoopbackTransport.cpp
     multiplayer/LocalMatchHost.cpp

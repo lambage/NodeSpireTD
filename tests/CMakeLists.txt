@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_executable(NodeSpireMatchProtocolTests
     multiplayer/FixedTickClockTests.cpp
+    multiplayer/LanMatchTransportTests.cpp
     multiplayer/LoopbackMatchSessionTests.cpp
     multiplayer/LoopbackTransportTests.cpp
     multiplayer/MatchSimulationTests.cpp
@@ -10,6 +11,9 @@ add_executable(NodeSpireMatchProtocolTests
     multiplayer/PlayerAccountsTests.cpp
     multiplayer/PlayLevelCombatControllerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/FixedTickClock.cpp
+    ${CMAKE_SOURCE_DIR}/src/multiplayer/LanFramedConnection.cpp
+    ${CMAKE_SOURCE_DIR}/src/multiplayer/LanMatchClient.cpp
+    ${CMAKE_SOURCE_DIR}/src/multiplayer/LanMatchTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/LoopbackMatchSession.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/LoopbackTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/LocalMatchHost.cpp
