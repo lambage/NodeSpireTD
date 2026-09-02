@@ -1,5 +1,7 @@
 #include "multiplayer/LanMatchTransport.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace multiplayer {
 
 LanMatchTransport::LanMatchTransport(boost::asio::io_context& ioContext)
@@ -11,18 +13,22 @@ bool LanMatchTransport::listen(unsigned short port) {
 
     acceptor_.open(endpoint.protocol(), errorCode);
     if (errorCode) {
+        spdlog::error("LanMatchTransport: failed to open acceptor on port {}: {}", port, errorCode.message());
         return false;
     }
     acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true), errorCode);
     acceptor_.bind(endpoint, errorCode);
     if (errorCode) {
+        spdlog::error("LanMatchTransport: failed to bind to port {}: {}", port, errorCode.message());
         return false;
     }
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, errorCode);
     if (errorCode) {
+        spdlog::error("LanMatchTransport: failed to listen on port {}: {}", port, errorCode.message());
         return false;
     }
 
+    spdlog::info("LanMatchTransport: listening for co-op connections on port {}.", port);
     beginAccept();
     return true;
 }
@@ -35,6 +41,13 @@ void LanMatchTransport::stop() {
         peerConnection.connection->close();
     }
     connections_.clear();
+}
+
+void LanMatchTransport::reset() {
+    stop();
+    acceptedPeers_.clear();
+    pendingJoinRequests_.clear();
+    pendingCommands_.clear();
 }
 
 unsigned short LanMatchTransport::listenPort() const {
@@ -51,15 +64,26 @@ void LanMatchTransport::beginAccept() {
             return;
         }
         if (!errorCode) {
-            auto connection = std::make_shared<LanFramedConnection>(std::move(*socket));
+            boost::system::error_code endpointError;
+            const auto remoteEndpoint = socket->remote_endpoint(endpointError);
             const TransportPeerId peerId = nextPeerId_++;
+            spdlog::info("LanMatchTransport: peer {} connected from {}.", peerId,
+                         endpointError ? std::string("<unknown>")
+                                       : remoteEndpoint.address().to_string() + ":" +
+                                             std::to_string(remoteEndpoint.port()));
+            auto connection = std::make_shared<LanFramedConnection>(std::move(*socket));
             connections_.emplace(peerId, PeerConnection{connection, false});
             acceptedPeers_.push_back(peerId);
             connection->startReading(
                 [this, peerId](std::uint8_t kind, std::string payload) {
                     handleFrame(peerId, kind, std::move(payload));
                 },
-                [this, peerId]() { connections_.erase(peerId); });
+                [this, peerId]() {
+                    spdlog::warn("LanMatchTransport: peer {} disconnected unexpectedly.", peerId);
+                    connections_.erase(peerId);
+                });
+        } else {
+            spdlog::error("LanMatchTransport: accept failed: {}", errorCode.message());
         }
         beginAccept();
     });
@@ -78,6 +102,9 @@ void LanMatchTransport::handleFrame(TransportPeerId peerId, std::uint8_t kind, s
     if (kind == static_cast<std::uint8_t>(LanFrameKind::ClientCommand)) {
         if (!connectionIt->second.joined) {
             // A peer must complete the join handshake before its commands are trusted.
+            spdlog::warn("LanMatchTransport: peer {} sent a command before completing the join handshake; "
+                         "disconnecting.",
+                         peerId);
             disconnectPeer(peerId);
             return;
         }

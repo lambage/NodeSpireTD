@@ -27,6 +27,12 @@ struct SceneSharedState {
     std::string& activeLevelAssetPath;
     std::string& activeLevelScriptPath;
     const std::unordered_set<std::string>& activeAudioAssetKeys;
+    // Multiplayer connection intent set by LobbyScene before requesting a transition to
+    // PlayLevel; consumed (read-only) by PlayLevelScene::onEnter(). If joinRemoteHostAddress is
+    // non-empty, PlayLevelScene connects as a client instead of becoming host/single-player.
+    bool& hostMultiplayerMatch;
+    unsigned short& multiplayerPort;
+    std::string& joinRemoteHostAddress;
     VulkanContext* vulkanContext = nullptr;
     AudioEngine* audioEngine = nullptr;
     ImFont* headingFont = nullptr;

@@ -47,6 +47,7 @@ add_executable(NodeSpireTD
     Scenes.cpp
     VulkanContext.cpp
     LuaStateBootstrap.cpp
+    multiplayer/ContentHash.cpp
     multiplayer/FixedTickClock.cpp
     multiplayer/LanFramedConnection.cpp
     multiplayer/LanMatchClient.cpp

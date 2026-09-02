@@ -478,6 +478,9 @@ class SceneDirector {
                                 activeLevelAssetPath_,
                                 activeLevelScriptPath_,
                                 audioEngine.activeAssetKeys(),
+                                hostMultiplayerMatch_,
+                                multiplayerPort_,
+                                joinRemoteHostAddress_,
                                 runtimeHost.vulkanContextPtr(),
                                 &audioEngine,
                                 runtimeHost.imguiLayer().headingFont(),
@@ -507,6 +510,9 @@ class SceneDirector {
     std::string activeLevelAssetPath_ = "assets/terrain/Terrain003_4K.obj";
     std::string activeLevelScriptPath_;
     bool loadingComplete_ = true;
+    bool hostMultiplayerMatch_ = false;
+    unsigned short multiplayerPort_ = 47321;
+    std::string joinRemoteHostAddress_;
 };
 
 } // namespace

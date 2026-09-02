@@ -29,6 +29,9 @@ class LanMatchTransport final : public IMatchTransport {
 
     bool listen(unsigned short port);
     void stop();
+    // Like stop(), but also discards queued accepted-peer/join-request/command state so a scene
+    // can safely reuse the same transport instance across separate matches.
+    void reset();
     unsigned short listenPort() const;
 
     // Peers accepted since the last drain. Each one is unjoined: drainClientCommands() and

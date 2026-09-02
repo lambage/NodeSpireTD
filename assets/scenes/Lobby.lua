@@ -1,12 +1,17 @@
 local M = {}
 
 local kWindowW = 820
-local kWindowH = 480
+local kWindowH = 560
 
 local backTexture = nil
 
 local loadLevelButton = nil
 local backButton = nil
+local hostButton = nil
+local joinButton = nil
+
+local joinAddressText = "127.0.0.1"
+local portValue = 47321
 
 function M.onEnter()
 	local tex, err = Texture.load(VulkanContext, "assets/images/splash_screen.png")
@@ -20,12 +25,26 @@ function M.onEnter()
         "assets/audio/hover.ogg", "assets/audio/click.ogg")
     backButton = GameButton.new("back", "Back", 140.0, 40.0,
         "assets/audio/hover.ogg", "assets/audio/close.ogg")
+    hostButton = GameButton.new("hostMatch", "Host Co-op", 170.0, 40.0,
+        "assets/audio/hover.ogg", "assets/audio/click.ogg")
+    joinButton = GameButton.new("joinMatch", "Join Co-op", 170.0, 40.0,
+        "assets/audio/hover.ogg", "assets/audio/click.ogg")
+
+    local mpState = Gameplay.getMultiplayerState and Gameplay.getMultiplayerState() or nil
+    if mpState then
+        portValue = mpState.port or portValue
+        if mpState.joinAddress and mpState.joinAddress ~= "" then
+            joinAddressText = mpState.joinAddress
+        end
+    end
 end
 
 function M.onExit()
 	backTexture = nil
 	loadLevelButton = nil
 	backButton = nil
+	hostButton = nil
+	joinButton = nil
 end
 
 function M.render(state, dt, elapsedSeconds)
@@ -78,7 +97,7 @@ function M.render(state, dt, elapsedSeconds)
 	ImGui.Separator()
 
 	local missionListWidth = 260
-	ImGui.BeginChild("MissionList", missionListWidth, -56.0, ImGuiWindowFlags.NoScrollbar)
+	ImGui.BeginChild("MissionList", missionListWidth, -140.0, ImGuiWindowFlags.NoScrollbar)
 	for i = 1, #levels do
 		local level = levels[i]
 		local selected = level and level.selected or false
@@ -91,7 +110,7 @@ function M.render(state, dt, elapsedSeconds)
 	ImGui.EndChild()
 
 	ImGui.SameLine()
-	ImGui.BeginChild("MissionDetails", 0.0, -56.0, ImGuiWindowFlags.NoScrollbar)
+	ImGui.BeginChild("MissionDetails", 0.0, -140.0, ImGuiWindowFlags.NoScrollbar)
 	if hasLevels then
 		local selectedLevel = nil
 		for i = 1, #levels do
@@ -116,6 +135,28 @@ function M.render(state, dt, elapsedSeconds)
 	end
 	ImGui.EndChild()
 
+	ImGui.Separator()
+	ImGui.Text("Co-op (LAN)")
+	local portChanged, newPort = ImGui.InputInt("Port", portValue)
+	if portChanged then
+		portValue = newPort
+	end
+	ImGui.SameLine()
+	if hostButton:render() then
+		Gameplay.setMultiplayerMode(true, portValue, "")
+		Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Hosting co-op match...")
+	end
+
+	local addressChanged, newAddress = ImGui.InputText("Host address", joinAddressText)
+	if addressChanged then
+		joinAddressText = newAddress
+	end
+	ImGui.SameLine()
+	if joinButton:render() then
+		Gameplay.setMultiplayerMode(false, portValue, joinAddressText)
+		Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Joining co-op match...")
+	end
+
 	if not hasLevels then
 		ImGui.BeginDisabled()
 	end
@@ -127,6 +168,7 @@ function M.render(state, dt, elapsedSeconds)
 				break
 			end
 		end
+		Gameplay.setMultiplayerMode(false, portValue, "")
 		Gameplay.requestScene(Gameplay.Scene.PlayLevel, string.format("Loading level: %s...", selectedName))
 	end
 

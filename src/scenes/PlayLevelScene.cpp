@@ -2,6 +2,7 @@
 
 #include "LuaStateBootstrap.hpp"
 #include "VulkanContext.hpp"
+#include "multiplayer/ContentHash.hpp"
 #include "multiplayer/MatchSnapshotBuilder.hpp"
 #include "scenes/SceneSharedState.hpp"
 #include "scenes/TowerPlacementRules.hpp"
@@ -90,6 +91,22 @@ enum class ProjectionRejectReason {
 bool isProjectAssetPath(const std::filesystem::path& path) {
     const std::string normalized = path.generic_string();
     return normalized.rfind("assets/", 0) == 0;
+}
+
+const char* joinRejectionReasonToString(multiplayer::JoinRejectionReason reason) {
+    switch (reason) {
+    case multiplayer::JoinRejectionReason::Unspecified:
+        return "unspecified";
+    case multiplayer::JoinRejectionReason::ProtocolVersionUnsupported:
+        return "protocol version unsupported";
+    case multiplayer::JoinRejectionReason::ContentManifestMismatch:
+        return "content manifest mismatch";
+    case multiplayer::JoinRejectionReason::MatchUnavailable:
+        return "match unavailable";
+    case multiplayer::JoinRejectionReason::MatchFull:
+        return "match full";
+    }
+    return "unknown";
 }
 
 int findEnemyPrototypeIndex(const WorldAssetSpec& assetSpec, const EnemyLoadController& enemyLoadController,
@@ -324,14 +341,41 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     matchSimulation_.registerPlayer(kLocalHostPlayerId, gameplayState_.playerMoney);
     syncLocalPlayerMoney();
     nextLocalCommandSequence_ = 1;
-    remoteTransport_ = {};
+    remoteTransport_.reset();
     remotePlayerByPeer_.clear();
+    remoteClient_.disconnect();
+    isRemoteClient_ = false;
+    remoteJoinPending_ = false;
+    remoteJoinFailureReason_.clear();
+    localPlayerId_ = kLocalHostPlayerId;
     placementRegions_.clear();
     towerPlacementPreviewResolver_.reset();
     lastPlacementValidationReason_.clear();
     enemyAnimationInitialized_ = false;
     bootstrap_.configureLevel(L_, state, selectedMapAssetPath_, selectedLevelScriptPath_, selectedWavesScriptPath_,
                               worldAssetSpec_, towerLoadController_, enemyLoadController_, waveController_);
+    {
+        std::vector<std::string> contentIds;
+        contentIds.reserve(towerLoadController_.archetypes().size() + enemyLoadController_.archetypes().size());
+        for (const auto& [id, archetype] : towerLoadController_.archetypes()) {
+            (void)archetype;
+            contentIds.push_back(id);
+        }
+        for (const auto& [id, archetype] : enemyLoadController_.archetypes()) {
+            (void)archetype;
+            contentIds.push_back(id);
+        }
+        gameplayContentSha256_ = multiplayer::computeContentDigest(std::move(contentIds));
+    }
+
+    // Consume the Lobby's host/join intent. A non-empty joinRemoteHostAddress means this scene
+    // instance is a co-op client, not the authoritative host: it never ticks matchSimulation_
+    // itself, only reflects snapshots the real host publishes (see advanceAuthoritativeSimulation).
+    if (!state.joinRemoteHostAddress.empty()) {
+        startJoiningHost(state.joinRemoteHostAddress, state.multiplayerPort, "Player");
+    } else if (state.hostMultiplayerMatch) {
+        startHostingOnPort(state.multiplayerPort);
+    }
 
     scriptRef_ = loadLuaScript(state, "assets/scenes/PlayLevel.lua");
     luaOnEnter(scriptRef_);
@@ -342,6 +386,8 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
 void PlayLevelScene::onExit(SceneSharedState& state) {
     luaOnExit(state, scriptRef_);
 
+    remoteTransport_.stop();
+    remoteClient_.disconnect();
     if (state.vulkanContext) {
         state.vulkanContext->waitIdle();
     }
@@ -1232,12 +1278,42 @@ void PlayLevelScene::applyPendingGameplayCommands() {
 }
 
 void PlayLevelScene::advanceAuthoritativeSimulation(float elapsedSeconds) {
+    networkIoContext_.poll();
+
+    if (isRemoteClient_) {
+        // A client never ticks matchSimulation_ itself -- only the real host advances
+        // waves/combat. This instance purely reflects whatever snapshot the host last published.
+        processRemoteJoinResult();
+        if (const auto snapshotPayload = remoteClient_.consumeLatestSnapshot()) {
+            if (const auto snapshot = multiplayer::MatchSnapshotBuilder::deserialize(*snapshotPayload)) {
+                applyRemoteSnapshot(*snapshot);
+            } else {
+                spdlog::error("PlayLevelScene[client]: failed to decode incoming snapshot ({} bytes).",
+                              snapshotPayload->size());
+            }
+        }
+        advanceClientCosmeticAnimations(elapsedSeconds);
+        remoteClient_.drainCommandResults();
+        return;
+    }
+
+    processIncomingJoinRequests();
     matchSimulation_.advance(elapsedSeconds, [this](multiplayer::SimulationTick tick, float tickSeconds) {
         applyPendingGameplayCommands();
         drainRemotePlayerCommands(tick);
         updateWaveSimulation(tickSeconds);
         publishRemoteSnapshotIfDue(tick);
     });
+}
+
+void PlayLevelScene::advanceClientCosmeticAnimations(float elapsedSeconds) {
+    for (ActiveEnemy& enemy : activeEnemies_) {
+        if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Alive) {
+            enemy.walkAnimElapsedSeconds += elapsedSeconds;
+        } else if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Dying) {
+            enemy.deathElapsedSeconds += elapsedSeconds;
+        }
+    }
 }
 
 // Single authority boundary: every player command, whether it came from the local host player
@@ -1389,6 +1465,12 @@ bool PlayLevelScene::submitLocalCommand(const multiplayer::PlayerCommandRequest&
         return false;
     }
 
+    if (isRemoteClient_) {
+        // The real host validates and applies this command; we only forward it and reflect the
+        // outcome once a CommandResult/snapshot arrives. Returning true here only means "sent".
+        return remoteClient_.sendCommand(*serializedCommand);
+    }
+
     bool applied = false;
     const auto serializedResult = localMatchHost_.processCommand(
         *serializedCommand, matchSimulation_.currentTick(),
@@ -1403,17 +1485,21 @@ bool PlayLevelScene::submitLocalCommand(const multiplayer::PlayerCommandRequest&
     return applied;
 }
 
-std::optional<multiplayer::TransportPeerId> PlayLevelScene::connectRemotePlayer(multiplayer::PlayerId playerId,
-                                                                                float initialBalance) {
-    if (!matchSimulation_.registerPlayer(playerId, initialBalance) || !localMatchHost_.registerPlayer(playerId)) {
-        return std::nullopt;
+bool PlayLevelScene::startHostingOnPort(unsigned short port) {
+    if (isRemoteClient_) {
+        return false;
     }
-    const multiplayer::TransportPeerId peerId = remoteTransport_.connectClient();
-    remotePlayerByPeer_.emplace(peerId, playerId);
-    if (const auto snapshot = multiplayer::MatchSnapshotBuilder::serialize(matchSimulation_)) {
-        remoteTransport_.publishSnapshot(*snapshot);
-    }
-    return peerId;
+    remoteTransport_.stop();
+    return remoteTransport_.listen(port);
+}
+
+void PlayLevelScene::stopHosting() {
+    remoteTransport_.stop();
+    remotePlayerByPeer_.clear();
+}
+
+unsigned short PlayLevelScene::hostingPort() const {
+    return remoteTransport_.listenPort();
 }
 
 bool PlayLevelScene::disconnectRemotePlayer(multiplayer::TransportPeerId peerId) {
@@ -1425,7 +1511,238 @@ bool PlayLevelScene::disconnectRemotePlayer(multiplayer::TransportPeerId peerId)
     remotePlayerByPeer_.erase(playerIt);
     localMatchHost_.unregisterPlayer(playerId);
     matchSimulation_.unregisterPlayer(playerId);
-    return remoteTransport_.disconnectClient(peerId);
+    return remoteTransport_.disconnectPeer(peerId);
+}
+
+void PlayLevelScene::processIncomingJoinRequests() {
+    // Default balance for a joining peer until match rules define a shared/host-configured
+    // starting economy for co-op.
+    constexpr float kRemotePlayerInitialBalance = 250.0f;
+
+    for (multiplayer::PendingJoinRequest& request : remoteTransport_.drainJoinRequests()) {
+        const auto decodedRequest = multiplayer::MatchProtocolAdapter::decodeJoinMatchRequest(request.payload);
+        const std::string displayName =
+            decodedRequest.request ? decodedRequest.request->playerDisplayName : std::string("<unknown>");
+        spdlog::info("PlayLevelScene[host]: join request from peer {} (display name '{}').", request.peerId,
+                     displayName);
+
+        const auto outcome = localMatchHost_.processJoinRequest(request.payload, gameplayContentSha256_,
+                                                                matchSimulation_.currentTick());
+        if (!outcome) {
+            spdlog::error("PlayLevelScene[host]: failed to serialize join result for peer {}.", request.peerId);
+            remoteTransport_.disconnectPeer(request.peerId);
+            continue;
+        }
+
+        if (!outcome->acceptedPlayerId) {
+            const char* reasonText = "unknown";
+            if (const auto decodedResult =
+                    multiplayer::MatchProtocolAdapter::decodeJoinMatchResult(outcome->serializedResult)) {
+                if (const auto* rejected = std::get_if<multiplayer::JoinMatchRejected>(&*decodedResult)) {
+                    reasonText = joinRejectionReasonToString(rejected->reason);
+                }
+            }
+            spdlog::warn("PlayLevelScene[host]: rejected join from peer {} ('{}'): {}.", request.peerId, displayName,
+                         reasonText);
+            remoteTransport_.sendJoinResult(request.peerId, outcome->serializedResult);
+            remoteTransport_.disconnectPeer(request.peerId);
+            continue;
+        }
+
+        const multiplayer::PlayerId assignedPlayerId = *outcome->acceptedPlayerId;
+        if (!matchSimulation_.registerPlayer(assignedPlayerId, kRemotePlayerInitialBalance) ||
+            !localMatchHost_.registerPlayer(assignedPlayerId) || !remoteTransport_.markPeerJoined(request.peerId)) {
+            spdlog::error("PlayLevelScene[host]: failed to register accepted peer {} as player {}.", request.peerId,
+                         assignedPlayerId);
+            remoteTransport_.disconnectPeer(request.peerId);
+            continue;
+        }
+
+        remotePlayerByPeer_.emplace(request.peerId, assignedPlayerId);
+        spdlog::info("PlayLevelScene[host]: peer {} joined as player {} ('{}').", request.peerId, assignedPlayerId,
+                     displayName);
+        remoteTransport_.sendJoinResult(request.peerId, outcome->serializedResult);
+        if (const auto snapshot = multiplayer::MatchSnapshotBuilder::serialize(matchSimulation_)) {
+            remoteTransport_.publishSnapshot(*snapshot);
+        }
+    }
+}
+
+bool PlayLevelScene::startJoiningHost(const std::string& hostAddress, unsigned short port,
+                                      const std::string& displayName) {
+    remoteTransport_.stop();
+    remoteClient_.disconnect();
+    isRemoteClient_ = false;
+    remoteJoinPending_ = false;
+    remoteJoinFailureReason_.clear();
+
+    if (!remoteClient_.connect(hostAddress, port)) {
+        remoteJoinFailureReason_ = "failed to connect to host";
+        spdlog::error("PlayLevelScene[client]: {} ({}:{}).", remoteJoinFailureReason_, hostAddress, port);
+        return false;
+    }
+
+    multiplayer::JoinMatchRequest request;
+    request.protocolVersion = multiplayer::kMatchProtocolVersion;
+    request.playerDisplayName = displayName;
+    request.contentManifest.gameplayContentSha256 = gameplayContentSha256_;
+    const auto serializedRequest = multiplayer::MatchProtocolAdapter::serializeJoinMatchRequest(request);
+    if (!serializedRequest || !remoteClient_.sendJoinRequest(*serializedRequest)) {
+        remoteClient_.disconnect();
+        remoteJoinFailureReason_ = "failed to send join request";
+        spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
+        return false;
+    }
+
+    spdlog::info("PlayLevelScene[client]: sent join request to {}:{} as '{}', awaiting host reply...", hostAddress,
+                 port, displayName);
+    isRemoteClient_ = true;
+    remoteJoinPending_ = true;
+    return true;
+}
+
+void PlayLevelScene::processRemoteJoinResult() {
+    if (!remoteJoinPending_) {
+        return;
+    }
+
+    const auto payload = remoteClient_.consumeJoinResult();
+    if (!payload) {
+        if (!remoteClient_.isConnected()) {
+            remoteJoinPending_ = false;
+            isRemoteClient_ = false;
+            remoteJoinFailureReason_ = "connection lost while waiting for join result";
+            spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
+        }
+        return;
+    }
+
+    remoteJoinPending_ = false;
+    const auto result = multiplayer::MatchProtocolAdapter::decodeJoinMatchResult(*payload);
+    if (!result) {
+        isRemoteClient_ = false;
+        remoteJoinFailureReason_ = "malformed join result";
+        spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
+        remoteClient_.disconnect();
+        return;
+    }
+
+    if (const auto* accepted = std::get_if<multiplayer::JoinMatchAccepted>(&*result)) {
+        localPlayerId_ = accepted->playerId;
+        spdlog::info("PlayLevelScene[client]: join accepted, assigned player id {}.", localPlayerId_);
+        return;
+    }
+
+    const auto* rejected = std::get_if<multiplayer::JoinMatchRejected>(&*result);
+    remoteJoinFailureReason_ =
+        rejected ? std::string("join rejected by host: ") + joinRejectionReasonToString(rejected->reason)
+                 : "join rejected by host";
+    spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
+    isRemoteClient_ = false;
+    remoteClient_.disconnect();
+}
+
+void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot& snapshot) {
+    spdlog::info("PlayLevelScene[client]: applying snapshot tick={} status={} wave={} waveInProgress={} towers={} "
+                 "enemies={}",
+                 snapshot.simulationTick, static_cast<int>(snapshot.matchStatus), snapshot.currentWave,
+                 snapshot.waveInProgress, snapshot.towers.size(), snapshot.enemies.size());
+    gameplayState_.matchStatus = snapshot.matchStatus;
+    gameplayState_.baseHealth = snapshot.baseHealth;
+    gameplayState_.currentWave = snapshot.currentWave;
+    gameplayState_.waveInProgress = snapshot.waveInProgress;
+
+    for (const auto& player : snapshot.players) {
+        if (player.playerId == localPlayerId_) {
+            gameplayState_.playerMoney = player.money;
+            break;
+        }
+    }
+
+    // Towers: merge by runtime id so client-only fields on an already-known tower are preserved;
+    // resolve render-facing fields for newly-seen towers the same way dispatchAuthoritativeCommand
+    // does at placement time. Towers no longer present on the host (sold) are dropped.
+    std::vector<PlacedTower> mergedTowers;
+    mergedTowers.reserve(snapshot.towers.size());
+    for (const auto& wireTower : snapshot.towers) {
+        const auto existingIt = std::find_if(placedTowers_.begin(), placedTowers_.end(),
+                                             [&wireTower](const PlacedTower& tower) {
+                                                 return tower.runtimeId == wireTower.runtimeId;
+                                             });
+        PlacedTower tower = (existingIt != placedTowers_.end()) ? *existingIt : PlacedTower{};
+        if (existingIt == placedTowers_.end()) {
+            tower.towerId = wireTower.towerArchetypeId;
+            tower.towerPrototypeIndex = towerLoadController_.templatePrototypeIndex(wireTower.towerArchetypeId);
+            tower.projectilePrototypeIndex =
+                towerLoadController_.projectileTemplatePrototypeIndex(wireTower.towerArchetypeId);
+            tower.runtimeId = wireTower.runtimeId;
+        }
+        tower.position = {wireTower.positionX, wireTower.positionY, wireTower.positionZ};
+        tower.targetingMode = toGameplayTargetingMode(wireTower.targetingMode);
+        tower.unlockedUpgradeNodeIds = wireTower.unlockedUpgradeNodeIds;
+        tower.ownerPlayerId = wireTower.ownerPlayerId;
+        mergedTowers.push_back(std::move(tower));
+    }
+    placedTowers_ = std::move(mergedTowers);
+
+    // Enemies: merge by runtime id, preserving client-only animation timers
+    // (walkAnimElapsedSeconds/deathElapsedSeconds) so playback doesn't pop every snapshot; newly-
+    // seen enemies are constructed from archetype data, mirroring updateWaveSimulation()'s spawn
+    // logic.
+    std::vector<ActiveEnemy> mergedEnemies;
+    mergedEnemies.reserve(snapshot.enemies.size());
+    for (const auto& wireEnemy : snapshot.enemies) {
+        const auto existingIt = std::find_if(activeEnemies_.begin(), activeEnemies_.end(),
+                                             [&wireEnemy](const ActiveEnemy& enemy) {
+                                                 return enemy.runtimeId == wireEnemy.runtimeId;
+                                             });
+        ActiveEnemy enemy = (existingIt != activeEnemies_.end()) ? *existingIt : ActiveEnemy{};
+        const bool wasDying =
+            existingIt != activeEnemies_.end() && existingIt->lifecycleState == playlevel::EnemyLifecycleState::Dying;
+        if (existingIt == activeEnemies_.end()) {
+            enemy.enemyId = wireEnemy.enemyArchetypeId;
+            enemy.runtimeId = wireEnemy.runtimeId;
+            if (const EnemyArchetype* archetype = enemyLoadController_.findArchetype(wireEnemy.enemyArchetypeId)) {
+                enemy.renderScale = std::max(0.01f, archetype->renderScale);
+                enemy.facingYawOffsetDegrees = archetype->facingYawOffsetDegrees;
+                enemy.idleClipName = archetype->idleClipName;
+                enemy.walkingClipName = archetype->walkingClipName;
+                enemy.deathClipName = archetype->deathClipName;
+            }
+            enemy.templatePrototypeIndex =
+                findEnemyPrototypeIndex(worldAssetSpec_, enemyLoadController_, enemy.enemyId);
+        }
+        enemy.distanceAlongPath = wireEnemy.distanceAlongPath;
+        enemy.health = wireEnemy.health;
+        enemy.maxHealth = std::max(enemy.maxHealth, enemy.health);
+        enemy.shield = wireEnemy.shield;
+        enemy.maxShield = std::max(enemy.maxShield, enemy.shield);
+        enemy.lifecycleState = static_cast<playlevel::EnemyLifecycleState>(wireEnemy.lifecycleState);
+        if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Dying && !wasDying) {
+            // Mirrors PlayLevelCombatController::collectDefeatedEnemies() resetting the clip to 0
+            // at the exact Alive->Dying flip, so the Death clip doesn't start mid-playback.
+            enemy.deathElapsedSeconds = 0.0f;
+        }
+        mergedEnemies.push_back(std::move(enemy));
+    }
+    activeEnemies_ = std::move(mergedEnemies);
+
+    // Projectiles are short-lived and purely cosmetic client-side; a wipe-and-replace each
+    // snapshot is sufficient (velocity/yaw isn't reconstructed -- a minor known visual limitation).
+    std::vector<ActiveProjectile> mergedProjectiles;
+    mergedProjectiles.reserve(snapshot.projectiles.size());
+    for (const auto& wireProjectile : snapshot.projectiles) {
+        ActiveProjectile projectile;
+        projectile.runtimeId = wireProjectile.runtimeId;
+        projectile.towerId = wireProjectile.towerArchetypeId;
+        projectile.prototypeIndex = towerLoadController_.projectileTemplatePrototypeIndex(wireProjectile.towerArchetypeId);
+        projectile.position = {wireProjectile.positionX, wireProjectile.positionY, wireProjectile.positionZ};
+        projectile.targetEnemyRuntimeId = wireProjectile.targetEnemyRuntimeId;
+        mergedProjectiles.push_back(std::move(projectile));
+    }
+    activeProjectiles_ = std::move(mergedProjectiles);
+
+    reconcileSelectedEnemyAfterSimulation();
 }
 
 void PlayLevelScene::drainRemotePlayerCommands(multiplayer::SimulationTick currentTick) {
@@ -1456,13 +1773,16 @@ void PlayLevelScene::publishRemoteSnapshotIfDue(multiplayer::SimulationTick curr
         return;
     }
     if (const auto snapshot = multiplayer::MatchSnapshotBuilder::serialize(matchSimulation_)) {
+        spdlog::trace("PlayLevelScene[host]: publishing snapshot tick={} status={} wave={} waveInProgress={} peers={}",
+                     currentTick, static_cast<int>(gameplayState_.matchStatus), gameplayState_.currentWave,
+                     gameplayState_.waveInProgress, remotePlayerByPeer_.size());
         remoteTransport_.publishSnapshot(*snapshot);
     }
 }
 
 void PlayLevelScene::processLocalStartWaveCommand() {
     multiplayer::PlayerCommandRequest command;
-    command.playerId = kLocalHostPlayerId;
+    command.playerId = localPlayerId_;
     command.sequence = nextLocalCommandSequence_++;
     command.payload = multiplayer::StartWaveCommand{};
     submitLocalCommand(command);
@@ -1470,7 +1790,7 @@ void PlayLevelScene::processLocalStartWaveCommand() {
 
 bool PlayLevelScene::processLocalTowerPlacementCommand(const TowerArchetype& archetype, const glm::vec3& worldPos) {
     multiplayer::PlayerCommandRequest command;
-    command.playerId = kLocalHostPlayerId;
+    command.playerId = localPlayerId_;
     command.sequence = nextLocalCommandSequence_++;
     command.payload = multiplayer::PlaceTowerCommand{archetype.id, {worldPos.x, worldPos.y, worldPos.z}};
     return submitLocalCommand(command);
@@ -1479,7 +1799,7 @@ bool PlayLevelScene::processLocalTowerPlacementCommand(const TowerArchetype& arc
 bool PlayLevelScene::processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId towerRuntimeId,
                                                       const std::string& nodeId) {
     multiplayer::PlayerCommandRequest command;
-    command.playerId = kLocalHostPlayerId;
+    command.playerId = localPlayerId_;
     command.sequence = nextLocalCommandSequence_++;
     command.payload = multiplayer::UpgradeTowerCommand{towerRuntimeId, nodeId};
     return submitLocalCommand(command);
@@ -1488,7 +1808,7 @@ bool PlayLevelScene::processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId
 bool PlayLevelScene::processLocalTowerTargetingCommand(multiplayer::TowerRuntimeId towerRuntimeId,
                                                         playlevel::TowerTargetingMode targetingMode) {
     multiplayer::PlayerCommandRequest command;
-    command.playerId = kLocalHostPlayerId;
+    command.playerId = localPlayerId_;
     command.sequence = nextLocalCommandSequence_++;
     command.payload = multiplayer::SetTowerTargetingCommand{towerRuntimeId, toMultiplayerTargetingMode(targetingMode)};
     return submitLocalCommand(command);
@@ -1496,7 +1816,7 @@ bool PlayLevelScene::processLocalTowerTargetingCommand(multiplayer::TowerRuntime
 
 bool PlayLevelScene::processLocalTowerSellCommand(multiplayer::TowerRuntimeId towerRuntimeId) {
     multiplayer::PlayerCommandRequest command;
-    command.playerId = kLocalHostPlayerId;
+    command.playerId = localPlayerId_;
     command.sequence = nextLocalCommandSequence_++;
     command.payload = multiplayer::SellTowerCommand{towerRuntimeId};
     return submitLocalCommand(command);

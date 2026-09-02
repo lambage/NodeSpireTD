@@ -27,5 +27,12 @@ class LobbyScene final : public GameScene {
     std::vector<LevelEntry> availableLevels_;
     int selectedLevelIndex_ = 0;
 
+    // Multiplayer host/join UI state, pushed into SceneSharedState every frame in render() (same
+    // pattern as activeLevelName/AssetPath/ScriptPath above) so PlayLevelScene::onEnter() can
+    // read the player's choice once it transitions in.
+    bool hostMultiplayerMatch_ = false;
+    unsigned short multiplayerPort_ = 47321;
+    std::string joinRemoteHostAddress_;
+
   void registerLuaGameplayApi();
 };

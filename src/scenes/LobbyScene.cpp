@@ -144,7 +144,14 @@ void LobbyScene::render(SceneSharedState& state, float dt) {
         state.activeLevelScriptPath = availableLevels_[selectedLevelIndex_].scriptPath.string();
     }
 
+    // Copy after luaOnRender (not before): a Host/Join button click sets the *_ members below
+    // and requests a scene switch within the same luaOnRender call, so copying beforehand would
+    // hand PlayLevelScene::onEnter() a stale (pre-click) state on the very frame of the click.
     luaOnRender(state, scriptRef_, dt);
+
+    state.hostMultiplayerMatch = hostMultiplayerMatch_;
+    state.multiplayerPort = multiplayerPort_;
+    state.joinRemoteHostAddress = joinRemoteHostAddress_;
 }
 
 void LobbyScene::registerLuaGameplayApi() {
@@ -214,6 +221,39 @@ void LobbyScene::registerLuaGameplayApi() {
         },
         1);
     lua_setfield(L_, gameplayTable, "getSelectedLobbyLevel");
+
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            lua_newtable(L);
+            lua_pushboolean(L, self->hostMultiplayerMatch_);
+            lua_setfield(L, -2, "hosting");
+            lua_pushinteger(L, self->multiplayerPort_);
+            lua_setfield(L, -2, "port");
+            lua_pushstring(L, self->joinRemoteHostAddress_.c_str());
+            lua_setfield(L, -2, "joinAddress");
+            return 1;
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "getMultiplayerState");
+
+    // setMultiplayerMode(hosting, port, joinAddress) -- called from the Lobby UI before
+    // requestScene(Gameplay.Scene.PlayLevel, ...). A non-empty joinAddress means "connect as a
+    // client to this host"; otherwise hosting=true starts a LAN listener for co-op peers.
+    lua_pushlightuserdata(L_, this);
+    lua_pushcclosure(
+        L_,
+        [](lua_State* L) -> int {
+            auto* self = luaSceneSelf(L);
+            self->hostMultiplayerMatch_ = lua_toboolean(L, 1) != 0;
+            self->multiplayerPort_ = static_cast<unsigned short>(luaL_checkinteger(L, 2));
+            self->joinRemoteHostAddress_ = luaL_optstring(L, 3, "");
+            return pushCommandResult(L, true, "updated");
+        },
+        1);
+    lua_setfield(L_, gameplayTable, "setMultiplayerMode");
 
     lua_setglobal(L_, "Gameplay");
 }

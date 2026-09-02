@@ -65,6 +65,8 @@ Gameplay.getLobbyLevels = nil
 ---@type any
 Gameplay.getMaxTowerPlacementSlopeDegrees = nil
 ---@type any
+Gameplay.getMultiplayerState = nil
+---@type any
 Gameplay.getPathCorridorHalfWidth = nil
 ---@type any
 Gameplay.getPickEnabled = nil
@@ -124,6 +126,8 @@ Gameplay.setDebugPickSpheresVisible = nil
 Gameplay.setDebugPlacementBoundsVisible = nil
 ---@type any
 Gameplay.setMaxTowerPlacementSlopeDegrees = nil
+---@type any
+Gameplay.setMultiplayerMode = nil
 ---@type any
 Gameplay.setPathCorridorHalfWidth = nil
 ---@type any

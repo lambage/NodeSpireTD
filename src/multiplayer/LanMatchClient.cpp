@@ -1,5 +1,7 @@
 #include "multiplayer/LanMatchClient.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <utility>
 
 namespace multiplayer {
@@ -7,19 +9,23 @@ namespace multiplayer {
 LanMatchClient::LanMatchClient(boost::asio::io_context& ioContext) : ioContext_(ioContext) {}
 
 bool LanMatchClient::connect(const std::string& host, unsigned short port) {
+    spdlog::info("LanMatchClient: connecting to host {}:{}...", host, port);
     boost::asio::ip::tcp::socket socket(ioContext_);
     boost::asio::ip::tcp::resolver resolver(ioContext_);
     boost::system::error_code errorCode;
 
     const auto endpoints = resolver.resolve(host, std::to_string(port), errorCode);
     if (errorCode) {
+        spdlog::error("LanMatchClient: failed to resolve host {}:{}: {}", host, port, errorCode.message());
         return false;
     }
     boost::asio::connect(socket, endpoints, errorCode);
     if (errorCode) {
+        spdlog::error("LanMatchClient: failed to connect to host {}:{}: {}", host, port, errorCode.message());
         return false;
     }
 
+    spdlog::info("LanMatchClient: connected to host {}:{}.", host, port);
     connection_ = std::make_shared<LanFramedConnection>(std::move(socket));
     connection_->startReading(
         [this](std::uint8_t kind, std::string payload) {
@@ -31,7 +37,10 @@ bool LanMatchClient::connect(const std::string& host, unsigned short port) {
                 latestJoinResult_ = std::move(payload);
             }
         },
-        [this]() { connection_.reset(); });
+        [this]() {
+            spdlog::warn("LanMatchClient: connection to host lost.");
+            connection_.reset();
+        });
     return true;
 }
 

@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_executable(NodeSpireMatchProtocolTests
+    multiplayer/ContentHashTests.cpp
     multiplayer/FixedTickClockTests.cpp
     multiplayer/LanMatchTransportTests.cpp
     multiplayer/LocalMatchHostTests.cpp
@@ -11,6 +12,7 @@ add_executable(NodeSpireMatchProtocolTests
     multiplayer/MatchProtocolAdapterTests.cpp
     multiplayer/PlayerAccountsTests.cpp
     multiplayer/PlayLevelCombatControllerTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/multiplayer/ContentHash.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/FixedTickClock.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/LanFramedConnection.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/LanMatchClient.cpp
