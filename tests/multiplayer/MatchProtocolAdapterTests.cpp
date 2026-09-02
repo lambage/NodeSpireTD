@@ -48,6 +48,15 @@ multiplayer::PlayerCommandRequest placementCommand(multiplayer::PlayerId playerI
     return command;
 }
 
+multiplayer::PlayerCommandRequest sellCommand(multiplayer::PlayerId playerId, multiplayer::CommandSequence sequence,
+                                              multiplayer::TowerRuntimeId towerRuntimeId) {
+    multiplayer::PlayerCommandRequest command;
+    command.playerId = playerId;
+    command.sequence = sequence;
+    command.payload = multiplayer::SellTowerCommand{towerRuntimeId};
+    return command;
+}
+
 nodespire::multiplayer::v1::PlayerCommandResult parseResult(const std::optional<std::string>& bytes) {
     assert(bytes.has_value());
     nodespire::multiplayer::v1::PlayerCommandResult result;
@@ -105,6 +114,18 @@ TEST(MatchProtocolAdapter, RejectsInvalidTargetingMode) {
     const auto decoded = multiplayer::MatchProtocolAdapter::decodePlayerCommand(bytes);
     assert(!decoded.command.has_value());
     assert(decoded.error == multiplayer::CommandDecodeError::InvalidTargetingMode);
+}
+
+TEST(MatchProtocolAdapter, RoundTripsSellTowerCommand) {
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(sellCommand(7, 3, 42));
+    assert(encoded.has_value());
+
+    const auto decoded = multiplayer::MatchProtocolAdapter::decodePlayerCommand(*encoded);
+    assert(decoded.error == multiplayer::CommandDecodeError::None);
+    assert(decoded.command.has_value());
+    const auto* sell = std::get_if<multiplayer::SellTowerCommand>(&decoded.command->payload);
+    assert(sell != nullptr);
+    assert(sell->towerRuntimeId == 42);
 }
 
 TEST(LocalHostCommandGate, RejectsUnknownPlayerAndReplay) {
@@ -239,6 +260,21 @@ TEST(LocalMatchHost, ReceivesOnlyTowerPlacementIntent) {
             assert(placement->requestedPosition.x == 1.0f);
             assert(placement->requestedPosition.y == 2.0f);
             assert(placement->requestedPosition.z == 3.0f);
+            return std::optional<multiplayer::CommandRejectionReason>{};
+        }));
+    assert(wireResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kAccepted);
+}
+
+TEST(LocalMatchHost, ReceivesOnlyTowerSellIntent) {
+    multiplayer::LocalMatchHost host;
+    assert(host.registerPlayer(7));
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializePlayerCommand(sellCommand(7, 1, 42));
+
+    const auto wireResult = parseResult(host.processCommand(
+        *encoded, 11, [](const multiplayer::PlayerCommandRequest& receivedCommand) {
+            const auto* sell = std::get_if<multiplayer::SellTowerCommand>(&receivedCommand.payload);
+            assert(sell != nullptr);
+            assert(sell->towerRuntimeId == 42);
             return std::optional<multiplayer::CommandRejectionReason>{};
         }));
     assert(wireResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kAccepted);

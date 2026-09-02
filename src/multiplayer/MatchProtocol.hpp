@@ -45,8 +45,12 @@ struct SetTowerTargetingCommand {
 
 struct StartWaveCommand {};
 
+struct SellTowerCommand {
+    TowerRuntimeId towerRuntimeId = 0;
+};
+
 using PlayerCommandPayload =
-    std::variant<PlaceTowerCommand, UpgradeTowerCommand, SetTowerTargetingCommand, StartWaveCommand>;
+    std::variant<PlaceTowerCommand, UpgradeTowerCommand, SetTowerTargetingCommand, StartWaveCommand, SellTowerCommand>;
 
 // Clients send only this request. Costs, damage, rewards, and derived tower data stay host-only.
 struct PlayerCommandRequest {

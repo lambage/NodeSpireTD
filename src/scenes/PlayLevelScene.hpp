@@ -1,5 +1,7 @@
 #pragma once
+#include "multiplayer/IMatchTransport.hpp"
 #include "multiplayer/LocalMatchHost.hpp"
+#include "multiplayer/LoopbackTransport.hpp"
 #include "multiplayer/MatchSimulation.hpp"
 #include "scenes/EnemyLoadController.hpp"
 #include "scenes/PlayLevelBootstrap.hpp"
@@ -41,6 +43,14 @@ class PlayLevelScene final : public GameScene {
     void render(SceneSharedState& state, float dt) override;
     void renderWorld(VkCommandBuffer cmd, VkExtent2D extent) override;
 
+    // Registers an additional (non-host) player, e.g. a connected LAN peer, with the
+    // authoritative match. Their commands are drained from remoteTransport_ each tick and
+    // validated through the exact same dispatchAuthoritativeCommand() path as the host's own
+    // commands -- only the transport differs.
+    std::optional<multiplayer::TransportPeerId> connectRemotePlayer(multiplayer::PlayerId playerId,
+                                                                    float initialBalance);
+    bool disconnectRemotePlayer(multiplayer::TransportPeerId peerId);
+
   private:
     enum class GameplayCommandType {
         SpendMoney,
@@ -77,6 +87,11 @@ class PlayLevelScene final : public GameScene {
     std::vector<GameplayCommand> pendingCommands_;
     multiplayer::LocalMatchHost localMatchHost_{};
     multiplayer::CommandSequence nextLocalCommandSequence_ = 1;
+    // Host-side inbound channel for non-host players. Concrete LoopbackTransport for now -- a
+    // future LAN/Steam transport can replace it without touching command dispatch below, since
+    // the host only ever talks to it through the IMatchTransport surface.
+    multiplayer::LoopbackTransport remoteTransport_{};
+    std::unordered_map<multiplayer::TransportPeerId, multiplayer::PlayerId> remotePlayerByPeer_{};
     std::string loadStatus_;
     PlayLevelBootstrap bootstrap_{};
     PlayLevelFrameCoordinator frameCoordinator_{};
@@ -152,11 +167,20 @@ class PlayLevelScene final : public GameScene {
     std::string validateStartWaveRequest() const;
     void applyPendingGameplayCommands();
     void advanceAuthoritativeSimulation(float elapsedSeconds);
+    // Single authority boundary: validates and applies one already-sequenced command against the
+    // simulation, regardless of whether it originated from the local host player or a remote peer
+    // drained off remoteTransport_.
+    std::optional<multiplayer::CommandRejectionReason>
+    dispatchAuthoritativeCommand(const multiplayer::PlayerCommandRequest& command);
+    bool submitLocalCommand(const multiplayer::PlayerCommandRequest& command);
+    void drainRemotePlayerCommands(multiplayer::SimulationTick currentTick);
+    void publishRemoteSnapshotIfDue(multiplayer::SimulationTick currentTick);
     void processLocalStartWaveCommand();
     bool processLocalTowerPlacementCommand(const TowerArchetype& archetype, const glm::vec3& worldPos);
     bool processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId towerRuntimeId, const std::string& nodeId);
     bool processLocalTowerTargetingCommand(multiplayer::TowerRuntimeId towerRuntimeId,
                          playlevel::TowerTargetingMode targetingMode);
+    bool processLocalTowerSellCommand(multiplayer::TowerRuntimeId towerRuntimeId);
     void updateWaveSimulation(float dt);
     // One-time initialization: seeds every registered enemy archetype's own template animator
     // with its own Idle clip (only if that model has a clip by that name -- a no-op fallback

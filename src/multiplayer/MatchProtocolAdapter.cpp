@@ -118,6 +118,10 @@ std::optional<std::string> MatchProtocolAdapter::serializePlayerCommand(const Pl
                 setTargeting->set_tower_runtime_id(payload.towerRuntimeId);
                 setTargeting->set_targeting_mode(*targetingMode);
                 return true;
+            } else if constexpr (std::is_same_v<Payload, SellTowerCommand>) {
+                auto* sellTower = wireCommand.mutable_sell_tower();
+                sellTower->set_tower_runtime_id(payload.towerRuntimeId);
+                return true;
             } else {
                 wireCommand.mutable_start_wave();
                 return true;
@@ -176,6 +180,11 @@ DecodedPlayerCommand MatchProtocolAdapter::decodePlayerCommand(std::string_view 
     case WireCommand::kStartWave:
         command.payload = StartWaveCommand{};
         break;
+    case WireCommand::kSellTower: {
+        const auto& sellTower = wireCommand.sell_tower();
+        command.payload = SellTowerCommand{sellTower.tower_runtime_id()};
+        break;
+    }
     case WireCommand::COMMAND_NOT_SET:
         return rejectDecode(CommandDecodeError::CommandNotSet);
     }

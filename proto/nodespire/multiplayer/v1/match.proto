@@ -71,6 +71,10 @@ message SetTowerTargetingRequest {
 
 message StartWaveRequest {}
 
+message SellTowerRequest {
+  uint64 tower_runtime_id = 1;
+}
+
 message PlayerCommandRequest {
   uint32 protocol_version = 1;
   uint64 player_id = 2;
@@ -81,6 +85,7 @@ message PlayerCommandRequest {
     UpgradeTowerRequest upgrade_tower = 11;
     SetTowerTargetingRequest set_tower_targeting = 12;
     StartWaveRequest start_wave = 13;
+    SellTowerRequest sell_tower = 14;
   }
 }
 
