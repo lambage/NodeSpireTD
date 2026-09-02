@@ -22,6 +22,9 @@ class LanMatchClient {
     void disconnect();
     bool isConnected() const;
 
+    bool sendJoinRequest(std::string payload);
+    std::optional<std::string> consumeJoinResult();
+
     bool sendCommand(std::string payload);
     std::vector<std::string> drainCommandResults();
     std::optional<std::string> consumeLatestSnapshot();
@@ -29,6 +32,7 @@ class LanMatchClient {
   private:
     boost::asio::io_context& ioContext_;
     std::shared_ptr<LanFramedConnection> connection_;
+    std::optional<std::string> latestJoinResult_;
     std::deque<std::string> commandResults_;
     std::optional<std::string> latestSnapshot_;
 };

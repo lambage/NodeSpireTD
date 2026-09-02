@@ -11,6 +11,9 @@ namespace {
 using WireCommand = nodespire::multiplayer::v1::PlayerCommandRequest;
 using WireTargetingMode = nodespire::multiplayer::v1::TowerTargetingMode;
 using WireCommandRejectionReason = nodespire::multiplayer::v1::PlayerCommandRejected::Reason;
+using WireJoinRequest = nodespire::multiplayer::v1::JoinMatchRequest;
+using WireJoinResult = nodespire::multiplayer::v1::JoinMatchResult;
+using WireJoinRejectionReason = nodespire::multiplayer::v1::JoinMatchRejected::Reason;
 
 std::optional<WireTargetingMode> toWireTargetingMode(TowerTargetingMode mode) {
     switch (mode) {
@@ -51,6 +54,41 @@ std::optional<TowerTargetingMode> fromWireTargetingMode(WireTargetingMode mode) 
 
 DecodedPlayerCommand rejectDecode(CommandDecodeError error) {
     return {.command = std::nullopt, .error = error};
+}
+
+DecodedJoinMatchRequest rejectJoinDecode(JoinRequestDecodeError error) {
+    return {.request = std::nullopt, .error = error};
+}
+
+WireJoinRejectionReason toWireJoinRejectionReason(JoinRejectionReason reason) {
+    switch (reason) {
+    case JoinRejectionReason::Unspecified:
+        return nodespire::multiplayer::v1::JoinMatchRejected::REASON_UNSPECIFIED;
+    case JoinRejectionReason::ProtocolVersionUnsupported:
+        return nodespire::multiplayer::v1::JoinMatchRejected::PROTOCOL_VERSION_UNSUPPORTED;
+    case JoinRejectionReason::ContentManifestMismatch:
+        return nodespire::multiplayer::v1::JoinMatchRejected::CONTENT_MANIFEST_MISMATCH;
+    case JoinRejectionReason::MatchUnavailable:
+        return nodespire::multiplayer::v1::JoinMatchRejected::MATCH_UNAVAILABLE;
+    case JoinRejectionReason::MatchFull:
+        return nodespire::multiplayer::v1::JoinMatchRejected::MATCH_FULL;
+    }
+    return nodespire::multiplayer::v1::JoinMatchRejected::REASON_UNSPECIFIED;
+}
+
+JoinRejectionReason fromWireJoinRejectionReason(WireJoinRejectionReason reason) {
+    switch (reason) {
+    case nodespire::multiplayer::v1::JoinMatchRejected::PROTOCOL_VERSION_UNSUPPORTED:
+        return JoinRejectionReason::ProtocolVersionUnsupported;
+    case nodespire::multiplayer::v1::JoinMatchRejected::CONTENT_MANIFEST_MISMATCH:
+        return JoinRejectionReason::ContentManifestMismatch;
+    case nodespire::multiplayer::v1::JoinMatchRejected::MATCH_UNAVAILABLE:
+        return JoinRejectionReason::MatchUnavailable;
+    case nodespire::multiplayer::v1::JoinMatchRejected::MATCH_FULL:
+        return JoinRejectionReason::MatchFull;
+    default:
+        return JoinRejectionReason::Unspecified;
+    }
 }
 
 WireCommandRejectionReason toWireRejectionReason(CommandRejectionReason reason) {
@@ -213,6 +251,77 @@ std::optional<std::string> MatchProtocolAdapter::serializePlayerCommandResult(co
 
     std::string bytes;
     return wireResult.SerializeToString(&bytes) ? std::optional{std::move(bytes)} : std::nullopt;
+}
+
+std::optional<std::string> MatchProtocolAdapter::serializeJoinMatchRequest(const JoinMatchRequest& request) {
+    WireJoinRequest wireRequest;
+    wireRequest.set_protocol_version(request.protocolVersion);
+    wireRequest.set_player_display_name(request.playerDisplayName);
+    wireRequest.mutable_content_manifest()->set_gameplay_content_sha256(request.contentManifest.gameplayContentSha256);
+
+    if (wireRequest.ByteSizeLong() > kMaxJoinRequestBytes) {
+        return std::nullopt;
+    }
+
+    std::string bytes;
+    return wireRequest.SerializeToString(&bytes) ? std::optional{std::move(bytes)} : std::nullopt;
+}
+
+DecodedJoinMatchRequest MatchProtocolAdapter::decodeJoinMatchRequest(std::string_view payload) {
+    if (payload.size() > kMaxJoinRequestBytes) {
+        return rejectJoinDecode(JoinRequestDecodeError::PayloadTooLarge);
+    }
+
+    WireJoinRequest wireRequest;
+    if (!wireRequest.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+        return rejectJoinDecode(JoinRequestDecodeError::MalformedPayload);
+    }
+    if (wireRequest.protocol_version() > std::numeric_limits<std::uint16_t>::max()) {
+        return rejectJoinDecode(JoinRequestDecodeError::ProtocolVersionOutOfRange);
+    }
+
+    JoinMatchRequest request;
+    request.protocolVersion = static_cast<std::uint16_t>(wireRequest.protocol_version());
+    request.playerDisplayName = wireRequest.player_display_name();
+    request.contentManifest.gameplayContentSha256 = wireRequest.content_manifest().gameplay_content_sha256();
+    return {.request = std::move(request), .error = JoinRequestDecodeError::None};
+}
+
+std::optional<std::string> MatchProtocolAdapter::serializeJoinMatchResult(const JoinMatchResult& result) {
+    WireJoinResult wireResult;
+    std::visit(
+        [&wireResult](const auto& joinResult) {
+            using Result = std::decay_t<decltype(joinResult)>;
+            if constexpr (std::is_same_v<Result, JoinMatchAccepted>) {
+                auto* accepted = wireResult.mutable_accepted();
+                accepted->set_player_id(joinResult.playerId);
+                accepted->set_current_tick(joinResult.currentTick);
+            } else {
+                wireResult.mutable_rejected()->set_reason(toWireJoinRejectionReason(joinResult.reason));
+            }
+        },
+        result);
+
+    std::string bytes;
+    return wireResult.SerializeToString(&bytes) ? std::optional{std::move(bytes)} : std::nullopt;
+}
+
+std::optional<JoinMatchResult> MatchProtocolAdapter::decodeJoinMatchResult(std::string_view payload) {
+    WireJoinResult wireResult;
+    if (!wireResult.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+        return std::nullopt;
+    }
+
+    switch (wireResult.result_case()) {
+    case WireJoinResult::kAccepted:
+        return JoinMatchResult{
+            JoinMatchAccepted{wireResult.accepted().player_id(), wireResult.accepted().current_tick()}};
+    case WireJoinResult::kRejected:
+        return JoinMatchResult{JoinMatchRejected{fromWireJoinRejectionReason(wireResult.rejected().reason())}};
+    case WireJoinResult::RESULT_NOT_SET:
+        return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 } // namespace multiplayer

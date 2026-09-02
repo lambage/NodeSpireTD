@@ -30,6 +30,9 @@ void LanFramedConnection::startReading(FrameHandler onFrame, ErrorHandler onErro
 }
 
 void LanFramedConnection::beginReadHeader() {
+    if (closed_) {
+        return;
+    }
     auto self = shared_from_this();
     boost::asio::async_read(socket_, boost::asio::buffer(readHeader_),
                              [this, self](const boost::system::error_code& errorCode, std::size_t) {

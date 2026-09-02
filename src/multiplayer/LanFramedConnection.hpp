@@ -18,6 +18,8 @@ enum class LanFrameKind : std::uint8_t {
     ClientCommand = 0,
     CommandResult = 1,
     Snapshot = 2,
+    JoinRequest = 3,
+    JoinResult = 4,
 };
 
 // Owns the read/write pump for one TCP connection using a shared wire format:

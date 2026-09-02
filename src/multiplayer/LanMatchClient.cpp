@@ -27,10 +27,27 @@ bool LanMatchClient::connect(const std::string& host, unsigned short port) {
                 commandResults_.push_back(std::move(payload));
             } else if (kind == static_cast<std::uint8_t>(LanFrameKind::Snapshot)) {
                 latestSnapshot_ = std::move(payload);
+            } else if (kind == static_cast<std::uint8_t>(LanFrameKind::JoinResult)) {
+                latestJoinResult_ = std::move(payload);
             }
         },
         [this]() { connection_.reset(); });
     return true;
+}
+
+bool LanMatchClient::sendJoinRequest(std::string payload) {
+    if (payload.empty() || !connection_) {
+        return false;
+    }
+    connection_->queueWrite(static_cast<std::uint8_t>(LanFrameKind::JoinRequest), std::move(payload));
+    return true;
+}
+
+std::optional<std::string> LanMatchClient::consumeJoinResult() {
+    if (!latestJoinResult_) {
+        return std::nullopt;
+    }
+    return std::exchange(latestJoinResult_, std::nullopt);
 }
 
 void LanMatchClient::disconnect() {

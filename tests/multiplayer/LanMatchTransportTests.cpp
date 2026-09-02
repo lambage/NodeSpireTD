@@ -16,22 +16,52 @@ void pumpNetwork(boost::asio::io_context& ioContext, std::chrono::milliseconds d
     }
 }
 
+multiplayer::TransportPeerId connectAndJoin(boost::asio::io_context& ioContext, multiplayer::LanMatchTransport& host,
+                                            multiplayer::LanMatchClient& client) {
+    if (!client.connect("127.0.0.1", host.listenPort())) {
+        return 0;
+    }
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto acceptedPeers = host.drainAcceptedPeers();
+    if (acceptedPeers.size() != 1) {
+        return 0;
+    }
+    const auto peerId = acceptedPeers.front();
+
+    if (!client.sendJoinRequest("join-payload")) {
+        return 0;
+    }
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto joinRequests = host.drainJoinRequests();
+    if (joinRequests.size() != 1 || joinRequests.front().peerId != peerId ||
+        joinRequests.front().payload != "join-payload") {
+        return 0;
+    }
+
+    if (!host.markPeerJoined(peerId) || !host.sendJoinResult(peerId, "accepted-payload")) {
+        return 0;
+    }
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    return peerId;
+}
+
 } // namespace
 
-TEST(LanMatchTransport, DeliversCommandsResultsAndSnapshotsOverTcp) {
+TEST(LanMatchTransport, DeliversCommandsResultsAndSnapshotsAfterJoinHandshake) {
     boost::asio::io_context ioContext;
 
     multiplayer::LanMatchTransport host(ioContext);
     ASSERT_TRUE(host.listen(0));
 
     multiplayer::LanMatchClient client(ioContext);
-    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    const auto peerId = connectAndJoin(ioContext, host, client);
+    ASSERT_NE(peerId, 0U);
 
-    pumpNetwork(ioContext, std::chrono::milliseconds(200));
-
-    const auto acceptedPeers = host.drainAcceptedPeers();
-    ASSERT_EQ(acceptedPeers.size(), 1U);
-    const auto peerId = acceptedPeers.front();
+    const auto joinResult = client.consumeJoinResult();
+    ASSERT_TRUE(joinResult.has_value());
+    EXPECT_EQ(*joinResult, "accepted-payload");
 
     ASSERT_TRUE(client.sendCommand("command-payload"));
     pumpNetwork(ioContext, std::chrono::milliseconds(200));
@@ -54,6 +84,43 @@ TEST(LanMatchTransport, DeliversCommandsResultsAndSnapshotsOverTcp) {
     EXPECT_EQ(*snapshot, "snapshot-payload");
 }
 
+TEST(LanMatchTransport, RejectsClientCommandsSentBeforeTheJoinHandshake) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto peerId = host.drainAcceptedPeers().front();
+    ASSERT_TRUE(client.sendCommand("too-early"));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    EXPECT_TRUE(host.drainClientCommands().empty());
+    // The host disconnects a peer that skips the handshake, so it can no longer be addressed.
+    EXPECT_FALSE(host.sendCommandResult(peerId, "unreachable"));
+}
+
+TEST(LanMatchTransport, IgnoresSnapshotsAndResultsForPeersThatHaveNotJoined) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto peerId = host.drainAcceptedPeers().front();
+    EXPECT_FALSE(host.sendCommandResult(peerId, "not-joined-yet"));
+
+    host.publishSnapshot("snapshot-payload");
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    EXPECT_FALSE(client.consumeLatestSnapshot().has_value());
+}
+
 TEST(LanMatchTransport, DisconnectingAPeerStopsFurtherReceivesFromIt) {
     boost::asio::io_context ioContext;
 
@@ -69,3 +136,4 @@ TEST(LanMatchTransport, DisconnectingAPeerStopsFurtherReceivesFromIt) {
     EXPECT_FALSE(host.disconnectPeer(peerId));
     EXPECT_FALSE(host.sendCommandResult(peerId, "unreachable"));
 }
+

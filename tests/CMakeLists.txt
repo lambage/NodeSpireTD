@@ -3,6 +3,7 @@ include(GoogleTest)
 add_executable(NodeSpireMatchProtocolTests
     multiplayer/FixedTickClockTests.cpp
     multiplayer/LanMatchTransportTests.cpp
+    multiplayer/LocalMatchHostTests.cpp
     multiplayer/LoopbackMatchSessionTests.cpp
     multiplayer/LoopbackTransportTests.cpp
     multiplayer/MatchSimulationTests.cpp

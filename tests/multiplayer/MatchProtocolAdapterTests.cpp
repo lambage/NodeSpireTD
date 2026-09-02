@@ -280,4 +280,63 @@ TEST(LocalMatchHost, ReceivesOnlyTowerSellIntent) {
     assert(wireResult.result_case() == nodespire::multiplayer::v1::PlayerCommandResult::kAccepted);
 }
 
+TEST(MatchProtocolAdapter, RoundTripsJoinMatchRequest) {
+    multiplayer::JoinMatchRequest request;
+    request.playerDisplayName = "Player Two";
+    request.contentManifest.gameplayContentSha256 = "deadbeef";
+
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializeJoinMatchRequest(request);
+    assert(encoded.has_value());
+
+    const auto decoded = multiplayer::MatchProtocolAdapter::decodeJoinMatchRequest(*encoded);
+    assert(decoded.error == multiplayer::JoinRequestDecodeError::None);
+    assert(decoded.request.has_value());
+    assert(decoded.request->protocolVersion == multiplayer::kMatchProtocolVersion);
+    assert(decoded.request->playerDisplayName == "Player Two");
+    assert(decoded.request->contentManifest.gameplayContentSha256 == "deadbeef");
+}
+
+TEST(MatchProtocolAdapter, RejectsOversizedJoinMatchRequestProtocolVersion) {
+    nodespire::multiplayer::v1::JoinMatchRequest wireRequest;
+    wireRequest.set_protocol_version(65536);
+
+    std::string bytes;
+    assert(wireRequest.SerializeToString(&bytes));
+    const auto decoded = multiplayer::MatchProtocolAdapter::decodeJoinMatchRequest(bytes);
+    assert(!decoded.request.has_value());
+    assert(decoded.error == multiplayer::JoinRequestDecodeError::ProtocolVersionOutOfRange);
+}
+
+TEST(MatchProtocolAdapter, RejectsMalformedJoinMatchRequest) {
+    const auto decoded = multiplayer::MatchProtocolAdapter::decodeJoinMatchRequest("not a protobuf request");
+    assert(!decoded.request.has_value());
+    assert(decoded.error == multiplayer::JoinRequestDecodeError::MalformedPayload);
+}
+
+TEST(MatchProtocolAdapter, RoundTripsJoinMatchAccepted) {
+    const multiplayer::JoinMatchResult result = multiplayer::JoinMatchAccepted{7, 42};
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializeJoinMatchResult(result);
+    assert(encoded.has_value());
+
+    const auto decoded = multiplayer::MatchProtocolAdapter::decodeJoinMatchResult(*encoded);
+    assert(decoded.has_value());
+    const auto* accepted = std::get_if<multiplayer::JoinMatchAccepted>(&*decoded);
+    assert(accepted != nullptr);
+    assert(accepted->playerId == 7);
+    assert(accepted->currentTick == 42);
+}
+
+TEST(MatchProtocolAdapter, RoundTripsJoinMatchRejected) {
+    const multiplayer::JoinMatchResult result =
+        multiplayer::JoinMatchRejected{multiplayer::JoinRejectionReason::ContentManifestMismatch};
+    const auto encoded = multiplayer::MatchProtocolAdapter::serializeJoinMatchResult(result);
+    assert(encoded.has_value());
+
+    const auto decoded = multiplayer::MatchProtocolAdapter::decodeJoinMatchResult(*encoded);
+    assert(decoded.has_value());
+    const auto* rejected = std::get_if<multiplayer::JoinMatchRejected>(&*decoded);
+    assert(rejected != nullptr);
+    assert(rejected->reason == multiplayer::JoinRejectionReason::ContentManifestMismatch);
+}
+
 } // namespace

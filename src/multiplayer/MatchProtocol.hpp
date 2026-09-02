@@ -90,4 +90,35 @@ struct CommandRejected {
 
 using PlayerCommandResult = std::variant<CommandAccepted, CommandRejected>;
 
+// Sent once by a connecting client before any PlayerCommandRequest. The host rejects the
+// connection outright on mismatch rather than allowing it to affect simulation state.
+struct ContentManifest {
+    std::string gameplayContentSha256;
+};
+
+struct JoinMatchRequest {
+    std::uint16_t protocolVersion = kMatchProtocolVersion;
+    std::string playerDisplayName;
+    ContentManifest contentManifest;
+};
+
+enum class JoinRejectionReason : std::uint8_t {
+    Unspecified,
+    ProtocolVersionUnsupported,
+    ContentManifestMismatch,
+    MatchUnavailable,
+    MatchFull,
+};
+
+struct JoinMatchAccepted {
+    PlayerId playerId = 0;
+    SimulationTick currentTick = 0;
+};
+
+struct JoinMatchRejected {
+    JoinRejectionReason reason = JoinRejectionReason::Unspecified;
+};
+
+using JoinMatchResult = std::variant<JoinMatchAccepted, JoinMatchRejected>;
+
 } // namespace multiplayer
