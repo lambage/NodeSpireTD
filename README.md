@@ -41,7 +41,6 @@ default log level is now `info`, `-v`/`--verbose` enables debug, `--extra-verbos
 
 # Known Issues
 
-- when selecting another players tower we should use a different color and make it obvious that the player cannot do upgrades/sell etc...
 - host was rejecting client placing a tower because the host didn't have enough money but the client did
 - no chat/whisper feature, would be nice to have a WoW style command prompt/chat
 - would rather have a party system than the current host starts map and client connects

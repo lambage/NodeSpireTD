@@ -294,6 +294,27 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "BulletText");
 
+    // BeginDisabled(disabled)
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const bool disabled = lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+            ImGui::BeginDisabled(disabled);
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "BeginDisabled");
+
+    // EndDisabled()
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImGui::EndDisabled();
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "EndDisabled");
+
     // LabelText(label, value)
     lua_pushcclosure(
         L,

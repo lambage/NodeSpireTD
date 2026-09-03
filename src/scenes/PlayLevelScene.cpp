@@ -1100,6 +1100,10 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
     constexpr float kGroundCircleYOffset = 0.22f;
     constexpr glm::vec4 kSelectedColor(0.294f, 0.686f, 1.0f, 0.45f);
     constexpr glm::vec4 kSelectedOutlineColor(0.294f, 0.686f, 1.0f, 1.0f);
+    // Another player's tower can't be upgraded/sold by us, so its selection ring uses a
+    // distinct red tint instead of the normal "this is mine" blue.
+    constexpr glm::vec4 kSelectedOtherPlayerColor(0.95f, 0.235f, 0.235f, 0.45f);
+    constexpr glm::vec4 kSelectedOtherPlayerOutlineColor(0.95f, 0.235f, 0.235f, 1.0f);
     constexpr glm::vec4 kHoverColor(1.0f, 0.863f, 0.235f, 0.25f);
 
     std::string selectedTowerId;
@@ -1115,8 +1119,11 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
                 continue;
             }
             if (perTypeIndex == selectedTowerPoolIndex) {
+                const bool ownedByLocalPlayer = tower.ownerPlayerId == localPlayerId_;
                 groundCircles.push_back({tower.position + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
-                                        std::max(0.5f, tower.attackRange), kSelectedColor, kSelectedOutlineColor});
+                                        std::max(0.5f, tower.attackRange),
+                                        ownedByLocalPlayer ? kSelectedColor : kSelectedOtherPlayerColor,
+                                        ownedByLocalPlayer ? kSelectedOutlineColor : kSelectedOtherPlayerOutlineColor});
                 break;
             }
             ++perTypeIndex;
@@ -2438,7 +2445,10 @@ void PlayLevelScene::registerLuaGameplayApi() {
             lua_setfield(L, -2, "towerInstanceOrdinal");
             lua_pushstring(L, archetype->bio.c_str());
             lua_setfield(L, -2, "bio");
-
+            lua_pushinteger(L, static_cast<lua_Integer>(placedTower->ownerPlayerId));
+            lua_setfield(L, -2, "ownerPlayerId");
+            lua_pushboolean(L, placedTower->ownerPlayerId == self->localPlayerId_ ? 1 : 0);
+            lua_setfield(L, -2, "isOwnedByLocalPlayer");
             lua_pushinteger(L, archetype->cost);
             lua_setfield(L, -2, "baseCost");
 

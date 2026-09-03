@@ -145,6 +145,8 @@ ImGui.Begin = nil
 ---@type any
 ImGui.BeginChild = nil
 ---@type any
+ImGui.BeginDisabled = nil
+---@type any
 ImGui.BeginGroup = nil
 ---@type any
 ImGui.BeginMenu = nil
@@ -186,6 +188,8 @@ ImGui.Dummy = nil
 ImGui.End = nil
 ---@type any
 ImGui.EndChild = nil
+---@type any
+ImGui.EndDisabled = nil
 ---@type any
 ImGui.EndGroup = nil
 ---@type any
