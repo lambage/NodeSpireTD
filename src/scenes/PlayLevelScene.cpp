@@ -734,13 +734,12 @@ bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::str
 }
 
 std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
-                                                   multiplayer::PlayerId playerId, int footprintSampleCount) const {
+                                                   float availableFunds, int footprintSampleCount) const {
     const TowerPlacementRules::Context placementContext{
         gameplayState_,        placedTowers_, worldRenderer_.get(), placementRegions_, maxTowerPlacementSlopeDegrees_,
         pathCorridorHalfWidth_};
     return TowerPlacementRules::validatePlacement(placementContext, archetype, worldPos, footprintSampleCount,
-                                                  towerPlacementPreviewResolver_.lastTerrainSample(),
-                                                  matchSimulation_.playerBalance(playerId));
+                                                  towerPlacementPreviewResolver_.lastTerrainSample(), availableFunds);
 }
 
 void PlayLevelScene::clearActiveSelectionForTowerPlacement(const char* reason) {
@@ -765,15 +764,14 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
     const TowerPlacementRules::Context placementContext{
         gameplayState_,        placedTowers_, worldRenderer_.get(), placementRegions_, maxTowerPlacementSlopeDegrees_,
         pathCorridorHalfWidth_};
-    const float localPlayerFunds = matchSimulation_.playerBalance(localPlayerId_);
-    const auto validatePlacement = [this, selected, &placementContext, localPlayerFunds](const glm::vec3& worldPos,
+    const auto validatePlacement = [this, selected, &placementContext](const glm::vec3& worldPos,
                                                                        int footprintSampleCount,
                                                                        const PlacementTerrainSample& terrainSample) {
         if (!selected) {
             return std::string("no tower selected");
         }
         return TowerPlacementRules::validatePlacement(placementContext, *selected, worldPos, footprintSampleCount,
-                                                      terrainSample, localPlayerFunds);
+                                                      terrainSample, gameplayState_.playerMoney);
     };
     towerPlacementController_.updatePlacementFromInput(
         selected != nullptr,
@@ -805,7 +803,7 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
             // Re-validate with full footprint precision before committing the placement.
             constexpr int kConfirmFootprintSampleCount = 8;
             const std::string finalReason =
-                validateTowerPlacement(*selected, worldPos, localPlayerId_, kConfirmFootprintSampleCount);
+                validateTowerPlacement(*selected, worldPos, gameplayState_.playerMoney, kConfirmFootprintSampleCount);
             if (!finalReason.empty()) {
                 lastPlacementValidationReason_ = finalReason;
                 towerPlacementPreviewResolver_.cacheValidationResult(selected->id, worldPos, false, finalReason);
@@ -829,8 +827,8 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
         lastPlacementValidationReason_.clear();
     } else if (lastPlacementValidationReason_.empty()) {
         constexpr int kPreviewFootprintSampleCount = 4;
-        lastPlacementValidationReason_ =
-            validateTowerPlacement(*selected, placementState.worldPos, localPlayerId_, kPreviewFootprintSampleCount);
+        lastPlacementValidationReason_ = validateTowerPlacement(*selected, placementState.worldPos,
+                                                                gameplayState_.playerMoney, kPreviewFootprintSampleCount);
     }
 }
 
@@ -1108,6 +1106,9 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
     constexpr glm::vec4 kSelectedOtherPlayerColor(0.95f, 0.235f, 0.235f, 0.45f);
     constexpr glm::vec4 kSelectedOtherPlayerOutlineColor(0.95f, 0.235f, 0.235f, 1.0f);
     constexpr glm::vec4 kHoverColor(1.0f, 0.863f, 0.235f, 0.25f);
+    // Hovering another player's tower gets the same red family as its selection ring, so the
+    // ownership cue is instant even before clicking to select.
+    constexpr glm::vec4 kHoverOtherPlayerColor(0.95f, 0.235f, 0.235f, 0.25f);
 
     std::string selectedTowerId;
     int selectedTowerPoolIndex = -1;
@@ -1164,8 +1165,10 @@ void PlayLevelScene::drawTowerPlacementOverlay() const {
                         continue;
                     }
                     if (perTypeIndex == hoverTowerPoolIndex) {
+                        const bool ownedByLocalPlayer = tower.ownerPlayerId == localPlayerId_;
                         groundCircles.push_back({tower.position + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
-                                                std::max(0.5f, tower.attackRange), kHoverColor});
+                                                std::max(0.5f, tower.attackRange),
+                                                ownedByLocalPlayer ? kHoverColor : kHoverOtherPlayerColor});
                         break;
                     }
                     ++perTypeIndex;
@@ -1355,7 +1358,8 @@ PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandReq
                 const glm::vec3 requestedPosition{payload.requestedPosition.x, payload.requestedPosition.y,
                                                   payload.requestedPosition.z};
                 constexpr int kConfirmFootprintSampleCount = 8;
-                if (!validateTowerPlacement(*requestedArchetype, requestedPosition, command.playerId,
+                if (!validateTowerPlacement(*requestedArchetype, requestedPosition,
+                                           matchSimulation_.playerBalance(command.playerId),
                                            kConfirmFootprintSampleCount)
                          .empty()) {
                     return multiplayer::CommandRejectionReason::InvalidPlacement;
@@ -1675,9 +1679,12 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
         }
     }
 
-    // Towers: merge by runtime id so client-only fields on an already-known tower are preserved;
-    // resolve render-facing fields for newly-seen towers the same way dispatchAuthoritativeCommand
-    // does at placement time. Towers no longer present on the host (sold) are dropped.
+    // Towers: merge by runtime id so client-only fields on an already-known tower are preserved.
+    // The wire snapshot only carries position/targeting/ownership/unlocked-upgrade-node-ids, so
+    // combat/render-facing stats (attackRange etc., used by the selection ground circle) are
+    // resolved locally from the tower's archetype + applyTowerUpgradeEffects on every merge,
+    // mirroring what dispatchAuthoritativeCommand/unlockTowerUpgrade compute on the host. Towers
+    // no longer present on the host (sold) are dropped.
     std::vector<PlacedTower> mergedTowers;
     mergedTowers.reserve(snapshot.towers.size());
     for (const auto& wireTower : snapshot.towers) {
@@ -1685,18 +1692,47 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
                                              [&wireTower](const PlacedTower& tower) {
                                                  return tower.runtimeId == wireTower.runtimeId;
                                              });
-        PlacedTower tower = (existingIt != placedTowers_.end()) ? *existingIt : PlacedTower{};
-        if (existingIt == placedTowers_.end()) {
+        const bool isNewTower = existingIt == placedTowers_.end();
+        PlacedTower tower = isNewTower ? PlacedTower{} : *existingIt;
+        if (isNewTower) {
             tower.towerId = wireTower.towerArchetypeId;
-            tower.towerPrototypeIndex = towerLoadController_.templatePrototypeIndex(wireTower.towerArchetypeId);
-            tower.projectilePrototypeIndex =
-                towerLoadController_.projectileTemplatePrototypeIndex(wireTower.towerArchetypeId);
             tower.runtimeId = wireTower.runtimeId;
         }
         tower.position = {wireTower.positionX, wireTower.positionY, wireTower.positionZ};
         tower.targetingMode = toGameplayTargetingMode(wireTower.targetingMode);
         tower.unlockedUpgradeNodeIds = wireTower.unlockedUpgradeNodeIds;
         tower.ownerPlayerId = wireTower.ownerPlayerId;
+
+        if (const TowerArchetype* archetype = towerLoadController_.findArchetype(tower.towerId)) {
+            if (isNewTower) {
+                tower.cost = archetype->cost;
+                tower.damageType = archetype->damageType;
+                tower.armorPiercing = archetype->armorPiercing;
+            }
+            float attackSpeed = 1.0f / std::max(0.01f, tower.attackIntervalSeconds);
+            applyTowerUpgradeEffects(*archetype, tower, tower.attackDamage, tower.attackRange, attackSpeed,
+                                     tower.projectileSpeed, tower.splashRadius, tower.chainRange,
+                                     tower.ricochetRange, tower.projectileCount, tower.chainTargetCount,
+                                     tower.ricochetCount);
+            tower.attackIntervalSeconds = 1.0f / std::max(0.01f, attackSpeed);
+
+            int activeTowerPrototype = towerLoadController_.templatePrototypeIndex(tower.towerId);
+            int activeProjectilePrototype = towerLoadController_.projectileTemplatePrototypeIndex(tower.towerId);
+            for (const std::string& unlockedId : tower.unlockedUpgradeNodeIds) {
+                const TowerArchetype::UpgradeNode* unlockedNode = findUpgradeNodeById(*archetype, unlockedId);
+                if (!unlockedNode) {
+                    continue;
+                }
+                if (unlockedNode->towerPrototypeOverrideIndex >= 0) {
+                    activeTowerPrototype = unlockedNode->towerPrototypeOverrideIndex;
+                }
+                if (unlockedNode->projectilePrototypeOverrideIndex >= 0) {
+                    activeProjectilePrototype = unlockedNode->projectilePrototypeOverrideIndex;
+                }
+            }
+            tower.towerPrototypeIndex = activeTowerPrototype;
+            tower.projectilePrototypeIndex = activeProjectilePrototype;
+        }
         mergedTowers.push_back(std::move(tower));
     }
     placedTowers_ = std::move(mergedTowers);
@@ -1743,17 +1779,35 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
     }
     activeEnemies_ = std::move(mergedEnemies);
 
-    // Projectiles are short-lived and purely cosmetic client-side; a wipe-and-replace each
-    // snapshot is sufficient (velocity/yaw isn't reconstructed -- a minor known visual limitation).
+    // Projectiles are short-lived and purely cosmetic client-side; positions snap directly from
+    // the snapshot each tick (no local simulation). velocity is reconstructed here as a
+    // direction-only hint toward the projectile's current target (falling back to the previous
+    // snapshot's direction if the target can't be found), so syncPlacedTowerModels's
+    // yaw-from-velocity math renders the correct facing instead of always defaulting to yaw=0.
     std::vector<ActiveProjectile> mergedProjectiles;
     mergedProjectiles.reserve(snapshot.projectiles.size());
     for (const auto& wireProjectile : snapshot.projectiles) {
-        ActiveProjectile projectile;
+        const auto existingIt = std::find_if(activeProjectiles_.begin(), activeProjectiles_.end(),
+                                             [&wireProjectile](const ActiveProjectile& projectile) {
+                                                 return projectile.runtimeId == wireProjectile.runtimeId;
+                                             });
+        ActiveProjectile projectile = (existingIt != activeProjectiles_.end()) ? *existingIt : ActiveProjectile{};
         projectile.runtimeId = wireProjectile.runtimeId;
         projectile.towerId = wireProjectile.towerArchetypeId;
         projectile.prototypeIndex = towerLoadController_.projectileTemplatePrototypeIndex(wireProjectile.towerArchetypeId);
         projectile.position = {wireProjectile.positionX, wireProjectile.positionY, wireProjectile.positionZ};
         projectile.targetEnemyRuntimeId = wireProjectile.targetEnemyRuntimeId;
+
+        const auto targetIt = std::find_if(activeEnemies_.begin(), activeEnemies_.end(),
+                                           [&projectile](const ActiveEnemy& enemy) {
+                                               return enemy.runtimeId == projectile.targetEnemyRuntimeId;
+                                           });
+        if (targetIt != activeEnemies_.end()) {
+            const glm::vec3 direction = sampleRoutePosition(targetIt->distanceAlongPath) - projectile.position;
+            if (glm::dot(direction, direction) > 1e-6f) {
+                projectile.velocity = direction;
+            }
+        }
         mergedProjectiles.push_back(std::move(projectile));
     }
     activeProjectiles_ = std::move(mergedProjectiles);
@@ -3000,7 +3054,8 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 } else {
                     reason = self->lastPlacementValidationReason_;
                     if (reason.empty()) {
-                        reason = self->validateTowerPlacement(*tower, placementState.worldPos, self->localPlayerId_);
+                        reason = self->validateTowerPlacement(*tower, placementState.worldPos,
+                                                              self->gameplayState_.playerMoney);
                     }
                 }
                 lua_pushstring(L, reason.c_str());

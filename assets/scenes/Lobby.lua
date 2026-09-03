@@ -1,7 +1,7 @@
 local M = {}
 
 local kWindowW = 820
-local kWindowH = 560
+local kWindowH = 680
 
 local backTexture = nil
 
@@ -97,7 +97,7 @@ function M.render(state, dt, elapsedSeconds)
 	ImGui.Separator()
 
 	local missionListWidth = 260
-	ImGui.BeginChild("MissionList", missionListWidth, -140.0, ImGuiWindowFlags.NoScrollbar)
+	ImGui.BeginChild("MissionList", missionListWidth, -200.0, ImGuiWindowFlags.NoScrollbar)
 	for i = 1, #levels do
 		local level = levels[i]
 		local selected = level and level.selected or false
@@ -110,7 +110,7 @@ function M.render(state, dt, elapsedSeconds)
 	ImGui.EndChild()
 
 	ImGui.SameLine()
-	ImGui.BeginChild("MissionDetails", 0.0, -140.0, ImGuiWindowFlags.NoScrollbar)
+	ImGui.BeginChild("MissionDetails", 0.0, -200.0, ImGuiWindowFlags.NoScrollbar)
 	if hasLevels then
 		local selectedLevel = nil
 		for i = 1, #levels do
@@ -147,7 +147,7 @@ function M.render(state, dt, elapsedSeconds)
 		Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Hosting co-op match...")
 	end
 
-	local addressChanged, newAddress = ImGui.InputText("Host address", joinAddressText)
+	local addressChanged, newAddress = ImGui.InputText("Host", joinAddressText)
 	if addressChanged then
 		joinAddressText = newAddress
 	end

@@ -160,7 +160,7 @@ class PlayLevelScene final : public GameScene {
 
     const TowerArchetype* selectedTowerArchetype() const;
     std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
-                       multiplayer::PlayerId playerId, int footprintSampleCount = 8) const;
+                       float availableFunds, int footprintSampleCount = 8) const;
     const PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex) const;
     PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex);
     const TowerArchetype::UpgradeNode* findUpgradeNodeById(const TowerArchetype& archetype,
