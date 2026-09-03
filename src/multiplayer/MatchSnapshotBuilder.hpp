@@ -50,6 +50,10 @@ struct DecodedMatchSnapshot {
     float baseHealth = 0.0f;
     int currentWave = 0;
     bool waveInProgress = false;
+    bool waveCountdownActive = false;
+    float waveCountdownRemainingSeconds = 0.0f;
+    float waveRoundRemainingSeconds = 0.0f;
+    float waveRoundDurationSeconds = 0.0f;
     std::vector<PlayerBalance> players;
     std::vector<Tower> towers;
     std::vector<Enemy> enemies;

@@ -36,14 +36,13 @@ Run from the build tree:
 - Windows: `build/windows-dev/Debug/NodeSpireTDGame.exe`
 - Linux: `build/linux-dev/NodeSpireTDGame`
 
+default log level is now `info`, `-v`/`--verbose` enables debug, `--extra-verbose` enables trace, and logs also rotate to `logs/nodespiretd.log` (5MB x 3 files).
+
 
 # Known Issues
 
-- logs are spammy, we should turn off trace logging and debug logging by default (perhaps a -v for debug and --extra-verbose for trace). rotating logs would also be a plus
-- client UI's need to show wave timer and other game state that is shown on the host
 - when selecting another players tower we should use a different color and make it obvious that the player cannot do upgrades/sell etc...
 - host was rejecting client placing a tower because the host didn't have enough money but the client did
 - no chat/whisper feature, would be nice to have a WoW style command prompt/chat
-- window resize crashes vulkan
 - would rather have a party system than the current host starts map and client connects
 - should probably just pick a port number and not allow users to modify it, may also need some additional data in the initial handshake so we can reject clients trying to connect to that port on a machine that might be running a different service and not get cross talk

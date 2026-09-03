@@ -13,6 +13,10 @@ TEST(MatchSnapshotBuilder, SerializesAuthoritativeStateInStableIdOrder) {
     simulation.gameplayState().baseHealth = 85.0f;
     simulation.gameplayState().currentWave = 3;
     simulation.gameplayState().waveInProgress = true;
+    simulation.gameplayState().waveCountdownActive = true;
+    simulation.gameplayState().waveCountdownRemainingSeconds = 4.5f;
+    simulation.gameplayState().waveRoundRemainingSeconds = 12.0f;
+    simulation.gameplayState().waveRoundDurationSeconds = 30.0f;
     simulation.advance(multiplayer::FixedTickClock::kTickSeconds, [](multiplayer::SimulationTick, float) {});
 
     auto& secondTower = simulation.placedTowers().emplace_back();
@@ -43,6 +47,10 @@ TEST(MatchSnapshotBuilder, SerializesAuthoritativeStateInStableIdOrder) {
 
     EXPECT_EQ(snapshot.simulation_tick(), 1U);
     EXPECT_EQ(snapshot.match_status(), nodespire::multiplayer::v1::MATCH_STATUS_RUNNING);
+    EXPECT_TRUE(snapshot.wave_countdown_active());
+    EXPECT_FLOAT_EQ(snapshot.wave_countdown_remaining_seconds(), 4.5f);
+    EXPECT_FLOAT_EQ(snapshot.wave_round_remaining_seconds(), 12.0f);
+    EXPECT_FLOAT_EQ(snapshot.wave_round_duration_seconds(), 30.0f);
     ASSERT_EQ(snapshot.players_size(), 2);
     EXPECT_EQ(snapshot.players(0).player_id(), 7U);
     EXPECT_EQ(snapshot.players(1).player_id(), 8U);

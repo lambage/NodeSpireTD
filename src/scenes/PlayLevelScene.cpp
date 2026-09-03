@@ -1651,6 +1651,10 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
     gameplayState_.baseHealth = snapshot.baseHealth;
     gameplayState_.currentWave = snapshot.currentWave;
     gameplayState_.waveInProgress = snapshot.waveInProgress;
+    gameplayState_.waveCountdownActive = snapshot.waveCountdownActive;
+    gameplayState_.waveCountdownRemainingSeconds = snapshot.waveCountdownRemainingSeconds;
+    gameplayState_.waveRoundRemainingSeconds = snapshot.waveRoundRemainingSeconds;
+    gameplayState_.waveRoundDurationSeconds = snapshot.waveRoundDurationSeconds;
 
     for (const auto& player : snapshot.players) {
         if (player.playerId == localPlayerId_) {

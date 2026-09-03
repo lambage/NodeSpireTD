@@ -69,6 +69,10 @@ std::optional<std::string> MatchSnapshotBuilder::serialize(const MatchSimulation
     snapshot.set_base_health(state.baseHealth);
     snapshot.set_current_wave(static_cast<std::uint32_t>(std::max(0, state.currentWave)));
     snapshot.set_wave_in_progress(state.waveInProgress);
+    snapshot.set_wave_countdown_active(state.waveCountdownActive);
+    snapshot.set_wave_countdown_remaining_seconds(state.waveCountdownRemainingSeconds);
+    snapshot.set_wave_round_remaining_seconds(state.waveRoundRemainingSeconds);
+    snapshot.set_wave_round_duration_seconds(state.waveRoundDurationSeconds);
 
     for (const PlayerAccounts::Balance& balance : simulation.playerBalances()) {
         auto* player = snapshot.add_players();
@@ -135,6 +139,10 @@ std::optional<DecodedMatchSnapshot> MatchSnapshotBuilder::deserialize(std::strin
     snapshot.baseHealth = wireSnapshot.base_health();
     snapshot.currentWave = static_cast<int>(wireSnapshot.current_wave());
     snapshot.waveInProgress = wireSnapshot.wave_in_progress();
+    snapshot.waveCountdownActive = wireSnapshot.wave_countdown_active();
+    snapshot.waveCountdownRemainingSeconds = wireSnapshot.wave_countdown_remaining_seconds();
+    snapshot.waveRoundRemainingSeconds = wireSnapshot.wave_round_remaining_seconds();
+    snapshot.waveRoundDurationSeconds = wireSnapshot.wave_round_duration_seconds();
 
     snapshot.players.reserve(static_cast<std::size_t>(wireSnapshot.players_size()));
     for (const auto& wirePlayer : wireSnapshot.players()) {

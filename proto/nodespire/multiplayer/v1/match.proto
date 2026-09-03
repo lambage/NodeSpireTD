@@ -170,6 +170,10 @@ message MatchSnapshot {
   float base_health = 3;
   uint32 current_wave = 4;
   bool wave_in_progress = 5;
+  bool wave_countdown_active = 6;
+  float wave_countdown_remaining_seconds = 7;
+  float wave_round_remaining_seconds = 8;
+  float wave_round_duration_seconds = 9;
   repeated PlayerSnapshot players = 10;
   repeated TowerSnapshot towers = 11;
   repeated EnemySnapshot enemies = 12;
