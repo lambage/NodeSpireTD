@@ -734,12 +734,13 @@ bool PlayLevelScene::unlockTowerUpgrade(PlacedTower& placedTower, const std::str
 }
 
 std::string PlayLevelScene::validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
-                                                   int footprintSampleCount) const {
+                                                   multiplayer::PlayerId playerId, int footprintSampleCount) const {
     const TowerPlacementRules::Context placementContext{
         gameplayState_,        placedTowers_, worldRenderer_.get(), placementRegions_, maxTowerPlacementSlopeDegrees_,
         pathCorridorHalfWidth_};
     return TowerPlacementRules::validatePlacement(placementContext, archetype, worldPos, footprintSampleCount,
-                                                  towerPlacementPreviewResolver_.lastTerrainSample());
+                                                  towerPlacementPreviewResolver_.lastTerrainSample(),
+                                                  matchSimulation_.playerBalance(playerId));
 }
 
 void PlayLevelScene::clearActiveSelectionForTowerPlacement(const char* reason) {
@@ -764,14 +765,15 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
     const TowerPlacementRules::Context placementContext{
         gameplayState_,        placedTowers_, worldRenderer_.get(), placementRegions_, maxTowerPlacementSlopeDegrees_,
         pathCorridorHalfWidth_};
-    const auto validatePlacement = [this, selected, &placementContext](const glm::vec3& worldPos,
+    const float localPlayerFunds = matchSimulation_.playerBalance(localPlayerId_);
+    const auto validatePlacement = [this, selected, &placementContext, localPlayerFunds](const glm::vec3& worldPos,
                                                                        int footprintSampleCount,
                                                                        const PlacementTerrainSample& terrainSample) {
         if (!selected) {
             return std::string("no tower selected");
         }
         return TowerPlacementRules::validatePlacement(placementContext, *selected, worldPos, footprintSampleCount,
-                                                      terrainSample);
+                                                      terrainSample, localPlayerFunds);
     };
     towerPlacementController_.updatePlacementFromInput(
         selected != nullptr,
@@ -802,7 +804,8 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
 
             // Re-validate with full footprint precision before committing the placement.
             constexpr int kConfirmFootprintSampleCount = 8;
-            const std::string finalReason = validateTowerPlacement(*selected, worldPos, kConfirmFootprintSampleCount);
+            const std::string finalReason =
+                validateTowerPlacement(*selected, worldPos, localPlayerId_, kConfirmFootprintSampleCount);
             if (!finalReason.empty()) {
                 lastPlacementValidationReason_ = finalReason;
                 towerPlacementPreviewResolver_.cacheValidationResult(selected->id, worldPos, false, finalReason);
@@ -827,7 +830,7 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
     } else if (lastPlacementValidationReason_.empty()) {
         constexpr int kPreviewFootprintSampleCount = 4;
         lastPlacementValidationReason_ =
-            validateTowerPlacement(*selected, placementState.worldPos, kPreviewFootprintSampleCount);
+            validateTowerPlacement(*selected, placementState.worldPos, localPlayerId_, kPreviewFootprintSampleCount);
     }
 }
 
@@ -1352,7 +1355,9 @@ PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandReq
                 const glm::vec3 requestedPosition{payload.requestedPosition.x, payload.requestedPosition.y,
                                                   payload.requestedPosition.z};
                 constexpr int kConfirmFootprintSampleCount = 8;
-                if (!validateTowerPlacement(*requestedArchetype, requestedPosition, kConfirmFootprintSampleCount).empty()) {
+                if (!validateTowerPlacement(*requestedArchetype, requestedPosition, command.playerId,
+                                           kConfirmFootprintSampleCount)
+                         .empty()) {
                     return multiplayer::CommandRejectionReason::InvalidPlacement;
                 }
                 if (!spendPlayerMoney(command.playerId, static_cast<float>(requestedArchetype->cost))) {
@@ -2995,7 +3000,7 @@ void PlayLevelScene::registerLuaGameplayApi() {
                 } else {
                     reason = self->lastPlacementValidationReason_;
                     if (reason.empty()) {
-                        reason = self->validateTowerPlacement(*tower, placementState.worldPos);
+                        reason = self->validateTowerPlacement(*tower, placementState.worldPos, self->localPlayerId_);
                     }
                 }
                 lua_pushstring(L, reason.c_str());
