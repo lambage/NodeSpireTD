@@ -1,7 +1,7 @@
 {
     "displayHeight": 1200,
     "displayWidth": 1920,
-    "exclusiveFullscreen": true,
+    "exclusiveFullscreen": false,
     "fullscreen": true,
     "graphicsQuality": 0,
     "masterVolume": 0.4699999988079071,

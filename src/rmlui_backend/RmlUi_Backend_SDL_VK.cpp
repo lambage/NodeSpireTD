@@ -199,6 +199,19 @@ static bool WaitForValidSwapchain()
 	return result;
 }
 
+static void SynchronizeWindowSize(Rml::Context* context)
+{
+	int pixel_width = 0;
+	int pixel_height = 0;
+	SDL_GetWindowSizeInPixels(data->window, &pixel_width, &pixel_height);
+	if (pixel_width > 0 && pixel_height > 0)
+	{
+		data->render_interface.SetViewport(pixel_width, pixel_height);
+		if (context)
+			context->SetDimensions({pixel_width, pixel_height});
+	}
+}
+
 bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_callback, bool power_save)
 {
 	RMLUI_ASSERT(data && context);
@@ -279,19 +292,14 @@ bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_call
 
 			RMLSDL_WINDOW_EVENTS_BEGIN
 
+	#if SDL_MAJOR_VERSION >= 3
+		case SDL_EVENT_WINDOW_RESIZED:
+		case SDL_EVENT_WINDOW_ENTER_FULLSCREEN:
+		case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN:
+	#endif
 		case event_window_size_changed:
 		{
-			// data1/data2 here are the window's logical size; RmlUi's context dimensions and the
-			// renderer's viewport both need the actual pixel size (they can differ under DPI scaling).
-			int pixel_width = 0;
-			int pixel_height = 0;
-			SDL_GetWindowSizeInPixels(data->window, &pixel_width, &pixel_height);
-			if (pixel_width > 0 && pixel_height > 0)
-			{
-				data->render_interface.SetViewport(pixel_width, pixel_height);
-				if (context)
-					context->SetDimensions({pixel_width, pixel_height});
-			}
+			SynchronizeWindowSize(context);
 		}
 		break;
 
@@ -352,14 +360,7 @@ void Backend::ApplyDisplaySettings(Rml::Context& context, bool fullscreen, bool 
 	// call, which would leave the swapchain/context sized to the old window for a frame (visually:
 	// only the old window's pixel footprint gets rendered into the new, larger window). Query and
 	// apply the real size immediately instead of waiting for that round-trip.
-	int pixel_width = 0;
-	int pixel_height = 0;
-	SDL_GetWindowSizeInPixels(data->window, &pixel_width, &pixel_height);
-	if (pixel_width > 0 && pixel_height > 0)
-	{
-		data->render_interface.SetViewport(pixel_width, pixel_height);
-		context.SetDimensions({pixel_width, pixel_height});
-	}
+	SynchronizeWindowSize(&context);
 }
 
 void Backend::SetVSyncEnabled(bool enabled)
