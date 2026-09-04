@@ -257,10 +257,11 @@ add_executable(NodeSpireTD
     rmlui/SceneManager.cpp
     rmlui/scenes/SplashScene.cpp
     rmlui/scenes/MainMenuScene.cpp
+    rmlui/scenes/LobbyScene.cpp
+    rmlui/scenes/OptionsScene.cpp
 )
 
 target_compile_definitions(NodeSpireTD PRIVATE
-    NODESPIRE_ASSET_ROOT="${CMAKE_SOURCE_DIR}/assets"
     RMLUI_SDL_VERSION_MAJOR=3
 )
 

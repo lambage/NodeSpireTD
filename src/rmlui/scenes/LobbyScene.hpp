@@ -12,11 +12,11 @@ class ElementDocument;
 
 namespace NodeSpireUi {
 
-// Main menu: Play/Options/Exit navigation. Buttons are wired up with plain
-// C++ event listeners (this class doubles as the Rml::EventListener) rather
-// than Lua, since this scene has no gameplay state to script yet; see
-// rmlui-lua-scene-integration skill notes for when Lua gets introduced.
-class MainMenuScene final : public IScene, public Rml::EventListener {
+// Placeholder lobby screen reached from MainMenu's Play button. Just a Back
+// button for now; the real multiplayer lobby (host/join/level select) is a
+// follow-up session -- see the legacy LobbyScene in src/scenes/ for the
+// feature set to port.
+class LobbyScene final : public IScene, public Rml::EventListener {
   public:
     void onEnter(Rml::Context& context) override;
     void onExit(Rml::Context& context) override;
@@ -30,4 +30,3 @@ class MainMenuScene final : public IScene, public Rml::EventListener {
 };
 
 } // namespace NodeSpireUi
-

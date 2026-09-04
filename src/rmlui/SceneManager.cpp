@@ -1,6 +1,8 @@
 #include "rmlui/SceneManager.hpp"
 
+#include "rmlui/scenes/LobbyScene.hpp"
 #include "rmlui/scenes/MainMenuScene.hpp"
+#include "rmlui/scenes/OptionsScene.hpp"
 #include "rmlui/scenes/SplashScene.hpp"
 
 namespace NodeSpireUi {
@@ -12,6 +14,10 @@ std::unique_ptr<IScene> createScene(SceneId id) {
         return std::make_unique<SplashScene>();
     case SceneId::MainMenu:
         return std::make_unique<MainMenuScene>();
+    case SceneId::Lobby:
+        return std::make_unique<LobbyScene>();
+    case SceneId::Options:
+        return std::make_unique<OptionsScene>();
     }
     return nullptr;
 }

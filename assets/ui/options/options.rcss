@@ -1,0 +1,59 @@
+body
+{
+	width: 100%;
+	height: 100%;
+	background-color: #14141c;
+}
+
+#options-root
+{
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+.title
+{
+	font-family: "Times New Roman";
+	font-weight: bold;
+	font-size: 40dp;
+	color: white;
+	margin-bottom: 12dp;
+}
+
+.subtitle
+{
+	font-family: "Inter 18pt";
+	font-size: 16dp;
+	color: #999999;
+	margin-bottom: 32dp;
+	text-align: center;
+	width: 480dp;
+}
+
+.menu-button
+{
+	display: block;
+	width: 220dp;
+	padding: 10dp;
+	text-align: center;
+	font-family: "Inter 18pt";
+	font-size: 20dp;
+	color: white;
+	background-color: #2a2a38;
+	border: 2dp #444455;
+}
+
+.menu-button:hover
+{
+	background-color: #3a3a4c;
+	border-color: #6666aa;
+}
+
+.menu-button:active
+{
+	background-color: #22222e;
+}

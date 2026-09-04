@@ -1,0 +1,13 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Options</title>
+	<link type="text/rcss" href="options.rcss"/>
+</head>
+<body>
+	<div id="options-root">
+		<div class="title">Options</div>
+		<p class="subtitle">Options (placeholder, real settings coming in a follow-up phase)</p>
+		<button id="back-button" class="menu-button">Back</button>
+	</div>
+</body>
+</rml>

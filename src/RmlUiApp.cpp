@@ -112,8 +112,8 @@ int main(int /*argc*/, char** /*argv*/)
 
     Rml::Debugger::Initialise(context);
 
-    if (!RmlUiFontLoader::LoadAll(NODESPIRE_ASSET_ROOT "/fonts"))
-        Rml::Log::Message(Rml::Log::LT_WARNING, "One or more fonts failed to load from %s", NODESPIRE_ASSET_ROOT "/fonts");
+    if (!RmlUiFontLoader::LoadAll("assets/fonts"))
+        Rml::Log::Message(Rml::Log::LT_WARNING, "One or more fonts failed to load from %s", "assets/fonts");
 
     NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash);
     g_sceneManager = &sceneManager;

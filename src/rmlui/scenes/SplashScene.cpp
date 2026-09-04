@@ -9,11 +9,11 @@ namespace NodeSpireUi {
 void SplashScene::onEnter(Rml::Context& context) {
     elapsedSeconds_ = 0.0f;
 
-    document_ = context.LoadDocument(NODESPIRE_ASSET_ROOT "/ui/splash/splash.rml");
+    document_ = context.LoadDocument("assets/ui/splash/splash.rml");
     if (document_) {
         document_->Show();
     } else {
-        Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to load document: %s", NODESPIRE_ASSET_ROOT "/ui/splash/splash.rml");
+        Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to load document: %s", "assets/ui/splash/splash.rml");
     }
 }
 

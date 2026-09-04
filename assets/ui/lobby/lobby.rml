@@ -1,0 +1,13 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Lobby</title>
+	<link type="text/rcss" href="lobby.rcss"/>
+</head>
+<body>
+	<div id="lobby-root">
+		<div class="title">Lobby</div>
+		<p class="subtitle">Lobby (placeholder, full multiplayer lobby coming in a follow-up phase)</p>
+		<button id="back-button" class="menu-button">Back</button>
+	</div>
+</body>
+</rml>

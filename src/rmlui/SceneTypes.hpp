@@ -10,6 +10,8 @@ namespace NodeSpireUi {
 enum class SceneId {
     Splash,
     MainMenu,
+    Lobby,
+    Options,
 };
 
 // A scene's per-frame update returns one of these to request a transition.
