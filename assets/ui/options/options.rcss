@@ -217,6 +217,8 @@ select selectbox
 select selectbox option
 {
 	display: block;
+	width: 100%;
+	box-sizing: border-box;
 	padding: 6dp 8dp;
 	color: white;
 	white-space: nowrap;

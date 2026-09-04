@@ -10,9 +10,10 @@
 
 #include <SDL3/SDL.h>
 
-#include <algorithm>
 #include <cstdio>
 #include <unordered_set>
+#include <fmt/format.h>
+#include <string>
 
 namespace NodeSpireUi {
 
@@ -26,15 +27,11 @@ std::string percentLabel(float value01) {
 }
 
 std::string displayModeLabel(const OptionsScene::DisplayModeOption& mode) {
-    char buffer[48];
-    std::snprintf(buffer, sizeof(buffer), "%d x %d @ %d Hz", mode.width, mode.height, mode.refreshRate);
-    return buffer;
+    return fmt::format("{} x {} @ {} Hz", mode.width, mode.height, mode.refreshRate);
 }
 
 std::string displayModeValue(const OptionsScene::DisplayModeOption& mode) {
-    char buffer[48];
-    std::snprintf(buffer, sizeof(buffer), "%dx%dx%d", mode.width, mode.height, mode.refreshRate);
-    return buffer;
+    return fmt::format("{}x{}x{}", mode.width, mode.height, mode.refreshRate);
 }
 
 bool parseDisplayModeValue(const Rml::String& value, OptionsScene::DisplayModeOption& outMode) {
@@ -210,42 +207,6 @@ void OptionsScene::ProcessEvent(Rml::Event& event) {
         return;
     }
     const Rml::String id = target->GetId();
-
-    if (event == Rml::EventId::Click && event.GetPhase() == Rml::EventPhase::Capture) {
-        Rml::Element* realTarget = event.GetTargetElement();
-        const Rml::Vector2f mousePos(event.GetParameter("mouse_x", 0.0f), event.GetParameter("mouse_y", 0.0f));
-        Rml::Log::Message(Rml::Log::LT_INFO, "[OptionsScene] click at (%.1f, %.1f) target tag='%s' id='%s'", mousePos.x, mousePos.y,
-            realTarget ? realTarget->GetTagName().c_str() : "null", realTarget ? realTarget->GetId().c_str() : "null");
-
-        if (Rml::Element* select = document_->GetElementById("display-mode-select")) {
-            const Rml::Vector2f selectOffset = select->GetAbsoluteOffset(Rml::BoxArea::Border);
-            const Rml::Vector2f selectSize = select->GetBox().GetSize(Rml::BoxArea::Border);
-            Rml::Log::Message(Rml::Log::LT_INFO, "[OptionsScene] select box origin=(%.1f, %.1f) size=(%.1f, %.1f)", selectOffset.x,
-                selectOffset.y, selectSize.x, selectSize.y);
-            Rml::Element* selectbox = nullptr;
-            for (int i = 0; i < select->GetNumChildren(true); ++i) {
-                Rml::Element* child = select->GetChild(i);
-                if (child && child->GetTagName() == "selectbox") {
-                    selectbox = child;
-                    break;
-                }
-            }
-            if (selectbox) {
-                const Rml::Vector2f boxOffset = selectbox->GetAbsoluteOffset(Rml::BoxArea::Border);
-                const Rml::Vector2f boxSize = selectbox->GetBox().GetSize(Rml::BoxArea::Border);
-                Rml::Log::Message(Rml::Log::LT_INFO, "[OptionsScene] selectbox origin=(%.1f, %.1f) size=(%.1f, %.1f) visible=%d", boxOffset.x,
-                    boxOffset.y, boxSize.x, boxSize.y, selectbox->IsVisible());
-                if (Rml::Element* firstOption = selectbox->GetFirstChild()) {
-                    const Rml::Vector2f optOffset = firstOption->GetAbsoluteOffset(Rml::BoxArea::Border);
-                    const Rml::Vector2f optSize = firstOption->GetBox().GetSize(Rml::BoxArea::Border);
-                    Rml::Log::Message(Rml::Log::LT_INFO, "[OptionsScene] first option origin=(%.1f, %.1f) size=(%.1f, %.1f)", optOffset.x,
-                        optOffset.y, optSize.x, optSize.y);
-                }
-            } else {
-                Rml::Log::Message(Rml::Log::LT_INFO, "[OptionsScene] selectbox child not found");
-            }
-        }
-    }
 
     if (event == Rml::EventId::Click) {
         if (id == "apply-button") {

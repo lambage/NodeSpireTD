@@ -24,7 +24,7 @@
 					</label>
 					<div class="row slider-row">
 						<span class="row-label">Display Mode</span>
-						<select id="display-mode-select"></select>
+						<select id="display-mode-select" name="Display Mode Select"></select>
 					</div>
 					<div class="row slider-row">
 						<span class="row-label">Graphics Quality</span>

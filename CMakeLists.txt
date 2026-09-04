@@ -136,6 +136,15 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(nlohmann_json)
 
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG        11.2.0
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(fmt)
+
 # Header-only; no CMakeLists.txt of its own, so FetchContent_MakeAvailable just
 # populates the source and skips add_subdirectory. Used by our forked
 # RenderInterface_VK::LoadTexture (src/rmlui_backend/RmlUi_Renderer_VK.cpp) to

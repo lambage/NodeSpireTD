@@ -279,6 +279,7 @@ target_link_libraries(NodeSpireTD PRIVATE
     Vulkan::Vulkan
     spdlog::spdlog
     nlohmann_json::nlohmann_json
+    fmt::fmt
 )
 
 nodespire_stage_runtime_dependencies(NodeSpireTD)
