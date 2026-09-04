@@ -61,19 +61,13 @@ Gameplay.getDebugPlacementBoundsVisible = nil
 ---@type any
 Gameplay.getDebugSelection = nil
 ---@type any
-Gameplay.getLobbyLevels = nil
----@type any
 Gameplay.getMaxTowerPlacementSlopeDegrees = nil
----@type any
-Gameplay.getMultiplayerState = nil
 ---@type any
 Gameplay.getPathCorridorHalfWidth = nil
 ---@type any
 Gameplay.getPickEnabled = nil
 ---@type any
 Gameplay.getSelectedEnemyInfo = nil
----@type any
-Gameplay.getSelectedLobbyLevel = nil
 ---@type any
 Gameplay.getSelectedTowerUpgradeState = nil
 ---@type any
@@ -113,8 +107,6 @@ Gameplay.requestSpendMoney = nil
 ---@type any
 Gameplay.requestStartWave = nil
 ---@type any
-Gameplay.selectLobbyLevel = nil
----@type any
 Gameplay.selectTowerSlot = nil
 ---@type any
 Gameplay.setAnimationClip = nil
@@ -126,8 +118,6 @@ Gameplay.setDebugPickSpheresVisible = nil
 Gameplay.setDebugPlacementBoundsVisible = nil
 ---@type any
 Gameplay.setMaxTowerPlacementSlopeDegrees = nil
----@type any
-Gameplay.setMultiplayerMode = nil
 ---@type any
 Gameplay.setPathCorridorHalfWidth = nil
 ---@type any

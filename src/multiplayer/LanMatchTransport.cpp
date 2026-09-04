@@ -48,6 +48,12 @@ void LanMatchTransport::reset() {
     acceptedPeers_.clear();
     pendingJoinRequests_.clear();
     pendingCommands_.clear();
+    pendingPartyJoinRequests_.clear();
+    pendingPartySetReady_.clear();
+    pendingPartyKick_.clear();
+    pendingPartyMatchLoadedReady_.clear();
+    pendingPartyChatSend_.clear();
+    disconnectedPeers_.clear();
 }
 
 unsigned short LanMatchTransport::listenPort() const {
@@ -72,7 +78,7 @@ void LanMatchTransport::beginAccept() {
                                        : remoteEndpoint.address().to_string() + ":" +
                                              std::to_string(remoteEndpoint.port()));
             auto connection = std::make_shared<LanFramedConnection>(std::move(*socket));
-            connections_.emplace(peerId, PeerConnection{connection, false});
+            connections_.emplace(peerId, PeerConnection{connection, false, false});
             acceptedPeers_.push_back(peerId);
             connection->startReading(
                 [this, peerId](std::uint8_t kind, std::string payload) {
@@ -81,6 +87,7 @@ void LanMatchTransport::beginAccept() {
                 [this, peerId]() {
                     spdlog::warn("LanMatchTransport: peer {} disconnected unexpectedly.", peerId);
                     connections_.erase(peerId);
+                    disconnectedPeers_.push_back(peerId);
                 });
         } else {
             spdlog::error("LanMatchTransport: accept failed: {}", errorCode.message());
@@ -99,6 +106,32 @@ void LanMatchTransport::handleFrame(TransportPeerId peerId, std::uint8_t kind, s
         pendingJoinRequests_.push_back({peerId, std::move(payload)});
         return;
     }
+    if (kind == static_cast<std::uint8_t>(LanFrameKind::PartyJoinRequest)) {
+        pendingPartyJoinRequests_.push_back({peerId, std::move(payload)});
+        return;
+    }
+    if (kind == static_cast<std::uint8_t>(LanFrameKind::PartySetReadyRequest) ||
+        kind == static_cast<std::uint8_t>(LanFrameKind::PartyKickRequest) ||
+        kind == static_cast<std::uint8_t>(LanFrameKind::PartyMatchLoadedReady) ||
+        kind == static_cast<std::uint8_t>(LanFrameKind::PartyChatSend)) {
+        if (!connectionIt->second.partyJoined) {
+            spdlog::warn("LanMatchTransport: peer {} sent a party message before completing the party join "
+                         "handshake; disconnecting.",
+                         peerId);
+            disconnectPeer(peerId);
+            return;
+        }
+        if (kind == static_cast<std::uint8_t>(LanFrameKind::PartySetReadyRequest)) {
+            pendingPartySetReady_.push_back({peerId, std::move(payload)});
+        } else if (kind == static_cast<std::uint8_t>(LanFrameKind::PartyKickRequest)) {
+            pendingPartyKick_.push_back({peerId, std::move(payload)});
+        } else if (kind == static_cast<std::uint8_t>(LanFrameKind::PartyMatchLoadedReady)) {
+            pendingPartyMatchLoadedReady_.push_back({peerId, std::move(payload)});
+        } else {
+            pendingPartyChatSend_.push_back({peerId, std::move(payload)});
+        }
+        return;
+    }
     if (kind == static_cast<std::uint8_t>(LanFrameKind::ClientCommand)) {
         if (!connectionIt->second.joined) {
             // A peer must complete the join handshake before its commands are trusted.
@@ -111,7 +144,8 @@ void LanMatchTransport::handleFrame(TransportPeerId peerId, std::uint8_t kind, s
         pendingCommands_.push_back({peerId, std::move(payload)});
         return;
     }
-    // CommandResult/Snapshot/JoinResult are host-to-client kinds; ignore them from a client.
+    // CommandResult/Snapshot/JoinResult/PartyJoinResult/PartyRosterSnapshot/PartyMatchStart are
+    // host-to-client kinds; ignore them from a client.
 }
 
 std::vector<TransportPeerId> LanMatchTransport::drainAcceptedPeers() {
@@ -156,6 +190,130 @@ bool LanMatchTransport::disconnectPeer(TransportPeerId peerId) {
     connectionIt->second.connection->close();
     connections_.erase(connectionIt);
     return true;
+}
+
+std::vector<PartyPeerFrame> LanMatchTransport::drainPartyJoinRequests() {
+    std::vector<PartyPeerFrame> requests;
+    requests.reserve(pendingPartyJoinRequests_.size());
+    while (!pendingPartyJoinRequests_.empty()) {
+        requests.push_back(std::move(pendingPartyJoinRequests_.front()));
+        pendingPartyJoinRequests_.pop_front();
+    }
+    return requests;
+}
+
+std::vector<PartyPeerFrame> LanMatchTransport::drainPartySetReadyRequests() {
+    std::vector<PartyPeerFrame> requests;
+    requests.reserve(pendingPartySetReady_.size());
+    while (!pendingPartySetReady_.empty()) {
+        requests.push_back(std::move(pendingPartySetReady_.front()));
+        pendingPartySetReady_.pop_front();
+    }
+    return requests;
+}
+
+std::vector<PartyPeerFrame> LanMatchTransport::drainPartyKickRequests() {
+    std::vector<PartyPeerFrame> requests;
+    requests.reserve(pendingPartyKick_.size());
+    while (!pendingPartyKick_.empty()) {
+        requests.push_back(std::move(pendingPartyKick_.front()));
+        pendingPartyKick_.pop_front();
+    }
+    return requests;
+}
+
+std::vector<PartyPeerFrame> LanMatchTransport::drainPartyMatchLoadedReady() {
+    std::vector<PartyPeerFrame> requests;
+    requests.reserve(pendingPartyMatchLoadedReady_.size());
+    while (!pendingPartyMatchLoadedReady_.empty()) {
+        requests.push_back(std::move(pendingPartyMatchLoadedReady_.front()));
+        pendingPartyMatchLoadedReady_.pop_front();
+    }
+    return requests;
+}
+
+std::vector<TransportPeerId> LanMatchTransport::drainDisconnectedPeers() {
+    std::vector<TransportPeerId> peers;
+    peers.swap(disconnectedPeers_);
+    return peers;
+}
+
+std::vector<PartyPeerFrame> LanMatchTransport::drainPartyChatSendRequests() {
+    std::vector<PartyPeerFrame> requests;
+    requests.reserve(pendingPartyChatSend_.size());
+    while (!pendingPartyChatSend_.empty()) {
+        requests.push_back(std::move(pendingPartyChatSend_.front()));
+        pendingPartyChatSend_.pop_front();
+    }
+    return requests;
+}
+
+bool LanMatchTransport::markPeerPartyJoined(TransportPeerId peerId) {
+    const auto connectionIt = connections_.find(peerId);
+    if (connectionIt == connections_.end()) {
+        return false;
+    }
+    connectionIt->second.partyJoined = true;
+    return true;
+}
+
+bool LanMatchTransport::sendPartyJoinResult(TransportPeerId peerId, std::string payload) {
+    const auto connectionIt = connections_.find(peerId);
+    if (payload.empty() || connectionIt == connections_.end()) {
+        return false;
+    }
+    connectionIt->second.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyJoinResult),
+                                                std::move(payload));
+    return true;
+}
+
+void LanMatchTransport::broadcastPartyRosterSnapshot(std::string payload) {
+    if (payload.empty()) {
+        return;
+    }
+    for (auto& [peerId, peerConnection] : connections_) {
+        (void)peerId;
+        if (!peerConnection.partyJoined) {
+            continue;
+        }
+        peerConnection.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyRosterSnapshot), payload);
+    }
+}
+
+void LanMatchTransport::broadcastPartyChatMessage(std::string payload) {
+    if (payload.empty()) {
+        return;
+    }
+    for (auto& [peerId, peerConnection] : connections_) {
+        (void)peerId;
+        if (!peerConnection.partyJoined) {
+            continue;
+        }
+        peerConnection.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyChatMessage), payload);
+    }
+}
+
+bool LanMatchTransport::sendPartyChatCommandError(TransportPeerId peerId, std::string payload) {
+    const auto connectionIt = connections_.find(peerId);
+    if (payload.empty() || connectionIt == connections_.end()) {
+        return false;
+    }
+    connectionIt->second.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyChatCommandError),
+                                                std::move(payload));
+    return true;
+}
+
+void LanMatchTransport::broadcastPartyMatchStart(std::string payload) {
+    if (payload.empty()) {
+        return;
+    }
+    for (auto& [peerId, peerConnection] : connections_) {
+        (void)peerId;
+        if (!peerConnection.partyJoined) {
+            continue;
+        }
+        peerConnection.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyMatchStart), payload);
+    }
 }
 
 std::vector<ReceivedClientCommand> LanMatchTransport::drainClientCommands() {

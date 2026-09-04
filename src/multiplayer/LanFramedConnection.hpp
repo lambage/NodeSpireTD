@@ -14,12 +14,30 @@ namespace multiplayer {
 // Frame kind tag distinguishing the LAN transport's send channels on the wire. This lives
 // outside the Protobuf schema: it lets one TCP stream carry both command results and
 // snapshots without changing PlayerCommandResult/MatchSnapshot definitions.
+//
+// Party (10-15) is a deliberately separate range from match traffic (0-4): a party/chat message
+// must never be dispatchable as a gameplay command, and vice versa, even if the tag byte is
+// corrupted or forged by a modified client. Party frames ride the same connection that later
+// carries match traffic (see MultiplayerSession) -- the tag is what keeps the two apart, not a
+// separate socket.
 enum class LanFrameKind : std::uint8_t {
     ClientCommand = 0,
     CommandResult = 1,
     Snapshot = 2,
     JoinRequest = 3,
     JoinResult = 4,
+
+    PartyJoinRequest = 10,
+    PartyJoinResult = 11,
+    PartyRosterSnapshot = 12,
+    PartySetReadyRequest = 13,
+    PartyLeaveNotice = 14,
+    PartyKickRequest = 15,
+    PartyMatchStart = 16,
+    PartyMatchLoadedReady = 17,
+    PartyChatSend = 18,
+    PartyChatMessage = 19,
+    PartyChatCommandError = 20,
 };
 
 // Owns the read/write pump for one TCP connection using a shared wire format:

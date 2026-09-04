@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.31.6)
 
 set(NODESPIRE_PROTO_ROOT "${CMAKE_SOURCE_DIR}/proto")
 set(NODESPIRE_MATCH_PROTO "${NODESPIRE_PROTO_ROOT}/nodespire/multiplayer/v1/match.proto")
+set(NODESPIRE_PARTY_PROTO "${NODESPIRE_PROTO_ROOT}/nodespire/party/v1/party.proto")
 set(NODESPIRE_PROTO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 include("${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake")
@@ -24,6 +25,21 @@ if(WIN32)
     target_compile_definitions(NodeSpireMatchProtocol PUBLIC _WIN32_WINNT=0x0601)
     target_link_libraries(NodeSpireMatchProtocol PUBLIC ws2_32 mswsock)
 endif()
+
+# Kept as its own library/schema (nodespire.party.v1) separate from NodeSpireMatchProtocol so
+# party/chat wire messages never share a generated C++ type with match-authoritative traffic.
+add_library(NodeSpirePartyProtocol STATIC)
+
+protobuf_generate(
+    TARGET NodeSpirePartyProtocol
+    LANGUAGE cpp
+    PROTOS "${NODESPIRE_PARTY_PROTO}"
+    IMPORT_DIRS "${NODESPIRE_PROTO_ROOT}"
+    PROTOC_OUT_DIR "${NODESPIRE_PROTO_GENERATED_DIR}"
+)
+
+target_include_directories(NodeSpirePartyProtocol PUBLIC "${NODESPIRE_PROTO_GENERATED_DIR}")
+target_link_libraries(NodeSpirePartyProtocol PUBLIC protobuf::libprotobuf)
 
 function(nodespire_stage_runtime_dependencies targetName)
     if(WIN32)
@@ -48,6 +64,7 @@ add_executable(NodeSpireTD
     VulkanContext.cpp
     LuaStateBootstrap.cpp
     multiplayer/ContentHash.cpp
+    multiplayer/ChatCommandDispatcher.cpp
     multiplayer/FixedTickClock.cpp
     multiplayer/LanFramedConnection.cpp
     multiplayer/LanMatchClient.cpp
@@ -58,7 +75,10 @@ add_executable(NodeSpireTD
     multiplayer/MatchSimulation.cpp
     multiplayer/MatchProtocolAdapter.cpp
     multiplayer/MatchSnapshotBuilder.cpp
+    multiplayer/MultiplayerSession.cpp
+    multiplayer/PartyProtocolAdapter.cpp
     multiplayer/PlayerAccounts.cpp
+    multiplayer/PlayerProfileStore.cpp
     utility/GameImageButton.cpp
     utility/GameButton.cpp
     utility/StaticGeometryBVH.cpp
@@ -117,6 +137,7 @@ target_link_libraries(NodeSpireTD PRIVATE
     glm::glm
     nlohmann_json::nlohmann_json
     NodeSpireMatchProtocol
+    NodeSpirePartyProtocol
     fastgltf
     lua
     sfml-graphics

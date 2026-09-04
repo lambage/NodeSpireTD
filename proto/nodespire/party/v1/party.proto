@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package nodespire.party.v1;
+
+option cc_enable_arenas = true;
+
+// Pre-match party/roster schema. Deliberately separate from nodespire.multiplayer.v1 (match.proto):
+// party messages ride a distinct channel from gameplay commands/snapshots so chat/roster traffic
+// can never be mistaken for (or block) match-authoritative traffic. See LanFrameKind for the
+// wire-level tag that keeps the two message families apart on one TCP stream.
+
+message PartyMemberState {
+  uint64 player_id = 1;
+  string display_name = 2;
+  bool is_host = 3;
+  bool ready = 4;
+  // Set once this member has finished loading the level the host announced via
+  // PartyMatchStartAnnouncement. The host will not begin ticking match simulation until every
+  // member (itself included) has this set.
+  bool loaded = 5;
+}
+
+// Host -> all clients, sent whenever membership or ready state changes. Clients must treat this
+// as the full authoritative roster, not a delta.
+message PartyRosterSnapshot {
+  repeated PartyMemberState members = 1;
+  uint32 capacity = 2;
+}
+
+// Client -> host, sent once when a peer connects to the lobby (before any chat/ready traffic).
+message PartyJoinRequest {
+  uint32 protocol_version = 1;
+  string display_name = 2;
+  // Stable local-profile identity (see PlayerProfileStore). Never surfaced in any UI -- lets the
+  // host recognize a returning player (e.g. after a dropped connection) and hand back the same
+  // player_id instead of minting a new one. May be empty for legacy/unknown clients.
+  string player_uuid = 3;
+}
+
+message PartyJoinAccepted {
+  uint64 player_id = 1;
+  PartyRosterSnapshot roster = 2;
+}
+
+message PartyJoinRejected {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    PROTOCOL_VERSION_UNSUPPORTED = 1;
+    PARTY_FULL = 2;
+    DISPLAY_NAME_INVALID = 3;
+    // A member with this player_uuid is already active in the party; a modified client cannot
+    // reuse a duplicated identity to desync the host's reconnect bookkeeping.
+    ALREADY_CONNECTED = 4;
+  }
+
+  Reason reason = 1;
+}
+
+message PartyJoinResult {
+  oneof result {
+    PartyJoinAccepted accepted = 1;
+    PartyJoinRejected rejected = 2;
+  }
+}
+
+// Client -> host intent only. The host recomputes and re-broadcasts PartyRosterSnapshot; a
+// client's own ready flag never takes effect until it comes back in that snapshot.
+message PartySetReadyRequest {
+  bool ready = 1;
+}
+
+// Host -> all clients, sent when a member disconnects or leaves voluntarily.
+message PartyLeaveNotice {
+  uint64 player_id = 1;
+}
+
+// Client -> host intent. The host must independently verify the sender is the current party
+// host before honoring this -- the target_player_id alone grants no authority.
+message PartyKickRequest {
+  uint64 target_player_id = 1;
+}
+
+// Host -> all clients, sent once the host starts a match. Every party member (including the
+// host) must load the named level and then send PartyMatchLoadedReady before the host begins
+// ticking match simulation for anyone.
+message PartyMatchStartAnnouncement {
+  string level_name = 1;
+  string level_script_path = 2;
+  string level_asset_path = 3;
+}
+
+// Client -> host, sent once the client's PlayLevel scene finishes loading the announced level.
+message PartyMatchLoadedReady {
+  bool ready = 1;
+}
+
+// Client -> host intent: raw, untrusted chat input (plain text or a "/command args" line). The
+// host is the sole authority on what -- if anything -- gets relayed to the party.
+message PartyChatSendRequest {
+  string text = 1;
+}
+
+// Host -> all party members (including the sender): the authoritative, already-formatted chat or
+// emote line to display. Purely cosmetic/social -- never mutates gameplay state.
+message PartyChatMessage {
+  uint64 player_id = 1;
+  string display_name = 2;
+  string text = 3;
+  // True for emote-formatted lines (e.g. "PlayerX roars") so clients can style them distinctly
+  // without re-parsing slash commands themselves.
+  bool is_emote = 4;
+}
+
+// Host -> the sending client only (never relayed to the party): feedback for chat input that
+// could not be turned into a broadcastable message, e.g. an unrecognized slash command.
+message PartyChatCommandError {
+  string message = 1;
+}

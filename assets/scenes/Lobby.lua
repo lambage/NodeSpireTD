@@ -1,17 +1,39 @@
 local M = {}
 
 local kWindowW = 820
-local kWindowH = 680
+local kWindowH = 540
+local kPartyWindowW = 280
+local kPartyWindowH = 400
+local kPartyWindowGap = 20
+local kSubWindowW = 320
+local kSubWindowH = 150
+local kChatWindowH = 160
 
 local backTexture = nil
 
 local loadLevelButton = nil
 local backButton = nil
-local hostButton = nil
-local joinButton = nil
+local hostPartyButton = nil
+local findPartyButton = nil
+local leavePartyButton = nil
+local startHostingButton = nil
+local cancelHostButton = nil
+local connectPartyButton = nil
+local cancelFindButton = nil
+local sendChatButton = nil
+local saveProfileButton = nil
 
 local joinAddressText = "127.0.0.1"
 local portValue = 47321
+local localReady = false
+
+local showHostWindow = false
+local showFindWindow = false
+local chatInputText = ""
+local chatMessages = {}
+-- Editable copy of the local profile's display name (the profile's UUID is never exposed to
+-- Lua). Populated from Gameplay.getLocalProfile() in onEnter and saved on demand.
+local profileNameText = "Player"
 
 function M.onEnter()
 	local tex, err = Texture.load(VulkanContext, "assets/images/splash_screen.png")
@@ -25,9 +47,23 @@ function M.onEnter()
         "assets/audio/hover.ogg", "assets/audio/click.ogg")
     backButton = GameButton.new("back", "Back", 140.0, 40.0,
         "assets/audio/hover.ogg", "assets/audio/close.ogg")
-    hostButton = GameButton.new("hostMatch", "Host Co-op", 170.0, 40.0,
+    hostPartyButton = GameButton.new("hostParty", "Host", 120.0, 36.0,
         "assets/audio/hover.ogg", "assets/audio/click.ogg")
-    joinButton = GameButton.new("joinMatch", "Join Co-op", 170.0, 40.0,
+    findPartyButton = GameButton.new("findParty", "Find Party", 120.0, 36.0,
+        "assets/audio/hover.ogg", "assets/audio/click.ogg")
+    leavePartyButton = GameButton.new("leaveParty", "Leave Party", 130.0, 36.0,
+        "assets/audio/hover.ogg", "assets/audio/close.ogg")
+    startHostingButton = GameButton.new("startHosting", "Start Hosting", 150.0, 36.0,
+        "assets/audio/hover.ogg", "assets/audio/click.ogg")
+    cancelHostButton = GameButton.new("cancelHost", "Cancel", 100.0, 36.0,
+        "assets/audio/hover.ogg", "assets/audio/close.ogg")
+    connectPartyButton = GameButton.new("connectParty", "Connect", 150.0, 36.0,
+        "assets/audio/hover.ogg", "assets/audio/click.ogg")
+    cancelFindButton = GameButton.new("cancelFind", "Cancel", 100.0, 36.0,
+        "assets/audio/hover.ogg", "assets/audio/close.ogg")
+    sendChatButton = GameButton.new("sendChat", "Send", 80.0, 32.0,
+        "assets/audio/hover.ogg", "assets/audio/click.ogg")
+    saveProfileButton = GameButton.new("saveProfile", "Save Name", 110.0, 28.0,
         "assets/audio/hover.ogg", "assets/audio/click.ogg")
 
     local mpState = Gameplay.getMultiplayerState and Gameplay.getMultiplayerState() or nil
@@ -37,14 +73,29 @@ function M.onEnter()
             joinAddressText = mpState.joinAddress
         end
     end
+
+    local profile = Gameplay.getLocalProfile and Gameplay.getLocalProfile() or nil
+    profileNameText = (profile and profile.name) or "Player"
+
+    showHostWindow = false
+    showFindWindow = false
+    chatInputText = ""
+    chatMessages = {}
 end
 
 function M.onExit()
 	backTexture = nil
 	loadLevelButton = nil
 	backButton = nil
-	hostButton = nil
-	joinButton = nil
+	hostPartyButton = nil
+	findPartyButton = nil
+	leavePartyButton = nil
+	startHostingButton = nil
+	cancelHostButton = nil
+	connectPartyButton = nil
+	cancelFindButton = nil
+	sendChatButton = nil
+	saveProfileButton = nil
 end
 
 function M.render(state, dt, elapsedSeconds)
@@ -75,6 +126,43 @@ function M.render(state, dt, elapsedSeconds)
 	local levels = Gameplay.getLobbyLevels and Gameplay.getLobbyLevels() or {}
 	local hasLevels = levels ~= nil and #levels > 0
 
+	local mpState = Gameplay.getMultiplayerState and Gameplay.getMultiplayerState() or nil
+	local hosting = mpState and mpState.hosting or false
+	local joining = mpState and mpState.joining or false
+	local isInParty = hosting or joining
+	-- Solo play has no host to defer to, so the local player is always the party leader.
+	local isPartyHost = (not isInParty) or hosting
+
+	local roster = Gameplay.getPartyRoster and Gameplay.getPartyRoster() or nil
+	local members = roster and roster.members or {}
+	local capacity = roster and roster.capacity or 0
+
+	local localMember = nil
+	for i = 1, #members do
+		if members[i].isLocal then
+			localMember = members[i]
+			break
+		end
+	end
+	localReady = localMember ~= nil and localMember.ready or localReady
+
+	local allMembersReady = true
+	for i = 1, #members do
+		if not members[i].ready then
+			allMembersReady = false
+			break
+		end
+	end
+	-- Host may only start once every party member has readied up; a lone host can always start.
+	local canStartMatch = (not isInParty) or (not isPartyHost) or (#members <= 1) or allMembersReady
+
+	-- A client auto-follows the host into PlayLevel the moment a match start is announced.
+	if isInParty and not isPartyHost then
+		if Gameplay.checkPartyMatchStart and Gameplay.checkPartyMatchStart() then
+			Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Joining co-op match...")
+		end
+	end
+
 	local displayW, displayH = ImGui.GetDisplaySize()
 	ImGui.SetNextWindowPos((displayW - kWindowW) * 0.5, (displayH - kWindowH) * 0.5, ImGuiCond.Always)
 	ImGui.SetNextWindowSize(kWindowW, kWindowH, ImGuiCond.Always)
@@ -85,15 +173,7 @@ function M.render(state, dt, elapsedSeconds)
 				  ImGuiWindowFlags.NoTitleBar
 	ImGui.Begin("LevelSelection", flags)
 
-	if HeadingFont then
-		ImGui.PushFont(HeadingFont)
-	end
-	ImGui.Text("Mission Control")
-	if HeadingFont then
-		ImGui.PopFont()
-	end
-
-	ImGui.Text("Select a mission profile")
+	ImGui.Text("Select a level")
 	ImGui.Separator()
 
 	local missionListWidth = 260
@@ -135,29 +215,13 @@ function M.render(state, dt, elapsedSeconds)
 	end
 	ImGui.EndChild()
 
-	ImGui.Separator()
-	ImGui.Text("Co-op (LAN)")
-	local portChanged, newPort = ImGui.InputInt("Port", portValue)
-	if portChanged then
-		portValue = newPort
-	end
-	ImGui.SameLine()
-	if hostButton:render() then
-		Gameplay.setMultiplayerMode(true, portValue, "")
-		Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Hosting co-op match...")
+	if isInParty then
+		loadLevelButton:setLabel(isPartyHost and "Start Match" or "Join Match")
+	else
+		loadLevelButton:setLabel("Load Level")
 	end
 
-	local addressChanged, newAddress = ImGui.InputText("Host", joinAddressText)
-	if addressChanged then
-		joinAddressText = newAddress
-	end
-	ImGui.SameLine()
-	if joinButton:render() then
-		Gameplay.setMultiplayerMode(false, portValue, joinAddressText)
-		Gameplay.requestScene(Gameplay.Scene.PlayLevel, "Joining co-op match...")
-	end
-
-	if not hasLevels then
+	if not hasLevels or not canStartMatch then
 		ImGui.BeginDisabled()
 	end
 	if loadLevelButton:render() then
@@ -168,11 +232,21 @@ function M.render(state, dt, elapsedSeconds)
 				break
 			end
 		end
-		Gameplay.setMultiplayerMode(false, portValue, "")
-		Gameplay.requestScene(Gameplay.Scene.PlayLevel, string.format("Loading level: %s...", selectedName))
-	end
 
-	if not hasLevels then
+		local message
+		if not isInParty then
+			-- Not in a party: Load Level always (re)starts a fresh solo run.
+			Gameplay.setMultiplayerMode(false, portValue, "")
+			message = string.format("Loading level: %s...", selectedName)
+		elseif isPartyHost then
+			Gameplay.announceMatchStart()
+			message = "Hosting co-op match..."
+		else
+			message = "Joining co-op match..."
+		end
+		Gameplay.requestScene(Gameplay.Scene.PlayLevel, message)
+	end
+	if not hasLevels or not canStartMatch then
 		ImGui.EndDisabled()
 	end
 
@@ -182,6 +256,202 @@ function M.render(state, dt, elapsedSeconds)
 	end
 
 	ImGui.End()
+
+	local partyWindowX = (displayW - kWindowW) * 0.5 + kWindowW + kPartyWindowGap
+	local partyWindowY = (displayH - kWindowH) * 0.5
+	ImGui.SetNextWindowPos(partyWindowX, partyWindowY, ImGuiCond.Always)
+	ImGui.SetNextWindowSize(kPartyWindowW, kPartyWindowH, ImGuiCond.Always)
+
+	local partyFlags = ImGuiWindowFlags.NoResize +
+						ImGuiWindowFlags.NoMove +
+						ImGuiWindowFlags.NoCollapse +
+						ImGuiWindowFlags.NoTitleBar
+	ImGui.Begin("PartyWindow", partyFlags)
+
+	if HeadingFont then
+		ImGui.PushFont(HeadingFont)
+	end
+	ImGui.Text("Party")
+	if HeadingFont then
+		ImGui.PopFont()
+	end
+	ImGui.Separator()
+
+	local nameChanged, newProfileName = ImGui.InputText("##profileName", profileNameText)
+	if nameChanged then
+		profileNameText = newProfileName
+	end
+	ImGui.SameLine()
+	if saveProfileButton:render() and profileNameText ~= "" then
+		Gameplay.setLocalProfileName(profileNameText)
+	end
+	ImGui.Spacing()
+
+	ImGui.Text(string.format("Members: %d / %d", #members, capacity))
+	ImGui.Spacing()
+
+	local localIsHost = localMember ~= nil and localMember.isHost
+
+	ImGui.BeginChild("PartyRoster", 0.0, -90.0, ImGuiWindowFlags.NoScrollbar)
+	for i = 1, #members do
+		local member = members[i]
+		local label = tostring(member.name or "Player")
+		if member.isHost then
+			label = label .. " (Host)"
+		end
+		if member.isLocal then
+			label = label .. " (You)"
+		end
+
+		if member.ready then
+			ImGui.TextColored(0.4, 0.9, 0.4, 1.0, label .. " - Ready")
+		else
+			ImGui.TextDisabled(label .. " - Not ready")
+		end
+
+		if localIsHost and not member.isLocal then
+			ImGui.SameLine()
+			if ImGui.SmallButton("Kick##party" .. tostring(member.id)) then
+				Gameplay.kickPartyMember(member.id)
+			end
+		end
+	end
+	ImGui.EndChild()
+
+	if isInParty then
+		local readyChanged, readyValue = ImGui.Checkbox("Ready", localReady)
+		if readyChanged then
+			localReady = readyValue
+			if Gameplay.setPartyReady then
+				Gameplay.setPartyReady(readyValue)
+			end
+		end
+	end
+
+	if isInParty then
+		if leavePartyButton:render() then
+			Gameplay.setMultiplayerMode(false, portValue, "")
+			chatMessages = {}
+		end
+	else
+		if hostPartyButton:render() then
+			showHostWindow = true
+			showFindWindow = false
+		end
+		ImGui.SameLine()
+		if findPartyButton:render() then
+			showFindWindow = true
+			showHostWindow = false
+		end
+	end
+
+	ImGui.End()
+
+	if showHostWindow then
+		ImGui.SetNextWindowPos((displayW - kSubWindowW) * 0.5, (displayH - kSubWindowH) * 0.5, ImGuiCond.Always)
+		ImGui.SetNextWindowSize(kSubWindowW, kSubWindowH, ImGuiCond.Always)
+		local subFlags = ImGuiWindowFlags.NoResize +
+						  ImGuiWindowFlags.NoMove +
+						  ImGuiWindowFlags.NoCollapse +
+						  ImGuiWindowFlags.NoTitleBar
+		ImGui.Begin("HostPartyWindow", subFlags)
+		ImGui.Text("Host Party")
+		ImGui.Separator()
+
+		local portChanged, newPort = ImGui.InputInt("Port", portValue)
+		if portChanged then
+			portValue = newPort
+		end
+		ImGui.Spacing()
+
+		if startHostingButton:render() then
+			Gameplay.setMultiplayerMode(true, portValue, "")
+			showHostWindow = false
+		end
+		ImGui.SameLine()
+		if cancelHostButton:render() then
+			showHostWindow = false
+		end
+		ImGui.End()
+	end
+
+	if showFindWindow then
+		ImGui.SetNextWindowPos((displayW - kSubWindowW) * 0.5, (displayH - kSubWindowH) * 0.5, ImGuiCond.Always)
+		ImGui.SetNextWindowSize(kSubWindowW, kSubWindowH, ImGuiCond.Always)
+		local subFlags = ImGuiWindowFlags.NoResize +
+						  ImGuiWindowFlags.NoMove +
+						  ImGuiWindowFlags.NoCollapse +
+						  ImGuiWindowFlags.NoTitleBar
+		ImGui.Begin("FindPartyWindow", subFlags)
+		ImGui.Text("Find Party")
+		ImGui.Separator()
+
+		local addressChanged, newAddress = ImGui.InputText("Host", joinAddressText)
+		if addressChanged then
+			joinAddressText = newAddress
+		end
+		local portChanged, newPort = ImGui.InputInt("Port", portValue)
+		if portChanged then
+			portValue = newPort
+		end
+		ImGui.Spacing()
+
+		if connectPartyButton:render() then
+			Gameplay.setMultiplayerMode(false, portValue, joinAddressText)
+			showFindWindow = false
+		end
+		ImGui.SameLine()
+		if cancelFindButton:render() then
+			showFindWindow = false
+		end
+		ImGui.End()
+	end
+
+	if isInParty then
+		local chatWindowW = kWindowW + kPartyWindowGap + kPartyWindowW
+		local chatWindowX = (displayW - kWindowW) * 0.5
+		local chatWindowY = partyWindowY + kPartyWindowH + kPartyWindowGap
+		ImGui.SetNextWindowPos(chatWindowX, chatWindowY, ImGuiCond.Always)
+		ImGui.SetNextWindowSize(chatWindowW, kChatWindowH, ImGuiCond.Always)
+
+		local chatFlags = ImGuiWindowFlags.NoResize +
+						   ImGuiWindowFlags.NoMove +
+						   ImGuiWindowFlags.NoCollapse +
+						   ImGuiWindowFlags.NoTitleBar
+		ImGui.Begin("PartyChatWindow", chatFlags)
+		ImGui.Text("Party Chat")
+		ImGui.Separator()
+
+		for _, message in ipairs(Gameplay.consumePartyChatMessages()) do
+			if message.isEmote then
+				table.insert(chatMessages, {author = "*", text = tostring(message.text)})
+			else
+				table.insert(chatMessages, {author = tostring(message.name), text = tostring(message.text)})
+			end
+		end
+		for _, errorText in ipairs(Gameplay.consumePartyChatErrors()) do
+			table.insert(chatMessages, {author = "[System]", text = tostring(errorText)})
+		end
+
+		ImGui.BeginChild("PartyChatLog", 0.0, -40.0, ImGuiWindowFlags.NoScrollbar)
+		for i = 1, #chatMessages do
+			local entry = chatMessages[i]
+			ImGui.TextWrapped(string.format("%s: %s", tostring(entry.author), tostring(entry.text)))
+		end
+		ImGui.EndChild()
+
+		local chatChanged, newChatText = ImGui.InputText("##chatInput", chatInputText)
+		if chatChanged then
+			chatInputText = newChatText
+		end
+		ImGui.SameLine()
+		if sendChatButton:render() and chatInputText ~= "" then
+			Gameplay.sendPartyChat(chatInputText)
+			chatInputText = ""
+		end
+
+		ImGui.End()
+	end
 end
 
 return M

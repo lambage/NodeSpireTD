@@ -2,8 +2,10 @@ include(GoogleTest)
 
 add_executable(NodeSpireMatchProtocolTests
     multiplayer/ContentHashTests.cpp
+    multiplayer/ChatCommandDispatcherTests.cpp
     multiplayer/FixedTickClockTests.cpp
     multiplayer/LanMatchTransportTests.cpp
+    multiplayer/LocalHostPartyGateTests.cpp
     multiplayer/LocalMatchHostTests.cpp
     multiplayer/LoopbackMatchSessionTests.cpp
     multiplayer/LoopbackTransportTests.cpp
@@ -11,7 +13,9 @@ add_executable(NodeSpireMatchProtocolTests
     multiplayer/MatchSnapshotBuilderTests.cpp
     multiplayer/MatchProtocolAdapterTests.cpp
     multiplayer/PlayerAccountsTests.cpp
+    multiplayer/PlayerProfileStoreTests.cpp
     multiplayer/PlayLevelCombatControllerTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/multiplayer/ChatCommandDispatcher.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/ContentHash.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/FixedTickClock.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/LanFramedConnection.cpp
@@ -24,6 +28,7 @@ add_executable(NodeSpireMatchProtocolTests
     ${CMAKE_SOURCE_DIR}/src/multiplayer/MatchProtocolAdapter.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/MatchSnapshotBuilder.cpp
     ${CMAKE_SOURCE_DIR}/src/multiplayer/PlayerAccounts.cpp
+    ${CMAKE_SOURCE_DIR}/src/multiplayer/PlayerProfileStore.cpp
     ${CMAKE_SOURCE_DIR}/src/scenes/PlayLevelCombatController.cpp
     ${CMAKE_SOURCE_DIR}/src/scenes/PlayLevelWaveController.cpp
 )
@@ -34,6 +39,7 @@ target_link_libraries(NodeSpireMatchProtocolTests PRIVATE
     NodeSpireMatchProtocol
     glm::glm
     lua
+    nlohmann_json::nlohmann_json
     spdlog::spdlog
 )
 

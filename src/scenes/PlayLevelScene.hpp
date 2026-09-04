@@ -1,12 +1,10 @@
 #pragma once
 #include "multiplayer/IMatchTransport.hpp"
-#include "multiplayer/LanMatchClient.hpp"
-#include "multiplayer/LanMatchTransport.hpp"
 #include "multiplayer/LocalMatchHost.hpp"
 #include "multiplayer/MatchSimulation.hpp"
 #include "multiplayer/MatchSnapshotBuilder.hpp"
+#include "multiplayer/MultiplayerSession.hpp"
 
-#include <boost/asio/io_context.hpp>
 #include "scenes/EnemyLoadController.hpp"
 #include "scenes/PlayLevelBootstrap.hpp"
 #include "scenes/GameScene.hpp"
@@ -47,17 +45,16 @@ class PlayLevelScene final : public GameScene {
     void render(SceneSharedState& state, float dt) override;
     void renderWorld(VkCommandBuffer cmd, VkExtent2D extent) override;
 
-    // Starts (or restarts, on a new port) listening for LAN peers. Safe to leave uncalled for
-    // single-player. Returns false if the port could not be bound.
+    // Starts (or restarts) match-level hosting over the persistent session's already-listening
+    // transport (see MultiplayerSession). Safe to leave uncalled for single-player.
     bool startHostingOnPort(unsigned short port);
     void stopHosting();
     unsigned short hostingPort() const;
     bool disconnectRemotePlayer(multiplayer::TransportPeerId peerId);
 
-    // Connects to a remote host as a co-op client instead of becoming the authoritative host.
-    // Blocks briefly on TCP connect/resolve (LAN-scale, acceptable). Returns false immediately if
-    // the connection itself fails; join acceptance/rejection arrives asynchronously afterward (see
-    // isRemoteClientJoinPending()/hasRemoteClientJoinFailed()).
+    // Sends a match-level join request over the session's already-connected client transport
+    // instead of opening a new TCP connection. Join acceptance/rejection arrives asynchronously
+    // afterward (see isRemoteClientJoinPending()/hasRemoteClientJoinFailed()).
     bool startJoiningHost(const std::string& hostAddress, unsigned short port, const std::string& displayName);
     bool isRemoteClient() const { return isRemoteClient_; }
     bool isRemoteClientJoinPending() const { return isRemoteClient_ && remoteJoinPending_; }
@@ -99,24 +96,28 @@ class PlayLevelScene final : public GameScene {
     std::vector<GameplayCommand> pendingCommands_;
     multiplayer::LocalMatchHost localMatchHost_{};
     multiplayer::CommandSequence nextLocalCommandSequence_ = 1;
-    // Host-side inbound channel for non-host players. networkIoContext_ must be declared before
-    // remoteTransport_: LanMatchTransport binds a reference to it at construction, and this class
-    // polls the context once per frame in advanceAuthoritativeSimulation().
-    boost::asio::io_context networkIoContext_;
-    multiplayer::LanMatchTransport remoteTransport_{networkIoContext_};
+    // Persistent, scene-independent LAN session (see MultiplayerSession.hpp); cached each
+    // onEnter()/render() from SceneSharedState. Null session or !session_->isInParty() means solo
+    // play -- no networking happens at all. An in-party session was already connected in
+    // LobbyScene; this scene reuses that connection for the match-level join handshake and
+    // gameplay command/snapshot traffic instead of creating a new one.
+    multiplayer::MultiplayerSession* session_ = nullptr;
     std::unordered_map<multiplayer::TransportPeerId, multiplayer::PlayerId> remotePlayerByPeer_{};
     // Digest of every loaded tower/enemy archetype id, sent to joining peers' content manifests
     // for comparison. Computed once per level load, after bootstrap_.configureLevel().
     std::string gameplayContentSha256_;
     // Client-mode state: when isRemoteClient_ is true, this scene instance never ticks
-    // matchSimulation_ itself -- it only sends local input through remoteClient_ and applies
-    // snapshots the real host publishes. localPlayerId_ defaults to the host/single-player id and
-    // is overwritten with whatever id the remote host assigns once a join is accepted.
-    multiplayer::LanMatchClient remoteClient_{networkIoContext_};
+    // matchSimulation_ itself -- it only sends local input through the session's client and
+    // applies snapshots the real host publishes. localPlayerId_ defaults to the host/single-player
+    // id and is overwritten with whatever id the remote host assigns once a join is accepted.
     bool isRemoteClient_ = false;
     bool remoteJoinPending_ = false;
     std::string remoteJoinFailureReason_;
     multiplayer::PlayerId localPlayerId_ = 1;
+    // Match-start loaded-ready barrier (MultiplayerSession::signalLocalLoadedReady()): the host
+    // does not tick matchSimulation_/publish snapshots, and a client does not apply them, until
+    // every party member has finished loading. Always true (no barrier) for solo play.
+    bool loadedReadySignaled_ = false;
     std::string loadStatus_;
     PlayLevelBootstrap bootstrap_{};
     PlayLevelFrameCoordinator frameCoordinator_{};
@@ -194,15 +195,15 @@ class PlayLevelScene final : public GameScene {
     void advanceAuthoritativeSimulation(float elapsedSeconds);
     // Single authority boundary: validates and applies one already-sequenced command against the
     // simulation, regardless of whether it originated from the local host player or a remote peer
-    // drained off remoteTransport_.
+    // drained off the session's host transport.
     std::optional<multiplayer::CommandRejectionReason>
     dispatchAuthoritativeCommand(const multiplayer::PlayerCommandRequest& command);
     bool submitLocalCommand(const multiplayer::PlayerCommandRequest& command);
     void drainRemotePlayerCommands(multiplayer::SimulationTick currentTick);
     void publishRemoteSnapshotIfDue(multiplayer::SimulationTick currentTick);
-    // Validates every join request queued on remoteTransport_ since the last call (protocol
-    // version, content manifest, capacity), registers accepted peers with the simulation, and
-    // always replies with a JoinMatchResult -- accepted or rejected.
+    // Validates every join request queued on the session's host transport since the last call
+    // (protocol version, content manifest, capacity), registers accepted peers with the
+    // simulation, and always replies with a JoinMatchResult -- accepted or rejected.
     void processIncomingJoinRequests();
     // Client-mode only: polls the pending join result once connected, adopting the host-assigned
     // player id on acceptance or recording a failure reason on rejection/decode error.

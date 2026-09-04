@@ -341,13 +341,13 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     matchSimulation_.registerPlayer(kLocalHostPlayerId, gameplayState_.playerMoney);
     syncLocalPlayerMoney();
     nextLocalCommandSequence_ = 1;
-    remoteTransport_.reset();
+    session_ = state.multiplayerSession;
     remotePlayerByPeer_.clear();
-    remoteClient_.disconnect();
     isRemoteClient_ = false;
     remoteJoinPending_ = false;
     remoteJoinFailureReason_.clear();
     localPlayerId_ = kLocalHostPlayerId;
+    loadedReadySignaled_ = false;
     placementRegions_.clear();
     towerPlacementPreviewResolver_.reset();
     lastPlacementValidationReason_.clear();
@@ -368,13 +368,14 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
         gameplayContentSha256_ = multiplayer::computeContentDigest(std::move(contentIds));
     }
 
-    // Consume the Lobby's host/join intent. A non-empty joinRemoteHostAddress means this scene
-    // instance is a co-op client, not the authoritative host: it never ticks matchSimulation_
-    // itself, only reflects snapshots the real host publishes (see advanceAuthoritativeSimulation).
-    if (!state.joinRemoteHostAddress.empty()) {
-        startJoiningHost(state.joinRemoteHostAddress, state.multiplayerPort, "Player");
-    } else if (state.hostMultiplayerMatch) {
-        startHostingOnPort(state.multiplayerPort);
+    // Reuse the persistent party session established in LobbyScene (see MultiplayerSession) for
+    // match-level traffic: a client sends a JoinMatchRequest over the already-open connection,
+    // and a host performs match-level join validation over its already-listening transport. A
+    // session that is not currently in a party (solo play) skips networking entirely.
+    if (session_ && session_->isClient()) {
+        startJoiningHost(std::string{}, 0, "Player");
+    } else if (session_ && session_->isHost()) {
+        startHostingOnPort(0);
     }
 
     scriptRef_ = loadLuaScript(state, "assets/scenes/PlayLevel.lua");
@@ -386,8 +387,8 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
 void PlayLevelScene::onExit(SceneSharedState& state) {
     luaOnExit(state, scriptRef_);
 
-    remoteTransport_.stop();
-    remoteClient_.disconnect();
+    // Deliberately does not stop hosting or disconnect the client: the session (and its
+    // connection) is persistent and outlives this scene -- see MultiplayerSession.hpp.
     if (state.vulkanContext) {
         state.vulkanContext->waitIdle();
     }
@@ -1291,13 +1292,31 @@ void PlayLevelScene::applyPendingGameplayCommands() {
 }
 
 void PlayLevelScene::advanceAuthoritativeSimulation(float elapsedSeconds) {
-    networkIoContext_.poll();
+    // The persistent session's io_context is polled once centrally per frame by the app runtime
+    // (SceneDirector::render(), before any scene renders), not here -- see MultiplayerSession.
+
+    if (!loadedReadySignaled_ && session_ && worldRenderer_ && worldRenderer_->isLoaded()) {
+        session_->signalLocalLoadedReady();
+        loadedReadySignaled_ = true;
+    }
+
+    // Loaded-ready barrier: nobody ticks match simulation or applies snapshots until every party
+    // member (including this one) has finished loading the announced level. Connection/join
+    // housekeeping still runs so peers can connect and be validated while others finish loading.
+    if (session_ && !session_->allMembersLoadedReady()) {
+        if (isRemoteClient_) {
+            processRemoteJoinResult();
+        } else {
+            processIncomingJoinRequests();
+        }
+        return;
+    }
 
     if (isRemoteClient_) {
         // A client never ticks matchSimulation_ itself -- only the real host advances
         // waves/combat. This instance purely reflects whatever snapshot the host last published.
         processRemoteJoinResult();
-        if (const auto snapshotPayload = remoteClient_.consumeLatestSnapshot()) {
+        if (const auto snapshotPayload = session_->client().consumeLatestSnapshot()) {
             if (const auto snapshot = multiplayer::MatchSnapshotBuilder::deserialize(*snapshotPayload)) {
                 applyRemoteSnapshot(*snapshot);
             } else {
@@ -1306,7 +1325,7 @@ void PlayLevelScene::advanceAuthoritativeSimulation(float elapsedSeconds) {
             }
         }
         advanceClientCosmeticAnimations(elapsedSeconds);
-        remoteClient_.drainCommandResults();
+        session_->client().drainCommandResults();
         return;
     }
 
@@ -1330,8 +1349,8 @@ void PlayLevelScene::advanceClientCosmeticAnimations(float elapsedSeconds) {
 }
 
 // Single authority boundary: every player command, whether it came from the local host player
-// (applied synchronously below) or a remote peer (drained off remoteTransport_), is validated and
-// applied here and nowhere else.
+// (applied synchronously below) or a remote peer (drained off the session's host transport), is
+// validated and applied here and nowhere else.
 std::optional<multiplayer::CommandRejectionReason>
 PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandRequest& command) {
     return std::visit(
@@ -1484,7 +1503,7 @@ bool PlayLevelScene::submitLocalCommand(const multiplayer::PlayerCommandRequest&
     if (isRemoteClient_) {
         // The real host validates and applies this command; we only forward it and reflect the
         // outcome once a CommandResult/snapshot arrives. Returning true here only means "sent".
-        return remoteClient_.sendCommand(*serializedCommand);
+        return session_ && session_->client().sendCommand(*serializedCommand);
     }
 
     bool applied = false;
@@ -1501,21 +1520,23 @@ bool PlayLevelScene::submitLocalCommand(const multiplayer::PlayerCommandRequest&
     return applied;
 }
 
-bool PlayLevelScene::startHostingOnPort(unsigned short port) {
-    if (isRemoteClient_) {
+bool PlayLevelScene::startHostingOnPort(unsigned short /*port*/) {
+    // The session's host transport is already listening (MultiplayerSession::hostParty() was
+    // called back in LobbyScene) -- there is nothing left to (re)bind here.
+    if (isRemoteClient_ || !session_ || !session_->isHost()) {
         return false;
     }
-    remoteTransport_.stop();
-    return remoteTransport_.listen(port);
+    return true;
 }
 
 void PlayLevelScene::stopHosting() {
-    remoteTransport_.stop();
+    // Does not touch the session's (persistent, shared) listener socket -- only clears this
+    // scene's own per-match peer bookkeeping.
     remotePlayerByPeer_.clear();
 }
 
 unsigned short PlayLevelScene::hostingPort() const {
-    return remoteTransport_.listenPort();
+    return session_ ? session_->hostTransport().listenPort() : 0;
 }
 
 bool PlayLevelScene::disconnectRemotePlayer(multiplayer::TransportPeerId peerId) {
@@ -1527,15 +1548,20 @@ bool PlayLevelScene::disconnectRemotePlayer(multiplayer::TransportPeerId peerId)
     remotePlayerByPeer_.erase(playerIt);
     localMatchHost_.unregisterPlayer(playerId);
     matchSimulation_.unregisterPlayer(playerId);
-    return remoteTransport_.disconnectPeer(peerId);
+    return session_ && session_->hostTransport().disconnectPeer(peerId);
 }
 
 void PlayLevelScene::processIncomingJoinRequests() {
+    if (!session_) {
+        return;
+    }
+
     // Default balance for a joining peer until match rules define a shared/host-configured
     // starting economy for co-op.
     constexpr float kRemotePlayerInitialBalance = 250.0f;
 
-    for (multiplayer::PendingJoinRequest& request : remoteTransport_.drainJoinRequests()) {
+    multiplayer::LanMatchTransport& transport = session_->hostTransport();
+    for (multiplayer::PendingJoinRequest& request : transport.drainJoinRequests()) {
         const auto decodedRequest = multiplayer::MatchProtocolAdapter::decodeJoinMatchRequest(request.payload);
         const std::string displayName =
             decodedRequest.request ? decodedRequest.request->playerDisplayName : std::string("<unknown>");
@@ -1546,7 +1572,7 @@ void PlayLevelScene::processIncomingJoinRequests() {
                                                                 matchSimulation_.currentTick());
         if (!outcome) {
             spdlog::error("PlayLevelScene[host]: failed to serialize join result for peer {}.", request.peerId);
-            remoteTransport_.disconnectPeer(request.peerId);
+            transport.disconnectPeer(request.peerId);
             continue;
         }
 
@@ -1560,41 +1586,43 @@ void PlayLevelScene::processIncomingJoinRequests() {
             }
             spdlog::warn("PlayLevelScene[host]: rejected join from peer {} ('{}'): {}.", request.peerId, displayName,
                          reasonText);
-            remoteTransport_.sendJoinResult(request.peerId, outcome->serializedResult);
-            remoteTransport_.disconnectPeer(request.peerId);
+            transport.sendJoinResult(request.peerId, outcome->serializedResult);
+            transport.disconnectPeer(request.peerId);
             continue;
         }
 
         const multiplayer::PlayerId assignedPlayerId = *outcome->acceptedPlayerId;
         if (!matchSimulation_.registerPlayer(assignedPlayerId, kRemotePlayerInitialBalance) ||
-            !localMatchHost_.registerPlayer(assignedPlayerId) || !remoteTransport_.markPeerJoined(request.peerId)) {
+            !localMatchHost_.registerPlayer(assignedPlayerId) || !transport.markPeerJoined(request.peerId)) {
             spdlog::error("PlayLevelScene[host]: failed to register accepted peer {} as player {}.", request.peerId,
                          assignedPlayerId);
-            remoteTransport_.disconnectPeer(request.peerId);
+            transport.disconnectPeer(request.peerId);
             continue;
         }
 
         remotePlayerByPeer_.emplace(request.peerId, assignedPlayerId);
         spdlog::info("PlayLevelScene[host]: peer {} joined as player {} ('{}').", request.peerId, assignedPlayerId,
                      displayName);
-        remoteTransport_.sendJoinResult(request.peerId, outcome->serializedResult);
+        transport.sendJoinResult(request.peerId, outcome->serializedResult);
         if (const auto snapshot = multiplayer::MatchSnapshotBuilder::serialize(matchSimulation_)) {
-            remoteTransport_.publishSnapshot(*snapshot);
+            transport.publishSnapshot(*snapshot);
         }
     }
 }
 
-bool PlayLevelScene::startJoiningHost(const std::string& hostAddress, unsigned short port,
+bool PlayLevelScene::startJoiningHost(const std::string& /*hostAddress*/, unsigned short /*port*/,
                                       const std::string& displayName) {
-    remoteTransport_.stop();
-    remoteClient_.disconnect();
+    // The session's client is already connected (MultiplayerSession::joinParty() was called back
+    // in LobbyScene) -- only the match-level JoinMatchRequest handshake happens here, over that
+    // existing connection. Do not disconnect on failure: a failed handshake attempt should not
+    // tear down the shared party connection.
     isRemoteClient_ = false;
     remoteJoinPending_ = false;
     remoteJoinFailureReason_.clear();
 
-    if (!remoteClient_.connect(hostAddress, port)) {
-        remoteJoinFailureReason_ = "failed to connect to host";
-        spdlog::error("PlayLevelScene[client]: {} ({}:{}).", remoteJoinFailureReason_, hostAddress, port);
+    if (!session_ || !session_->client().isConnected()) {
+        remoteJoinFailureReason_ = "not connected to a host";
+        spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
         return false;
     }
 
@@ -1603,28 +1631,27 @@ bool PlayLevelScene::startJoiningHost(const std::string& hostAddress, unsigned s
     request.playerDisplayName = displayName;
     request.contentManifest.gameplayContentSha256 = gameplayContentSha256_;
     const auto serializedRequest = multiplayer::MatchProtocolAdapter::serializeJoinMatchRequest(request);
-    if (!serializedRequest || !remoteClient_.sendJoinRequest(*serializedRequest)) {
-        remoteClient_.disconnect();
+    if (!serializedRequest || !session_->client().sendJoinRequest(*serializedRequest)) {
         remoteJoinFailureReason_ = "failed to send join request";
         spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
         return false;
     }
 
-    spdlog::info("PlayLevelScene[client]: sent join request to {}:{} as '{}', awaiting host reply...", hostAddress,
-                 port, displayName);
+    spdlog::info("PlayLevelScene[client]: sent join request over existing connection as '{}', awaiting host reply...",
+                 displayName);
     isRemoteClient_ = true;
     remoteJoinPending_ = true;
     return true;
 }
 
 void PlayLevelScene::processRemoteJoinResult() {
-    if (!remoteJoinPending_) {
+    if (!remoteJoinPending_ || !session_) {
         return;
     }
 
-    const auto payload = remoteClient_.consumeJoinResult();
+    const auto payload = session_->client().consumeJoinResult();
     if (!payload) {
-        if (!remoteClient_.isConnected()) {
+        if (!session_->client().isConnected()) {
             remoteJoinPending_ = false;
             isRemoteClient_ = false;
             remoteJoinFailureReason_ = "connection lost while waiting for join result";
@@ -1639,7 +1666,6 @@ void PlayLevelScene::processRemoteJoinResult() {
         isRemoteClient_ = false;
         remoteJoinFailureReason_ = "malformed join result";
         spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
-        remoteClient_.disconnect();
         return;
     }
 
@@ -1655,7 +1681,8 @@ void PlayLevelScene::processRemoteJoinResult() {
                  : "join rejected by host";
     spdlog::error("PlayLevelScene[client]: {}.", remoteJoinFailureReason_);
     isRemoteClient_ = false;
-    remoteClient_.disconnect();
+    // Does not disconnect the shared party session over a match-level rejection (e.g. content
+    // digest mismatch) -- the player stays in the party/chat, just not this particular match.
 }
 
 void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot& snapshot) {
@@ -1816,7 +1843,10 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
 }
 
 void PlayLevelScene::drainRemotePlayerCommands(multiplayer::SimulationTick currentTick) {
-    for (multiplayer::ReceivedClientCommand& received : remoteTransport_.drainClientCommands()) {
+    if (!session_) {
+        return;
+    }
+    for (multiplayer::ReceivedClientCommand& received : session_->hostTransport().drainClientCommands()) {
         const auto playerIt = remotePlayerByPeer_.find(received.peerId);
         if (playerIt == remotePlayerByPeer_.end()) {
             continue;
@@ -1833,20 +1863,20 @@ void PlayLevelScene::drainRemotePlayerCommands(multiplayer::SimulationTick curre
                 return dispatchAuthoritativeCommand(receivedCommand);
             });
         if (serializedResult) {
-            remoteTransport_.sendCommandResult(received.peerId, *serializedResult);
+            session_->hostTransport().sendCommandResult(received.peerId, *serializedResult);
         }
     }
 }
 
 void PlayLevelScene::publishRemoteSnapshotIfDue(multiplayer::SimulationTick currentTick) {
-    if (remotePlayerByPeer_.empty() || currentTick % kSnapshotIntervalTicks != 0) {
+    if (!session_ || remotePlayerByPeer_.empty() || currentTick % kSnapshotIntervalTicks != 0) {
         return;
     }
     if (const auto snapshot = multiplayer::MatchSnapshotBuilder::serialize(matchSimulation_)) {
         spdlog::trace("PlayLevelScene[host]: publishing snapshot tick={} status={} wave={} waveInProgress={} peers={}",
                      currentTick, static_cast<int>(gameplayState_.matchStatus), gameplayState_.currentWave,
                      gameplayState_.waveInProgress, remotePlayerByPeer_.size());
-        remoteTransport_.publishSnapshot(*snapshot);
+        session_->hostTransport().publishSnapshot(*snapshot);
     }
 }
 
