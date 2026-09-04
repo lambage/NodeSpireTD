@@ -1,0 +1,32 @@
+body
+{
+	width: 100%;
+	height: 100%;
+	background-color: #14141c;
+}
+
+#mainmenu-root
+{
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+.title
+{
+	font-family: "Times New Roman";
+	font-weight: bold;
+	font-size: 48dp;
+	color: white;
+	margin-bottom: 12dp;
+}
+
+.subtitle
+{
+	font-family: "Inter 18pt";
+	font-size: 18dp;
+	color: #999999;
+}

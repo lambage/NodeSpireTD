@@ -136,6 +136,20 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(nlohmann_json)
 
+# Header-only; no CMakeLists.txt of its own, so FetchContent_MakeAvailable just
+# populates the source and skips add_subdirectory. Used by our forked
+# RenderInterface_VK::LoadTexture (src/rmlui_backend/RmlUi_Renderer_VK.cpp) to
+# decode PNG/JPEG/BMP/etc., replacing RmlUi's original TGA-only sample parser.
+# stb doesn't tag releases, so this floats on master rather than a pinned
+# version like the other dependencies above.
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+)
+
+FetchContent_MakeAvailable(stb)
+
 FetchContent_Declare(
     protobuf
     GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git

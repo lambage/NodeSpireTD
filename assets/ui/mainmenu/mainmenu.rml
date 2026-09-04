@@ -1,0 +1,12 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Main Menu</title>
+	<link type="text/rcss" href="mainmenu.rcss"/>
+</head>
+<body>
+	<div id="mainmenu-root">
+		<div class="title">NodeSpireTD</div>
+		<p class="subtitle">Main Menu (work in progress)</p>
+	</div>
+</body>
+</rml>

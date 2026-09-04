@@ -240,30 +240,40 @@ else()
 endif()
 
 # ── NodeSpireTD (RmlUi bring-up) ──────────────────────────────────────────────
-# Minimal SDL3+Vulkan hello-world smoke test for RmlUi, built with RmlUi's own
-# native SDL/Vulkan backend (self-contained, owns its own VkInstance/VkDevice —
-# not yet reconciled with VulkanContext). This is the seed for the eventual
-# RmlUi replacement of NodeSpireTD-imgui.
-set(RMLUI_BACKEND "SDL_VK" CACHE STRING "" FORCE)
-include("${rmlui_SOURCE_DIR}/CMake/DependenciesForBackends.cmake")
-add_subdirectory("${rmlui_SOURCE_DIR}/Backends" "${CMAKE_CURRENT_BINARY_DIR}/rmlui_backends")
+# SDL3+Vulkan RmlUi app. The RmlUi SDL_VK sample backend is forked (not used via
+# add_subdirectory("Backends")/rmlui_backend_SDL_VK) into src/rmlui_backend/ so
+# RenderInterface_VK::LoadTexture can be modified to decode more than 24/32bit
+# uncompressed TGA (see src/rmlui_backend/RmlUi_Renderer_VK.cpp). It is still
+# self-contained (owns its own VkInstance/VkDevice) and not yet reconciled with
+# VulkanContext. This is the seed for the eventual RmlUi replacement of
+# NodeSpireTD-imgui.
 
 add_executable(NodeSpireTD
-    RmluiHelloWorld.cpp
+    RmlUiApp.cpp
     RmlUiFontLoader.cpp
+    rmlui_backend/RmlUi_Platform_SDL.cpp
+    rmlui_backend/RmlUi_Renderer_VK.cpp
+    rmlui_backend/RmlUi_Backend_SDL_VK.cpp
+    rmlui/SceneManager.cpp
+    rmlui/scenes/SplashScene.cpp
+    rmlui/scenes/MainMenuScene.cpp
 )
 
 target_compile_definitions(NodeSpireTD PRIVATE
     NODESPIRE_ASSET_ROOT="${CMAKE_SOURCE_DIR}/assets"
+    RMLUI_SDL_VERSION_MAJOR=3
 )
 
 target_include_directories(NodeSpireTD PRIVATE
     "${rmlui_SOURCE_DIR}/Backends"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/rmlui_backend"
+    "${stb_SOURCE_DIR}"
 )
 
 target_link_libraries(NodeSpireTD PRIVATE
     rmlui
-    rmlui_backend_SDL_VK
+    SDL3::SDL3
     Vulkan::Vulkan
     spdlog::spdlog
     nlohmann_json::nlohmann_json
