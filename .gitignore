@@ -87,8 +87,6 @@ Thumbs.db
 external/
 .local/
 
-.github/agents/*
-
 imgui.ini
 
 *__pycache__/
