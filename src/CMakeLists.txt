@@ -267,9 +267,9 @@ target_compile_definitions(NodeSpireTD PRIVATE
 )
 
 target_include_directories(NodeSpireTD PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/rmlui_backend"
     "${rmlui_SOURCE_DIR}/Backends"
     "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/rmlui_backend"
     "${stb_SOURCE_DIR}"
 )
 

@@ -281,8 +281,17 @@ bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_call
 
 		case event_window_size_changed:
 		{
-			Rml::Vector2i dimensions = {ev.window.data1, ev.window.data2};
-			data->render_interface.SetViewport(dimensions.x, dimensions.y);
+			// data1/data2 here are the window's logical size; RmlUi's context dimensions and the
+			// renderer's viewport both need the actual pixel size (they can differ under DPI scaling).
+			int pixel_width = 0;
+			int pixel_height = 0;
+			SDL_GetWindowSizeInPixels(data->window, &pixel_width, &pixel_height);
+			if (pixel_width > 0 && pixel_height > 0)
+			{
+				data->render_interface.SetViewport(pixel_width, pixel_height);
+				if (context)
+					context->SetDimensions({pixel_width, pixel_height});
+			}
 		}
 		break;
 
@@ -307,6 +316,56 @@ void Backend::RequestExit()
 {
 	RMLUI_ASSERT(data);
 	data->running = false;
+}
+
+void Backend::ApplyDisplaySettings(Rml::Context& context, bool fullscreen, bool exclusive_fullscreen, int width, int height, int refresh_rate)
+{
+	RMLUI_ASSERT(data);
+
+	if (!fullscreen)
+	{
+		SDL_SetWindowFullscreen(data->window, false);
+		SDL_SetWindowSize(data->window, width, height);
+	}
+	else
+	{
+		if (exclusive_fullscreen)
+		{
+			SDL_DisplayMode closest{};
+			if (SDL_GetClosestFullscreenDisplayMode(SDL_GetPrimaryDisplay(), width, height, static_cast<float>(refresh_rate), false, &closest))
+				SDL_SetWindowFullscreenMode(data->window, &closest);
+		}
+		else
+		{
+			// Null mode means borderless-desktop fullscreen at the display's current mode.
+			SDL_SetWindowFullscreenMode(data->window, nullptr);
+		}
+
+		SDL_SetWindowFullscreen(data->window, true);
+	}
+
+	// SDL applies most of this synchronously, but on some platforms the mode switch finishes on a
+	// later event-loop iteration; block until it's done so the size we query below is final.
+	SDL_SyncWindow(data->window);
+
+	// The resulting SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED is only picked up on the next ProcessEvents()
+	// call, which would leave the swapchain/context sized to the old window for a frame (visually:
+	// only the old window's pixel footprint gets rendered into the new, larger window). Query and
+	// apply the real size immediately instead of waiting for that round-trip.
+	int pixel_width = 0;
+	int pixel_height = 0;
+	SDL_GetWindowSizeInPixels(data->window, &pixel_width, &pixel_height);
+	if (pixel_width > 0 && pixel_height > 0)
+	{
+		data->render_interface.SetViewport(pixel_width, pixel_height);
+		context.SetDimensions({pixel_width, pixel_height});
+	}
+}
+
+void Backend::SetVSyncEnabled(bool enabled)
+{
+	RMLUI_ASSERT(data);
+	data->render_interface.SetVSyncEnabled(enabled);
 }
 
 void Backend::BeginFrame()

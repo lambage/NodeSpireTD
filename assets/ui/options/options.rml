@@ -15,9 +15,17 @@
 						<span class="row-label">Fullscreen</span>
 					</label>
 					<label class="row checkbox-row">
+						<input id="exclusive-fullscreen-checkbox" type="checkbox"/>
+						<span class="row-label">Exclusive Fullscreen</span>
+					</label>
+					<label class="row checkbox-row">
 						<input id="vsync-checkbox" type="checkbox"/>
 						<span class="row-label">V-Sync</span>
 					</label>
+					<div class="row slider-row">
+						<span class="row-label">Display Mode</span>
+						<select id="display-mode-select"></select>
+					</div>
 					<div class="row slider-row">
 						<span class="row-label">Graphics Quality</span>
 						<input id="quality-slider" type="range" min="0" max="3" step="1"/>

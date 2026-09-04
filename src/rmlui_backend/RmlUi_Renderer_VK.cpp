@@ -740,6 +740,16 @@ void RenderInterface_VK::RecreateSwapchain()
 	SetViewport(m_width, m_height);
 }
 
+void RenderInterface_VK::SetVSyncEnabled(bool enabled)
+{
+	const VkPresentModeKHR desired = enabled ? VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR : VkPresentModeKHR::VK_PRESENT_MODE_IMMEDIATE_KHR;
+	if (desired == m_desired_present_mode)
+		return;
+
+	m_desired_present_mode = desired;
+	RecreateSwapchain();
+}
+
 bool RenderInterface_VK::Initialize(Rml::Vector<const char*> required_extensions, CreateSurfaceCallback create_surface_callback)
 {
 	RMLUI_ZoneScopedN("Vulkan - Initialize");
@@ -935,7 +945,7 @@ void RenderInterface_VK::Initialize_Swapchain(VkExtent2D window_extent) noexcept
 	info.preTransform = CreatePretransformSwapchain();
 	info.compositeAlpha = ChooseSwapchainCompositeAlpha();
 	info.imageArrayLayers = 1;
-	info.presentMode = GetPresentMode();
+	info.presentMode = GetPresentMode(m_desired_present_mode);
 	info.oldSwapchain = nullptr;
 	info.clipped = true;
 	info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;

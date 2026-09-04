@@ -8,19 +8,21 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Rml {
 class ElementDocument;
+class Context;
 }
 
 namespace NodeSpireUi {
 
 // Options/settings screen reached from MainMenu's Options button. Recreates
 // the legacy ImGui Options screen's GFX/Audio/Gameplay tabs using RmlUi form
-// controls (checkbox/range inputs), backed by the same SettingsManager and
-// AppSettings used by NodeSpireTD-imgui. Video/audio settings are persisted
-// on Apply but not yet applied live (windowing/audio migration are separate
-// phases), matching the "settings take effect next launch" fallback.
+// controls (checkbox/range/select inputs), backed by the same SettingsManager
+// and AppSettings used by NodeSpireTD-imgui. On Apply, GFX settings (fullscreen,
+// display mode, vsync) are applied to the live SDL/Vulkan backend in addition to
+// being persisted; audio settings are persisted only for now (wired up next).
 class OptionsScene final : public IScene, public Rml::EventListener {
   public:
     void onEnter(Rml::Context& context) override;
@@ -29,16 +31,26 @@ class OptionsScene final : public IScene, public Rml::EventListener {
 
     void ProcessEvent(Rml::Event& event) override;
 
+    struct DisplayModeOption {
+      int width;
+      int height;
+      int refreshRate;
+    };
+    
   private:
+
     void populateControlsFromSettings();
+    void populateDisplayModeOptions();
     void addListeners();
     void removeListeners();
     void setValueLabel(const std::string& labelId, const std::string& text);
+    void applyDisplaySettingsLive(Rml::Context& context);
 
     Rml::ElementDocument* document_ = nullptr;
     SceneTransition pendingTransition_;
     SettingsManager settingsManager_;
     AppSettings settings_;
+    std::vector<DisplayModeOption> displayModes_;
 };
 
 } // namespace NodeSpireUi

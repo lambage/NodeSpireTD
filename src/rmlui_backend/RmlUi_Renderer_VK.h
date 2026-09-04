@@ -43,6 +43,8 @@ public:
 	void SetViewport(int width, int height);
 	bool IsSwapchainValid();
 	void RecreateSwapchain();
+	// Toggles vsync (FIFO vs immediate present mode) and recreates the swapchain to apply it.
+	void SetVSyncEnabled(bool enabled);
 
 	// -- Inherited from Rml::RenderInterface --
 
@@ -513,6 +515,7 @@ private:
 	VkPhysicalDevice m_p_physical_device;
 	VkSurfaceKHR m_p_surface;
 	VkSwapchainKHR m_p_swapchain;
+	VkPresentModeKHR m_desired_present_mode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
 	VmaAllocator m_p_allocator;
 	// @ obtained from command list see PrepareRenderBuffer method
 	VkCommandBuffer m_p_current_command_buffer;

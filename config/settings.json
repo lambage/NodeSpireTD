@@ -1,7 +1,7 @@
 {
     "displayHeight": 1200,
     "displayWidth": 1920,
-    "exclusiveFullscreen": false,
+    "exclusiveFullscreen": true,
     "fullscreen": true,
     "graphicsQuality": 0,
     "masterVolume": 0.4699999988079071,
@@ -9,5 +9,5 @@
     "muteWhenUnfocused": true,
     "refreshRate": 60,
     "sfxVolume": 1.0,
-    "vSyncEnabled": true
+    "vSyncEnabled": false
 }

@@ -86,7 +86,6 @@ panel
 	padding: 20dp;
 	background-color: #1a1a22;
 	border: 2dp #444455;
-	border-top: none;
 }
 
 .placeholder-text
@@ -173,6 +172,65 @@ input[type="range"] sliderbar
 	margin-top: -10dp;
 	background-color: #7aa8ee;
 	border: 1dp #a8c6f5;
+}
+
+/* -- select (display mode dropdown) -- */
+
+select
+{
+	position: relative;
+	z-index: 1;
+	display: block;
+	width: 220dp;
+	padding: 6dp 8dp;
+	font-family: "Inter 18pt";
+	font-size: 14dp;
+	color: white;
+	background-color: #24242e;
+	border: 2dp #444455;
+}
+
+select:hover
+{
+	border-color: #6666aa;
+}
+
+select selectvalue
+{
+	display: block;
+	width: auto;
+	white-space: nowrap;
+}
+
+select selectbox
+{
+	position: absolute;
+	left: -2dp;
+	top: 100%;
+	width: 100%;
+	max-height: 160dp;
+	background-color: #24242e;
+	border: 2dp #444455;
+	z-index: 10;
+}
+
+select selectbox option
+{
+	display: block;
+	padding: 6dp 8dp;
+	color: white;
+	white-space: nowrap;
+}
+
+select selectbox option:hover
+{
+	background-color: #3a3a4c;
+}
+
+select selectbox option:checked
+{
+	background-color: #2a2a38;
+	color: #aaccff;
 }
 
 /* -- footer -- */
