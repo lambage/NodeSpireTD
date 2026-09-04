@@ -128,7 +128,9 @@ std::optional<std::string> LanMatchClient::consumeLatestPartyRosterSnapshot() {
 }
 
 bool LanMatchClient::sendPartySetReadyRequest(std::string payload) {
-    if (payload.empty() || !connection_) {
+    // Unlike the other Send* methods, an empty payload here is a legitimate "ready=false" message
+    // (proto3 omits default-value scalar fields), so this must not be rejected as invalid.
+    if (!connection_) {
         return false;
     }
     connection_->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartySetReadyRequest), std::move(payload));

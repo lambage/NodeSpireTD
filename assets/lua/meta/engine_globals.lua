@@ -203,6 +203,10 @@ ImGui.GetDisplaySize = nil
 ---@type any
 ImGui.GetFrameHeight = nil
 ---@type any
+ImGui.GetScrollMaxY = nil
+---@type any
+ImGui.GetScrollY = nil
+---@type any
 ImGui.GetTextLineHeight = nil
 ---@type any
 ImGui.GetWindowHeight = nil
@@ -277,6 +281,10 @@ ImGui.SetCursorPosX = nil
 ---@type any
 ImGui.SetCursorPosY = nil
 ---@type any
+ImGui.SetKeyboardFocusHere = nil
+---@type any
+ImGui.SetNextItemWidth = nil
+---@type any
 ImGui.SetNextWindowBgAlpha = nil
 ---@type any
 ImGui.SetNextWindowFullscreen = nil
@@ -284,6 +292,10 @@ ImGui.SetNextWindowFullscreen = nil
 ImGui.SetNextWindowPos = nil
 ---@type any
 ImGui.SetNextWindowSize = nil
+---@type any
+ImGui.SetScrollHereY = nil
+---@type any
+ImGui.SetScrollY = nil
 ---@type any
 ImGui.SetTooltip = nil
 ---@type any
@@ -310,6 +322,8 @@ ImGui.TreeNode = nil
 ImGui.TreePop = nil
 ---@type any
 ImGui.Unindent = nil
+---@type any
+ImGui.WantTextInput = nil
 
 ---@class NS.ImGuiCol
 ImGuiCol = {}
@@ -368,6 +382,11 @@ ImGuiCond.FirstUseEver = nil
 ImGuiCond.None = nil
 ---@type any
 ImGuiCond.Once = nil
+
+---@class NS.ImGuiInputTextFlags
+ImGuiInputTextFlags = {}
+---@type any
+ImGuiInputTextFlags.EnterReturnsTrue = nil
 
 ---@type any
 ImGuiKey = nil

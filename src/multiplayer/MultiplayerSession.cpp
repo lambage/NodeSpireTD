@@ -18,6 +18,7 @@ bool MultiplayerSession::hostParty(unsigned short port, std::string displayName,
     localPlayerUuid_ = std::move(playerUuid);
     role_ = MultiplayerRole::Host;
     resetToSolo();
+    broadcastSystemMessage("Party host service started.");
     return true;
 }
 
@@ -83,14 +84,17 @@ bool MultiplayerSession::kickMember(PlayerId targetPlayerId) {
     if (!isHost() || !partyGate_.canKick(localPlayerId_, targetPlayerId)) {
         return false;
     }
+    const std::string targetName = partyGate_.displayNameForPlayer(targetPlayerId);
     partyGate_.removeMember(targetPlayerId);
     for (auto it = peerToPlayerId_.begin(); it != peerToPlayerId_.end(); ++it) {
         if (it->second == targetPlayerId) {
+            notifyPeerKicked(it->first);
             hostTransport_.disconnectPeer(it->first);
             peerToPlayerId_.erase(it);
             break;
         }
     }
+    broadcastSystemMessage(targetName + " was kicked from the party.");
     broadcastRoster();
     return true;
 }
@@ -187,6 +191,23 @@ void MultiplayerSession::broadcastRoster() {
     }
 }
 
+void MultiplayerSession::broadcastSystemMessage(std::string text) {
+    PartyChatMessage message{0, "System", std::move(text), false};
+    pendingChatMessages_.push_back(message);
+    if (isHost()) {
+        if (const auto serialized = PartyProtocolAdapter::serializePartyChatMessage(message)) {
+            hostTransport_.broadcastPartyChatMessage(*serialized);
+        }
+    }
+}
+
+void MultiplayerSession::notifyPeerKicked(TransportPeerId peerId) {
+    if (const auto serialized = PartyProtocolAdapter::serializePartyChatCommandError(
+            PartyChatCommandError{"You were kicked from the party."})) {
+        hostTransport_.sendPartyChatCommandError(peerId, *serialized);
+    }
+}
+
 void MultiplayerSession::update() {
     ioContext_.poll();
     if (role_ == MultiplayerRole::Host) {
@@ -204,10 +225,12 @@ void MultiplayerSession::pumpHostSide() {
         if (peerIt == peerToPlayerId_.end()) {
             continue;
         }
+        const std::string name = partyGate_.displayNameForPlayer(peerIt->second);
         spdlog::info("MultiplayerSession[host]: peer {} (player {}) disconnected; freeing their party slot.", peerId,
                      peerIt->second);
         partyGate_.removeMember(peerIt->second);
         peerToPlayerId_.erase(peerIt);
+        broadcastSystemMessage(name + " disconnected.");
         rosterChanged = true;
     }
 
@@ -227,6 +250,7 @@ void MultiplayerSession::pumpHostSide() {
             hostTransport_.markPeerPartyJoined(request.peerId);
             spdlog::info("MultiplayerSession[host]: peer {} joined party as player {} ('{}').", request.peerId,
                          playerId, decoded.request->displayName);
+            broadcastSystemMessage(decoded.request->displayName + " joined the party.");
         }
 
         if (const auto serialized = PartyProtocolAdapter::serializePartyJoinResult(result)) {
@@ -254,14 +278,17 @@ void MultiplayerSession::pumpHostSide() {
         }
         const auto request = PartyProtocolAdapter::decodePartyKickRequest(message.payload);
         if (request && partyGate_.canKick(requesterIt->second, request->targetPlayerId)) {
+            const std::string targetName = partyGate_.displayNameForPlayer(request->targetPlayerId);
             partyGate_.removeMember(request->targetPlayerId);
             for (auto it = peerToPlayerId_.begin(); it != peerToPlayerId_.end(); ++it) {
                 if (it->second == request->targetPlayerId) {
+                    notifyPeerKicked(it->first);
                     hostTransport_.disconnectPeer(it->first);
                     peerToPlayerId_.erase(it);
                     break;
                 }
             }
+            broadcastSystemMessage(targetName + " was kicked from the party.");
             rosterChanged = true;
         }
     }
@@ -314,6 +341,9 @@ void MultiplayerSession::pumpClientSide() {
         spdlog::warn("MultiplayerSession[client]: connection to host lost.");
         role_ = MultiplayerRole::Solo;
         resetToSolo();
+        // Pushed after resetToSolo() clears the queues, so it survives to be shown once chat is
+        // next visible (e.g. after the player hosts/joins again).
+        pendingChatMessages_.push_back(PartyChatMessage{0, "System", "Lost connection to the host.", false});
         return;
     }
 

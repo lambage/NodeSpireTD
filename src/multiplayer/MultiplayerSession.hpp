@@ -80,6 +80,13 @@ class MultiplayerSession {
     void pumpClientSide();
     void broadcastRoster();
     void resetToSolo();
+    // Pushes a display-only system line (playerId=0, displayName="System") into the local chat
+    // log and, if hosting, relays it to every connected member -- used for join/leave/kick/host
+    // lifecycle notices so they read like ordinary chat lines instead of a separate UI element.
+    void broadcastSystemMessage(std::string text);
+    // Host-only: best-effort targeted notice sent to a peer immediately before disconnecting them
+    // for a kick, so their own client can distinguish "kicked" from an ordinary connection drop.
+    void notifyPeerKicked(TransportPeerId peerId);
 
     boost::asio::io_context ioContext_;
     LanMatchTransport hostTransport_{ioContext_};

@@ -1,13 +1,15 @@
 local M = {}
 
 local kWindowW = 820
-local kWindowH = 540
+local kWindowH = 420
 local kPartyWindowW = 280
 local kPartyWindowH = 400
 local kPartyWindowGap = 20
 local kSubWindowW = 320
-local kSubWindowH = 150
-local kChatWindowH = 160
+local kSubWindowH = 160
+-- Taller than kSubWindowH: this window has an extra address-input row above the port field.
+local kFindWindowH = 200
+local kChatWindowH = 300
 
 local backTexture = nil
 
@@ -21,7 +23,6 @@ local cancelHostButton = nil
 local connectPartyButton = nil
 local cancelFindButton = nil
 local sendChatButton = nil
-local saveProfileButton = nil
 
 local joinAddressText = "127.0.0.1"
 local portValue = 47321
@@ -31,8 +32,15 @@ local showHostWindow = false
 local showFindWindow = false
 local chatInputText = ""
 local chatMessages = {}
+-- True once the user has scrolled the chat log away from the bottom while unread messages
+-- arrive; shown as a "jump to latest" indicator and cleared once they scroll/jump back down.
+local chatHasUnseenMessages = false
+local chatScrollToBottomRequested = false
+-- Set for one frame when "t" or "/" is pressed outside of any text field; consumed right
+-- before the chat InputText widget via ImGui.SetKeyboardFocusHere().
+local chatFocusRequested = false
 -- Editable copy of the local profile's display name (the profile's UUID is never exposed to
--- Lua). Populated from Gameplay.getLocalProfile() in onEnter and saved on demand.
+-- Lua). Auto-saved on every keystroke via Gameplay.setLocalProfileName().
 local profileNameText = "Player"
 
 function M.onEnter()
@@ -63,8 +71,6 @@ function M.onEnter()
         "assets/audio/hover.ogg", "assets/audio/close.ogg")
     sendChatButton = GameButton.new("sendChat", "Send", 80.0, 32.0,
         "assets/audio/hover.ogg", "assets/audio/click.ogg")
-    saveProfileButton = GameButton.new("saveProfile", "Save Name", 110.0, 28.0,
-        "assets/audio/hover.ogg", "assets/audio/click.ogg")
 
     local mpState = Gameplay.getMultiplayerState and Gameplay.getMultiplayerState() or nil
     if mpState then
@@ -81,6 +87,8 @@ function M.onEnter()
     showFindWindow = false
     chatInputText = ""
     chatMessages = {}
+    chatHasUnseenMessages = false
+    chatScrollToBottomRequested = false
 end
 
 function M.onExit()
@@ -95,7 +103,6 @@ function M.onExit()
 	connectPartyButton = nil
 	cancelFindButton = nil
 	sendChatButton = nil
-	saveProfileButton = nil
 end
 
 function M.render(state, dt, elapsedSeconds)
@@ -133,6 +140,36 @@ function M.render(state, dt, elapsedSeconds)
 	-- Solo play has no host to defer to, so the local player is always the party leader.
 	local isPartyHost = (not isInParty) or hosting
 
+	-- Global chat hotkeys: "t" opens chat for typing, "/" opens chat pre-filled for a slash
+	-- command. Guarded by WantTextInput so this never hijacks focus while a field is being edited.
+	if isInParty and not ImGui.WantTextInput() then
+		if ImGui.IsKeyPressed(ImGuiKey.T) then
+			chatFocusRequested = true
+		elseif ImGui.IsKeyPressed(ImGuiKey.Slash) then
+			chatFocusRequested = true
+			chatInputText = "/"
+		end
+	end
+
+	-- Drained every frame (not just while the chat window is visible) so nothing is lost while
+	-- the party UI is briefly hidden, e.g. the instant a disconnect drops back to solo play.
+	local chatMessageCountBefore = #chatMessages
+	for _, message in ipairs(Gameplay.consumePartyChatMessages()) do
+		if message.name == "System" then
+			-- Host/party lifecycle notices (host started, join/leave/kick, disconnected) are
+			-- timestamped so players can tell when things happened in a busy chat log.
+			table.insert(chatMessages, {author = "*", text = string.format("[%s] %s", os.date("%H:%M:%S"), tostring(message.text))})
+		elseif message.isEmote then
+			table.insert(chatMessages, {author = "*", text = tostring(message.text)})
+		else
+			table.insert(chatMessages, {author = tostring(message.name), text = tostring(message.text)})
+		end
+	end
+	for _, errorText in ipairs(Gameplay.consumePartyChatErrors()) do
+		table.insert(chatMessages, {author = "[System]", text = tostring(errorText)})
+	end
+	local receivedNewMessages = #chatMessages > chatMessageCountBefore
+
 	local roster = Gameplay.getPartyRoster and Gameplay.getPartyRoster() or nil
 	local members = roster and roster.members or {}
 	local capacity = roster and roster.capacity or 0
@@ -144,7 +181,11 @@ function M.render(state, dt, elapsedSeconds)
 			break
 		end
 	end
-	localReady = localMember ~= nil and localMember.ready or localReady
+	-- Plain "and/or" here would break when ready is false (Lua treats false as falsy), so use
+	-- an explicit if to allow the local player to un-ready.
+	if localMember ~= nil then
+		localReady = localMember.ready
+	end
 
 	local allMembersReady = true
 	for i = 1, #members do
@@ -177,7 +218,7 @@ function M.render(state, dt, elapsedSeconds)
 	ImGui.Separator()
 
 	local missionListWidth = 260
-	ImGui.BeginChild("MissionList", missionListWidth, -200.0, ImGuiWindowFlags.NoScrollbar)
+	ImGui.BeginChild("MissionList", missionListWidth, -60.0, ImGuiWindowFlags.NoScrollbar)
 	for i = 1, #levels do
 		local level = levels[i]
 		local selected = level and level.selected or false
@@ -190,7 +231,7 @@ function M.render(state, dt, elapsedSeconds)
 	ImGui.EndChild()
 
 	ImGui.SameLine()
-	ImGui.BeginChild("MissionDetails", 0.0, -200.0, ImGuiWindowFlags.NoScrollbar)
+	ImGui.BeginChild("MissionDetails", 0.0, -60.0, ImGuiWindowFlags.NoScrollbar)
 	if hasLevels then
 		local selectedLevel = nil
 		for i = 1, #levels do
@@ -277,13 +318,14 @@ function M.render(state, dt, elapsedSeconds)
 	end
 	ImGui.Separator()
 
+	-- No explicit Save button: every keystroke is persisted immediately via setLocalProfileName.
+	ImGui.SetNextItemWidth(-1.0)
 	local nameChanged, newProfileName = ImGui.InputText("##profileName", profileNameText)
 	if nameChanged then
 		profileNameText = newProfileName
-	end
-	ImGui.SameLine()
-	if saveProfileButton:render() and profileNameText ~= "" then
-		Gameplay.setLocalProfileName(profileNameText)
+		if profileNameText ~= "" then
+			Gameplay.setLocalProfileName(profileNameText)
+		end
 	end
 	ImGui.Spacing()
 
@@ -332,6 +374,8 @@ function M.render(state, dt, elapsedSeconds)
 		if leavePartyButton:render() then
 			Gameplay.setMultiplayerMode(false, portValue, "")
 			chatMessages = {}
+			chatHasUnseenMessages = false
+			chatScrollToBottomRequested = false
 		end
 	else
 		if hostPartyButton:render() then
@@ -376,8 +420,8 @@ function M.render(state, dt, elapsedSeconds)
 	end
 
 	if showFindWindow then
-		ImGui.SetNextWindowPos((displayW - kSubWindowW) * 0.5, (displayH - kSubWindowH) * 0.5, ImGuiCond.Always)
-		ImGui.SetNextWindowSize(kSubWindowW, kSubWindowH, ImGuiCond.Always)
+		ImGui.SetNextWindowPos((displayW - kSubWindowW) * 0.5, (displayH - kFindWindowH) * 0.5, ImGuiCond.Always)
+		ImGui.SetNextWindowSize(kSubWindowW, kFindWindowH, ImGuiCond.Always)
 		local subFlags = ImGuiWindowFlags.NoResize +
 						  ImGuiWindowFlags.NoMove +
 						  ImGuiWindowFlags.NoCollapse +
@@ -410,42 +454,63 @@ function M.render(state, dt, elapsedSeconds)
 	if isInParty then
 		local chatWindowW = kWindowW + kPartyWindowGap + kPartyWindowW
 		local chatWindowX = (displayW - kWindowW) * 0.5
-		local chatWindowY = partyWindowY + kPartyWindowH + kPartyWindowGap
+		-- Start below the taller of the two windows above (LevelSelection, not PartyWindow) so
+		-- the chat window never overlaps the level-selection window.
+		local chatWindowY = partyWindowY + kWindowH + kPartyWindowGap
 		ImGui.SetNextWindowPos(chatWindowX, chatWindowY, ImGuiCond.Always)
 		ImGui.SetNextWindowSize(chatWindowW, kChatWindowH, ImGuiCond.Always)
 
 		local chatFlags = ImGuiWindowFlags.NoResize +
 						   ImGuiWindowFlags.NoMove +
 						   ImGuiWindowFlags.NoCollapse +
-						   ImGuiWindowFlags.NoTitleBar
+						   ImGuiWindowFlags.NoTitleBar +
+						   ImGuiWindowFlags.NoScrollbar
 		ImGui.Begin("PartyChatWindow", chatFlags)
 		ImGui.Text("Party Chat")
 		ImGui.Separator()
 
-		for _, message in ipairs(Gameplay.consumePartyChatMessages()) do
-			if message.isEmote then
-				table.insert(chatMessages, {author = "*", text = tostring(message.text)})
-			else
-				table.insert(chatMessages, {author = tostring(message.name), text = tostring(message.text)})
-			end
-		end
-		for _, errorText in ipairs(Gameplay.consumePartyChatErrors()) do
-			table.insert(chatMessages, {author = "[System]", text = tostring(errorText)})
-		end
-
 		ImGui.BeginChild("PartyChatLog", 0.0, -40.0, ImGuiWindowFlags.NoScrollbar)
+		-- Read scroll position before this frame's content is appended below: if the log was
+		-- already scrolled to the (previous frame's) bottom, keep following new messages.
+		local wasAtBottom = ImGui.GetScrollY() >= ImGui.GetScrollMaxY() - 1.0
 		for i = 1, #chatMessages do
 			local entry = chatMessages[i]
-			ImGui.TextWrapped(string.format("%s: %s", tostring(entry.author), tostring(entry.text)))
+			if entry.author == "*" then
+				ImGui.TextDisabled(tostring(entry.text))
+			else
+				ImGui.TextWrapped(string.format("%s: %s", tostring(entry.author), tostring(entry.text)))
+			end
 		end
+		if chatScrollToBottomRequested or (receivedNewMessages and wasAtBottom) then
+			-- SetScrollHereY follows the cursor left by the loop above (this frame's true bottom);
+			-- GetScrollMaxY() here would still be last frame's (stale) value and undershoot.
+			ImGui.SetScrollHereY(1.0)
+			chatHasUnseenMessages = false
+		elseif receivedNewMessages then
+			chatHasUnseenMessages = true
+		end
+		chatScrollToBottomRequested = false
 		ImGui.EndChild()
 
-		local chatChanged, newChatText = ImGui.InputText("##chatInput", chatInputText)
-		if chatChanged then
-			chatInputText = newChatText
+		if chatHasUnseenMessages then
+			if ImGui.SmallButton("New messages available - click to jump to latest") then
+				chatScrollToBottomRequested = true
+			end
 		end
+
+		ImGui.SetNextItemWidth(-90.0)
+		local focusingThisFrame = chatFocusRequested
+		if chatFocusRequested then
+			ImGui.SetKeyboardFocusHere()
+			chatFocusRequested = false
+		end
+		local chatChanged, newChatText = ImGui.InputText("##chatInput", chatInputText, ImGuiInputTextFlags.EnterReturnsTrue, focusingThisFrame)
+		-- InputText also returns changed=true on Enter without the text differing from before;
+		-- that's how a submit is distinguished here from an ordinary keystroke edit.
+		local enterPressed = chatChanged and newChatText == chatInputText
+		chatInputText = newChatText
 		ImGui.SameLine()
-		if sendChatButton:render() and chatInputText ~= "" then
+		if (sendChatButton:render() or enterPressed) and chatInputText ~= "" then
 			Gameplay.sendPartyChat(chatInputText)
 			chatInputText = ""
 		end
