@@ -23,6 +23,18 @@ set(SFML_BUILD_GRAPHICS ON CACHE INTERNAL "")
 
 FetchContent_MakeAvailable(SFML)
 
+# SDL3 is the windowing/input/audio replacement for SFML. Both are fetched
+# side-by-side during the migration; SFML is removed once every call site
+# (windowing, Vulkan surface creation, audio) has moved over.
+FetchContent_Declare(
+    SDL3
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG        release-3.2.20
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(SDL3)
+
 # Prefer the VULKAN_SDK environment variable (set automatically by the LunarG
 # Vulkan SDK installer). Fall back to VULKAN_SDK_PATH for anyone who wants to
 # override it explicitly, e.g. via -DVULKAN_SDK_PATH=... or a local cache entry.
@@ -49,6 +61,16 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(imgui)
+
+# RmlUi is the UI replacement for Dear ImGui.
+FetchContent_Declare(
+    rmlui
+    GIT_REPOSITORY https://github.com/mikke89/RmlUi.git
+    GIT_TAG        6.3
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(rmlui)
 
 FetchContent_Declare(
     spdlog
