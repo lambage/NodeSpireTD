@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <imgui.h>
+#include <imgui_internal.h> // GetInputTextState/ImGuiInputTextState -- see ClearActiveTextSelection below
 #include <spdlog/spdlog.h>
 #include <string>
 #include <vector>
@@ -294,6 +295,27 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "BulletText");
 
+    // BeginDisabled(disabled)
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const bool disabled = lua_isnoneornil(L, 1) ? true : (lua_toboolean(L, 1) != 0);
+            ImGui::BeginDisabled(disabled);
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "BeginDisabled");
+
+    // EndDisabled()
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImGui::EndDisabled();
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "EndDisabled");
+
     // LabelText(label, value)
     lua_pushcclosure(
         L,
@@ -507,21 +529,67 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "InputInt");
 
-    // InputText(label, str) -> changed, str (max 1023 chars)
+    // InputText(label, str, [flags], [clearSelectionOnFocus]) -> changed, str (max 1023 chars)
+    // With ImGuiInputTextFlags.EnterReturnsTrue, "changed" also fires on Enter with str unchanged
+    // from the input -- callers distinguish an edit from a submit by comparing str to their prior value.
+    // clearSelectionOnFocus: pass true on the same call where SetKeyboardFocusHere() was just used to
+    // focus this widget -- ImGui's nav-driven focus always selects all pre-filled text, so without this
+    // the next keystroke would replace (delete) it instead of appending after it. Must be applied in this
+    // same native call (not a separate one) since it relies on GetItemID() still referring to this widget.
     lua_pushcclosure(
         L,
         [](lua_State* L) -> int {
             const char* label = luaL_checkstring(L, 1);
             const char* str = luaL_checkstring(L, 2);
+            int flags = static_cast<int>(luaL_optinteger(L, 3, 0));
+            bool clearSelectionOnFocus = lua_toboolean(L, 4) != 0;
             char buf[1024];
             snprintf(buf, sizeof(buf), "%s", str);
-            bool changed = ImGui::InputText(label, buf, sizeof(buf));
+            bool changed = ImGui::InputText(label, buf, sizeof(buf), flags);
+            if (clearSelectionOnFocus) {
+                if (ImGuiInputTextState* state = ImGui::GetInputTextState(ImGui::GetItemID())) {
+                    state->ClearSelection();
+                }
+            }
             lua_pushboolean(L, changed);
             lua_pushstring(L, buf);
             return 2;
         },
         0);
     lua_setfield(L, t, "InputText");
+
+    // SetNextItemWidth(width) -- negative values are relative to the right edge of the window
+    // (e.g. -1.0 = fill available width), matching ImGui::SetNextItemWidth's own convention.
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImGui::SetNextItemWidth(static_cast<float>(luaL_checknumber(L, 1)));
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "SetNextItemWidth");
+
+    // SetKeyboardFocusHere([offset]) -- must be called immediately before the widget to focus.
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            const int offset = static_cast<int>(luaL_optinteger(L, 1, 0));
+            ImGui::SetKeyboardFocusHere(offset);
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "SetKeyboardFocusHere");
+
+    // WantTextInput() -> bool -- true while any text-editing widget (InputText, etc.) is active;
+    // used to guard global single-key hotkeys (e.g. "t" to focus chat) from firing while typing.
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            lua_pushboolean(L, ImGui::GetIO().WantTextInput);
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "WantTextInput");
 
     // ColorEdit4(label, r, g, b, [a]) -> changed, r, g, b, a
     lua_pushcclosure(
@@ -1161,6 +1229,47 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
         0);
     lua_setfield(L, t, "GetWindowHeight");
 
+    // GetScrollY() / GetScrollMaxY() / SetScrollY(value) -- used to detect whether a scrolling
+    // child (e.g. a chat log) is at its bottom, and to force it back there.
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            lua_pushnumber(L, ImGui::GetScrollY());
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "GetScrollY");
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            lua_pushnumber(L, ImGui::GetScrollMaxY());
+            return 1;
+        },
+        0);
+    lua_setfield(L, t, "GetScrollMaxY");
+
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImGui::SetScrollY(static_cast<float>(luaL_checknumber(L, 1)));
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "SetScrollY");
+
+    // SetScrollHereY([ratio]) -- scrolls to the cursor's CURRENT position (i.e. the bottom of
+    // whatever was just submitted this frame); unlike SetScrollY(GetScrollMaxY()), this reflects
+    // content added earlier in the same frame instead of the previous frame's (stale) max scroll.
+    lua_pushcclosure(
+        L,
+        [](lua_State* L) -> int {
+            ImGui::SetScrollHereY(static_cast<float>(luaL_optnumber(L, 1, 1.0)));
+            return 0;
+        },
+        0);
+    lua_setfield(L, t, "SetScrollHereY");
+
     lua_setglobal(L, "ImGui");
 
     // ImGuiWindowFlags constants
@@ -1194,6 +1303,12 @@ void initializeEngineState(lua_State* L, const VulkanContext* context, AudioEngi
     lua_pushinteger(L, ImGuiWindowFlags_NoBringToFrontOnFocus);
     lua_setfield(L, -2, "NoBringToFrontOnFocus");
     lua_setglobal(L, "ImGuiWindowFlags");
+
+    // ImGuiInputTextFlags constants
+    lua_newtable(L);
+    lua_pushinteger(L, ImGuiInputTextFlags_EnterReturnsTrue);
+    lua_setfield(L, -2, "EnterReturnsTrue");
+    lua_setglobal(L, "ImGuiInputTextFlags");
 
     // ImGuiCond constants
     lua_newtable(L);

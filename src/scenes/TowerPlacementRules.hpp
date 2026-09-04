@@ -38,7 +38,7 @@ class TowerPlacementRules {
                                                         const glm::vec3& cameraPosition);
     static std::string validatePlacement(const Context& context, const TowerArchetype& archetype,
                                          const glm::vec3& worldPos, int footprintSampleCount,
-                                         const PlacementTerrainSample& terrainSample);
+                                         const PlacementTerrainSample& terrainSample, float availableFunds);
 
   private:
     static bool isFootprintClearForPlacement(const Context& context, const glm::vec3& worldPos,

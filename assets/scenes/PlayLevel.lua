@@ -630,6 +630,15 @@ local function drawTowerUpgradeWindow(gs)
             local towerWindowTitle = string.format("%s###TowerUpgrades", tostring(state.displayName or state.towerId or "Tower"))
             ImGui.Begin(towerWindowTitle, ImGuiWindowFlags.NoCollapse)
 
+            local isOwnedByLocalPlayer = state.isOwnedByLocalPlayer ~= false
+            if not isOwnedByLocalPlayer then
+                ImGui.TextColored(0.95, 0.35, 0.35, 1.0, "Owned by another player - upgrades/sell disabled")
+                ImGui.Separator()
+            end
+            if ImGui.BeginDisabled then
+                ImGui.BeginDisabled(not isOwnedByLocalPlayer)
+            end
+
             local function clampColorComponent(value)
                 return math.max(0.0, math.min(1.0, value))
             end
@@ -1238,6 +1247,10 @@ local function drawTowerUpgradeWindow(gs)
             if bioVisible then
                 ImGui.Separator()
                 UiTextWrapped(state.bio ~= "" and state.bio or "No bio set for this tower yet.")
+            end
+
+            if ImGui.EndDisabled and ImGui.BeginDisabled then
+                ImGui.EndDisabled()
             end
 
             ImGui.End()

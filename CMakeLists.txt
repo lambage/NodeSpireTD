@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Installation directory" FORCE)
+endif()
+
+include(CTest)
+
 include(FetchContent)
 FetchContent_Declare(
     SFML
@@ -61,6 +67,56 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(nlohmann_json)
+
+FetchContent_Declare(
+    protobuf
+    GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+    GIT_TAG        v30.2
+    GIT_SHALLOW    ON
+    GIT_SUBMODULES_RECURSE TRUE
+)
+
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+# Static Protobuf builds force Abseil to /MT[d] upstream, which conflicts with
+# NodeSpireTD's /MD[d] runtime. Shared Protobuf keeps the dependency graph aligned.
+set(protobuf_BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "" FORCE)
+set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(protobuf)
+
+FetchContent_Declare(
+    Boost
+    GIT_REPOSITORY https://github.com/boostorg/boost.git
+    GIT_TAG        boost-1.87.0
+    GIT_SHALLOW    ON
+    GIT_SUBMODULES_RECURSE TRUE
+)
+
+# Only Asio (and its System dependency) are needed for the LAN match transport.
+set(BOOST_INCLUDE_LIBRARIES asio system)
+set(BOOST_ENABLE_CMAKE ON)
+
+FetchContent_MakeAvailable(Boost)
+
+if(BUILD_TESTING)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.17.0
+        GIT_SHALLOW    ON
+    )
+
+    set(gtest_build_tests OFF CACHE BOOL "" FORCE)
+    set(gtest_build_samples OFF CACHE BOOL "" FORCE)
+    set(gtest_build_gmock ON CACHE BOOL "" FORCE)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 FetchContent_Declare(
     glm
@@ -135,5 +191,9 @@ if(UNIX)
 endif()
 
 add_subdirectory(src)
+
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
 
 

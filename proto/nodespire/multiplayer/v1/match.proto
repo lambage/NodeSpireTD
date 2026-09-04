@@ -1,0 +1,181 @@
+syntax = "proto3";
+
+package nodespire.multiplayer.v1;
+
+option cc_enable_arenas = true;
+
+message WorldPosition {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message ContentManifest {
+  string gameplay_content_sha256 = 1;
+}
+
+message JoinMatchRequest {
+  uint32 protocol_version = 1;
+  string player_display_name = 2;
+  ContentManifest content_manifest = 3;
+}
+
+message JoinMatchAccepted {
+  uint64 player_id = 1;
+  uint64 current_tick = 2;
+}
+
+message JoinMatchRejected {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    PROTOCOL_VERSION_UNSUPPORTED = 1;
+    CONTENT_MANIFEST_MISMATCH = 2;
+    MATCH_UNAVAILABLE = 3;
+    MATCH_FULL = 4;
+  }
+
+  Reason reason = 1;
+}
+
+message JoinMatchResult {
+  oneof result {
+    JoinMatchAccepted accepted = 1;
+    JoinMatchRejected rejected = 2;
+  }
+}
+
+enum TowerTargetingMode {
+  TOWER_TARGETING_MODE_UNSPECIFIED = 0;
+  TOWER_TARGETING_MODE_FIRST = 1;
+  TOWER_TARGETING_MODE_LAST = 2;
+  TOWER_TARGETING_MODE_NEAREST = 3;
+  TOWER_TARGETING_MODE_RANDOM = 4;
+  TOWER_TARGETING_MODE_HIGHEST_HP = 5;
+  TOWER_TARGETING_MODE_LOWEST_HP = 6;
+}
+
+message PlaceTowerRequest {
+  string tower_archetype_id = 1;
+  WorldPosition requested_position = 2;
+}
+
+message UpgradeTowerRequest {
+  uint64 tower_runtime_id = 1;
+  string upgrade_node_id = 2;
+}
+
+message SetTowerTargetingRequest {
+  uint64 tower_runtime_id = 1;
+  TowerTargetingMode targeting_mode = 2;
+}
+
+message StartWaveRequest {}
+
+message SellTowerRequest {
+  uint64 tower_runtime_id = 1;
+}
+
+message PlayerCommandRequest {
+  uint32 protocol_version = 1;
+  uint64 player_id = 2;
+  uint64 sequence = 3;
+
+  oneof command {
+    PlaceTowerRequest place_tower = 10;
+    UpgradeTowerRequest upgrade_tower = 11;
+    SetTowerTargetingRequest set_tower_targeting = 12;
+    StartWaveRequest start_wave = 13;
+    SellTowerRequest sell_tower = 14;
+  }
+}
+
+message PlayerCommandAccepted {
+  uint64 player_id = 1;
+  uint64 sequence = 2;
+  uint64 applied_at_tick = 3;
+}
+
+message PlayerCommandRejected {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    PROTOCOL_VERSION_UNSUPPORTED = 1;
+    UNKNOWN_PLAYER = 2;
+    DUPLICATE_OR_OUT_OF_ORDER_SEQUENCE = 3;
+    MATCH_NOT_RUNNING = 4;
+    UNKNOWN_TOWER_ARCHETYPE = 5;
+    UNKNOWN_TOWER = 6;
+    TOWER_NOT_OWNED_BY_PLAYER = 7;
+    INVALID_PLACEMENT = 8;
+    INSUFFICIENT_FUNDS = 9;
+    UPGRADE_UNAVAILABLE = 10;
+    INVALID_TARGETING_MODE = 11;
+    WAVE_CANNOT_START = 12;
+    INVALID_PAYLOAD = 13;
+  }
+
+  uint64 player_id = 1;
+  uint64 sequence = 2;
+  Reason reason = 3;
+}
+
+message PlayerCommandResult {
+  oneof result {
+    PlayerCommandAccepted accepted = 1;
+    PlayerCommandRejected rejected = 2;
+  }
+}
+
+enum MatchStatus {
+  MATCH_STATUS_UNSPECIFIED = 0;
+  MATCH_STATUS_WAITING_TO_START = 1;
+  MATCH_STATUS_RUNNING = 2;
+  MATCH_STATUS_PAUSED = 3;
+  MATCH_STATUS_VICTORY = 4;
+  MATCH_STATUS_DEFEAT = 5;
+}
+
+message PlayerSnapshot {
+  uint64 player_id = 1;
+  float money = 2;
+}
+
+message TowerSnapshot {
+  uint64 runtime_id = 1;
+  uint64 owner_player_id = 2;
+  string tower_archetype_id = 3;
+  WorldPosition position = 4;
+  TowerTargetingMode targeting_mode = 5;
+  repeated string unlocked_upgrade_node_ids = 6;
+}
+
+message EnemySnapshot {
+  uint64 runtime_id = 1;
+  string enemy_archetype_id = 2;
+  float distance_along_path = 3;
+  float health = 4;
+  float shield = 5;
+  uint32 lifecycle_state = 6;
+}
+
+message ProjectileSnapshot {
+  uint64 runtime_id = 1;
+  string tower_archetype_id = 2;
+  WorldPosition position = 3;
+  uint64 target_enemy_runtime_id = 4;
+}
+
+message MatchSnapshot {
+  uint64 simulation_tick = 1;
+  MatchStatus match_status = 2;
+  float base_health = 3;
+  uint32 current_wave = 4;
+  bool wave_in_progress = 5;
+  bool wave_countdown_active = 6;
+  float wave_countdown_remaining_seconds = 7;
+  float wave_round_remaining_seconds = 8;
+  float wave_round_duration_seconds = 9;
+  repeated PlayerSnapshot players = 10;
+  repeated TowerSnapshot towers = 11;
+  repeated EnemySnapshot enemies = 12;
+  repeated ProjectileSnapshot projectiles = 13;
+}

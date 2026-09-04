@@ -162,14 +162,15 @@ PlacementTerrainSample TowerPlacementRules::sampleTerrainAtCursor(const Context&
 
 std::string TowerPlacementRules::validatePlacement(const Context& context, const TowerArchetype& archetype,
                                                    const glm::vec3& worldPos, int footprintSampleCount,
-                                                   const PlacementTerrainSample& terrainSample) {
+                                                   const PlacementTerrainSample& terrainSample,
+                                                   float availableFunds) {
     if (context.gameplayState.matchStatus != MatchStatus::Running) {
         return "match is not running";
     }
     if (!context.worldRenderer || !context.worldRenderer->isLoaded()) {
         return "world is still loading";
     }
-    if (context.gameplayState.playerMoney < static_cast<float>(archetype.cost)) {
+    if (availableFunds < static_cast<float>(archetype.cost)) {
         return "insufficient funds";
     }
 

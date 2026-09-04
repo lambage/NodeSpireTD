@@ -61,8 +61,6 @@ Gameplay.getDebugPlacementBoundsVisible = nil
 ---@type any
 Gameplay.getDebugSelection = nil
 ---@type any
-Gameplay.getLobbyLevels = nil
----@type any
 Gameplay.getMaxTowerPlacementSlopeDegrees = nil
 ---@type any
 Gameplay.getPathCorridorHalfWidth = nil
@@ -70,8 +68,6 @@ Gameplay.getPathCorridorHalfWidth = nil
 Gameplay.getPickEnabled = nil
 ---@type any
 Gameplay.getSelectedEnemyInfo = nil
----@type any
-Gameplay.getSelectedLobbyLevel = nil
 ---@type any
 Gameplay.getSelectedTowerUpgradeState = nil
 ---@type any
@@ -111,8 +107,6 @@ Gameplay.requestSpendMoney = nil
 ---@type any
 Gameplay.requestStartWave = nil
 ---@type any
-Gameplay.selectLobbyLevel = nil
----@type any
 Gameplay.selectTowerSlot = nil
 ---@type any
 Gameplay.setAnimationClip = nil
@@ -140,6 +134,8 @@ ImGui = {}
 ImGui.Begin = nil
 ---@type any
 ImGui.BeginChild = nil
+---@type any
+ImGui.BeginDisabled = nil
 ---@type any
 ImGui.BeginGroup = nil
 ---@type any
@@ -183,6 +179,8 @@ ImGui.End = nil
 ---@type any
 ImGui.EndChild = nil
 ---@type any
+ImGui.EndDisabled = nil
+---@type any
 ImGui.EndGroup = nil
 ---@type any
 ImGui.EndMenu = nil
@@ -204,6 +202,10 @@ ImGui.GetCursorScreenPos = nil
 ImGui.GetDisplaySize = nil
 ---@type any
 ImGui.GetFrameHeight = nil
+---@type any
+ImGui.GetScrollMaxY = nil
+---@type any
+ImGui.GetScrollY = nil
 ---@type any
 ImGui.GetTextLineHeight = nil
 ---@type any
@@ -279,6 +281,10 @@ ImGui.SetCursorPosX = nil
 ---@type any
 ImGui.SetCursorPosY = nil
 ---@type any
+ImGui.SetKeyboardFocusHere = nil
+---@type any
+ImGui.SetNextItemWidth = nil
+---@type any
 ImGui.SetNextWindowBgAlpha = nil
 ---@type any
 ImGui.SetNextWindowFullscreen = nil
@@ -286,6 +292,10 @@ ImGui.SetNextWindowFullscreen = nil
 ImGui.SetNextWindowPos = nil
 ---@type any
 ImGui.SetNextWindowSize = nil
+---@type any
+ImGui.SetScrollHereY = nil
+---@type any
+ImGui.SetScrollY = nil
 ---@type any
 ImGui.SetTooltip = nil
 ---@type any
@@ -312,6 +322,8 @@ ImGui.TreeNode = nil
 ImGui.TreePop = nil
 ---@type any
 ImGui.Unindent = nil
+---@type any
+ImGui.WantTextInput = nil
 
 ---@class NS.ImGuiCol
 ImGuiCol = {}
@@ -370,6 +382,11 @@ ImGuiCond.FirstUseEver = nil
 ImGuiCond.None = nil
 ---@type any
 ImGuiCond.Once = nil
+
+---@class NS.ImGuiInputTextFlags
+ImGuiInputTextFlags = {}
+---@type any
+ImGuiInputTextFlags.EnterReturnsTrue = nil
 
 ---@type any
 ImGuiKey = nil

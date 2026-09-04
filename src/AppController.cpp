@@ -6,6 +6,8 @@
 #include "Scenes.hpp"
 #include "SettingsManager.hpp"
 #include "VulkanContext.hpp"
+#include "multiplayer/MultiplayerSession.hpp"
+#include "multiplayer/PlayerProfileStore.hpp"
 #include "scenes/IScene.hpp"
 #include "scenes/SceneSharedState.hpp"
 
@@ -394,6 +396,10 @@ class SceneDirector {
 
     void render(DisplaySettingsCoordinator& displaySettings, RuntimeHost& runtimeHost, AudioEngine& audioEngine,
                 float dt, SceneRequestState& outSceneRequests) {
+        // Ticks regardless of which scene is active/loading so party/chat traffic and the match
+        // loaded-ready barrier keep progressing across scene transitions.
+        multiplayerSession_.update();
+
         if (pendingSceneTransition_.active) {
             pendingSceneTransition_.elapsedSeconds += dt;
 
@@ -478,6 +484,8 @@ class SceneDirector {
                                 activeLevelAssetPath_,
                                 activeLevelScriptPath_,
                                 audioEngine.activeAssetKeys(),
+                                &multiplayerSession_,
+                                &playerProfileStore_,
                                 runtimeHost.vulkanContextPtr(),
                                 &audioEngine,
                                 runtimeHost.imguiLayer().headingFont(),
@@ -507,6 +515,8 @@ class SceneDirector {
     std::string activeLevelAssetPath_ = "assets/terrain/Terrain003_4K.obj";
     std::string activeLevelScriptPath_;
     bool loadingComplete_ = true;
+    multiplayer::MultiplayerSession multiplayerSession_;
+    multiplayer::PlayerProfileStore playerProfileStore_;
 };
 
 } // namespace

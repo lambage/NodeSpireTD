@@ -107,6 +107,8 @@ ImGuiKey ImGuiLayer::translateSfmlKeyToImGui(sf::Keyboard::Key key) {
         return ImGuiKey_Tab;
     case sf::Keyboard::Key::Grave:
         return ImGuiKey_GraveAccent;
+    case sf::Keyboard::Key::Slash:
+        return ImGuiKey_Slash;
     case sf::Keyboard::Key::Left:
         return ImGuiKey_LeftArrow;
     case sf::Keyboard::Key::Right:
