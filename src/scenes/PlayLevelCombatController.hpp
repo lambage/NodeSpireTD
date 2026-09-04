@@ -1,5 +1,6 @@
 #pragma once
 
+#include "multiplayer/MatchProtocol.hpp"
 #include "scenes/DamageTypes.hpp"
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -70,6 +71,7 @@ struct ActiveEnemy {
     // TemplateAnimator::setPlaybackTimeSeconds() wraps this modulo the clip's duration, so a
     // continuously-growing value here loops correctly without any extra bookkeeping.
     float walkAnimElapsedSeconds = 0.0f;
+    multiplayer::TowerRuntimeId lastDamagingTowerRuntimeId = 0;
 };
 
 struct PlacedTower {
@@ -91,9 +93,11 @@ struct PlacedTower {
     int ricochetCount = 0;
     int cost = 0;
     DamageType damageType = DamageType::Physical;
-    TowerTargetingMode targetingMode = TowerTargetingMode::Nearest;
+    TowerTargetingMode targetingMode = TowerTargetingMode::First;
     float totalDamageDealt = 0.0f;
     std::vector<std::string> unlockedUpgradeNodeIds;
+    multiplayer::TowerRuntimeId runtimeId = 0;
+    multiplayer::PlayerId ownerPlayerId = 0;
 };
 
 struct ActiveProjectile {
@@ -111,8 +115,10 @@ struct ActiveProjectile {
     int chainTargetCount = 1;
     int remainingRicochetCount = 0;
     int sourceTowerPoolIndex = -1;
+    multiplayer::TowerRuntimeId sourceTowerRuntimeId = 0;
     std::uint64_t targetEnemyRuntimeId = 0;
     std::uint64_t lastHitEnemyRuntimeId = 0;
+    std::uint64_t runtimeId = 0;
 };
 
 } // namespace playlevel
@@ -128,7 +134,8 @@ class PlayLevelCombatController {
                             const std::function<glm::vec3(float)>& sampleRoutePosition,
                             std::vector<playlevel::PlacedTower>& placedTowers,
                             const std::vector<playlevel::ActiveEnemy>& activeEnemies,
-                            std::vector<playlevel::ActiveProjectile>& activeProjectiles) const;
+                            std::vector<playlevel::ActiveProjectile>& activeProjectiles,
+                            std::uint64_t& nextProjectileRuntimeId) const;
 
     void updateProjectiles(float dt,
                            const std::function<glm::vec3(float)>& sampleRoutePosition,
@@ -137,7 +144,7 @@ class PlayLevelCombatController {
                            std::vector<playlevel::ActiveProjectile>& activeProjectiles) const;
 
     void collectDefeatedEnemies(std::vector<playlevel::ActiveEnemy>& activeEnemies,
-                                const std::function<void(float)>& onRewardGranted,
+                                const std::function<void(float, multiplayer::TowerRuntimeId)>& onRewardGranted,
                                 const std::function<void()>& onEnemyDefeated) const;
 
     // Advances enemies already in the Dying state and removes ones whose Death clip has finished

@@ -344,6 +344,11 @@ bool VulkanContext::recreateSwapchain(uint32_t width, uint32_t height) {
 
     swapchainData_ = createEngineSwapchain(vkbDevice_, width, height, oldSwapchain);
 
+    // createDepthResources() sizes the depth image from currentWidth_/currentHeight_, so
+    // these must be updated before it runs or the depth image is built at the stale size.
+    currentWidth_ = width;
+    currentHeight_ = height;
+
     createDepthResources();
 
     for (VkImageView view : oldViews) {
@@ -366,9 +371,6 @@ bool VulkanContext::recreateSwapchain(uint32_t width, uint32_t height) {
     }
 
     imagesInFlight_.assign(swapchainData_.swapchainImageCount, VK_NULL_HANDLE);
-
-    currentWidth_ = width;
-    currentHeight_ = height;
 
     return true;
 }

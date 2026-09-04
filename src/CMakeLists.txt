@@ -1,5 +1,57 @@
 cmake_minimum_required(VERSION 3.31.6)
 
+set(NODESPIRE_PROTO_ROOT "${CMAKE_SOURCE_DIR}/proto")
+set(NODESPIRE_MATCH_PROTO "${NODESPIRE_PROTO_ROOT}/nodespire/multiplayer/v1/match.proto")
+set(NODESPIRE_PARTY_PROTO "${NODESPIRE_PROTO_ROOT}/nodespire/party/v1/party.proto")
+set(NODESPIRE_PROTO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+include("${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake")
+
+add_library(NodeSpireMatchProtocol STATIC)
+
+protobuf_generate(
+    TARGET NodeSpireMatchProtocol
+    LANGUAGE cpp
+    PROTOS "${NODESPIRE_MATCH_PROTO}"
+    IMPORT_DIRS "${NODESPIRE_PROTO_ROOT}"
+    PROTOC_OUT_DIR "${NODESPIRE_PROTO_GENERATED_DIR}"
+)
+
+target_include_directories(NodeSpireMatchProtocol PUBLIC "${NODESPIRE_PROTO_GENERATED_DIR}")
+target_link_libraries(NodeSpireMatchProtocol PUBLIC protobuf::libprotobuf Boost::asio)
+
+if(WIN32)
+    # Asio needs Winsock and a target Windows version for its socket backend.
+    target_compile_definitions(NodeSpireMatchProtocol PUBLIC _WIN32_WINNT=0x0601)
+    target_link_libraries(NodeSpireMatchProtocol PUBLIC ws2_32 mswsock)
+endif()
+
+# Kept as its own library/schema (nodespire.party.v1) separate from NodeSpireMatchProtocol so
+# party/chat wire messages never share a generated C++ type with match-authoritative traffic.
+add_library(NodeSpirePartyProtocol STATIC)
+
+protobuf_generate(
+    TARGET NodeSpirePartyProtocol
+    LANGUAGE cpp
+    PROTOS "${NODESPIRE_PARTY_PROTO}"
+    IMPORT_DIRS "${NODESPIRE_PROTO_ROOT}"
+    PROTOC_OUT_DIR "${NODESPIRE_PROTO_GENERATED_DIR}"
+)
+
+target_include_directories(NodeSpirePartyProtocol PUBLIC "${NODESPIRE_PROTO_GENERATED_DIR}")
+target_link_libraries(NodeSpirePartyProtocol PUBLIC protobuf::libprotobuf)
+
+function(nodespire_stage_runtime_dependencies targetName)
+    if(WIN32)
+        add_custom_command(TARGET ${targetName} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:${targetName}>
+                    $<TARGET_RUNTIME_DLLS:${targetName}>
+            COMMAND_EXPAND_LISTS
+            COMMENT "Staging runtime dependencies for ${targetName}"
+        )
+    endif()
+endfunction()
+
 add_executable(NodeSpireTD 
     main.cpp
     AppController.cpp
@@ -11,6 +63,22 @@ add_executable(NodeSpireTD
     Scenes.cpp
     VulkanContext.cpp
     LuaStateBootstrap.cpp
+    multiplayer/ContentHash.cpp
+    multiplayer/ChatCommandDispatcher.cpp
+    multiplayer/FixedTickClock.cpp
+    multiplayer/LanFramedConnection.cpp
+    multiplayer/LanMatchClient.cpp
+    multiplayer/LanMatchTransport.cpp
+    multiplayer/LoopbackMatchSession.cpp
+    multiplayer/LoopbackTransport.cpp
+    multiplayer/LocalMatchHost.cpp
+    multiplayer/MatchSimulation.cpp
+    multiplayer/MatchProtocolAdapter.cpp
+    multiplayer/MatchSnapshotBuilder.cpp
+    multiplayer/MultiplayerSession.cpp
+    multiplayer/PartyProtocolAdapter.cpp
+    multiplayer/PlayerAccounts.cpp
+    multiplayer/PlayerProfileStore.cpp
     utility/GameImageButton.cpp
     utility/GameButton.cpp
     utility/StaticGeometryBVH.cpp
@@ -68,6 +136,8 @@ target_include_directories(NodeSpireTD PRIVATE
 target_link_libraries(NodeSpireTD PRIVATE 
     glm::glm
     nlohmann_json::nlohmann_json
+    NodeSpireMatchProtocol
+    NodeSpirePartyProtocol
     fastgltf
     lua
     sfml-graphics
@@ -79,6 +149,21 @@ target_link_libraries(NodeSpireTD PRIVATE
     vk-bootstrap
     Vulkan::Vulkan
 )
+
+nodespire_stage_runtime_dependencies(NodeSpireTD)
+
+set(NODESPIRE_INSTALL_TARGETS NodeSpireTD)
+
+install(TARGETS ${NODESPIRE_INSTALL_TARGETS}
+    RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+    RUNTIME DESTINATION "."
+)
+install(RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+    DESTINATION "."
+    PRE_EXCLUDE_REGEXES "api-ms-win-.*" "ext-ms-win-.*"
+    POST_EXCLUDE_REGEXES ".*[\\/]system32[\\/].*"
+)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ".")
 
 # ── Lua metadata generation for LuaLS ─────────────────────────────────────────
 find_package(Python3 COMPONENTS Interpreter QUIET)

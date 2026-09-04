@@ -35,3 +35,13 @@ Run from the build tree:
 
 - Windows: `build/windows-dev/Debug/NodeSpireTDGame.exe`
 - Linux: `build/linux-dev/NodeSpireTDGame`
+
+default log level is now `info`, `-v`/`--verbose` enables debug, `--extra-verbose` enables trace, and logs also rotate to `logs/nodespiretd.log` (5MB x 3 files).
+
+
+# Known Issues
+
+- no chat/whisper feature, would be nice to have a WoW style command prompt/chat
+- would rather have a party system than the current host starts map and client connects
+- should probably just pick a port number and not allow users to modify it, may also need some additional data in the initial handshake so we can reject clients trying to connect to that port on a machine that might be running a different service and not get cross talk
+

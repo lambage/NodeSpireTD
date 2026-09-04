@@ -1,4 +1,10 @@
 #pragma once
+#include "multiplayer/IMatchTransport.hpp"
+#include "multiplayer/LocalMatchHost.hpp"
+#include "multiplayer/MatchSimulation.hpp"
+#include "multiplayer/MatchSnapshotBuilder.hpp"
+#include "multiplayer/MultiplayerSession.hpp"
+
 #include "scenes/EnemyLoadController.hpp"
 #include "scenes/PlayLevelBootstrap.hpp"
 #include "scenes/GameScene.hpp"
@@ -39,6 +45,21 @@ class PlayLevelScene final : public GameScene {
     void render(SceneSharedState& state, float dt) override;
     void renderWorld(VkCommandBuffer cmd, VkExtent2D extent) override;
 
+    // Starts (or restarts) match-level hosting over the persistent session's already-listening
+    // transport (see MultiplayerSession). Safe to leave uncalled for single-player.
+    bool startHostingOnPort(unsigned short port);
+    void stopHosting();
+    unsigned short hostingPort() const;
+    bool disconnectRemotePlayer(multiplayer::TransportPeerId peerId);
+
+    // Sends a match-level join request over the session's already-connected client transport
+    // instead of opening a new TCP connection. Join acceptance/rejection arrives asynchronously
+    // afterward (see isRemoteClientJoinPending()/hasRemoteClientJoinFailed()).
+    bool startJoiningHost(const std::string& hostAddress, unsigned short port, const std::string& displayName);
+    bool isRemoteClient() const { return isRemoteClient_; }
+    bool isRemoteClientJoinPending() const { return isRemoteClient_ && remoteJoinPending_; }
+    const std::string& remoteClientJoinFailureReason() const { return remoteJoinFailureReason_; }
+
   private:
     enum class GameplayCommandType {
         SpendMoney,
@@ -56,20 +77,47 @@ class PlayLevelScene final : public GameScene {
     using ActiveProjectile = playlevel::ActiveProjectile;
 
     std::unique_ptr<WorldRenderer> worldRenderer_;
-    PlayLevelState gameplayState_{};
+    multiplayer::MatchSimulation matchSimulation_{};
+    PlayLevelState& gameplayState_;
     PlayLevelTowerPlacementController towerPlacementController_{};
-    PlayLevelCombatController combatController_{};
-    std::vector<PlacedTower> placedTowers_;
-    std::vector<ActiveProjectile> activeProjectiles_;
-    std::uint64_t nextEnemyRuntimeId_ = 1;
-    PlayLevelWaveController waveController_{};
-    std::vector<ActiveEnemy> activeEnemies_;
+    PlayLevelCombatController& combatController_;
+    std::vector<PlacedTower>& placedTowers_;
+    std::vector<ActiveProjectile>& activeProjectiles_;
+    std::uint64_t& nextTowerRuntimeId_;
+    std::uint64_t& nextEnemyRuntimeId_;
+    std::uint64_t& nextProjectileRuntimeId_;
+    PlayLevelWaveController& waveController_;
+    std::vector<ActiveEnemy>& activeEnemies_;
     std::filesystem::path selectedMapAssetPath_;
     std::filesystem::path selectedLevelScriptPath_;
     std::string selectedWavesScriptPath_ = "assets/scenes/PlayLevelWaves.lua";
     WorldAssetSpec worldAssetSpec_{};
     PlayLevelRouteController routeController_{};
     std::vector<GameplayCommand> pendingCommands_;
+    multiplayer::LocalMatchHost localMatchHost_{};
+    multiplayer::CommandSequence nextLocalCommandSequence_ = 1;
+    // Persistent, scene-independent LAN session (see MultiplayerSession.hpp); cached each
+    // onEnter()/render() from SceneSharedState. Null session or !session_->isInParty() means solo
+    // play -- no networking happens at all. An in-party session was already connected in
+    // LobbyScene; this scene reuses that connection for the match-level join handshake and
+    // gameplay command/snapshot traffic instead of creating a new one.
+    multiplayer::MultiplayerSession* session_ = nullptr;
+    std::unordered_map<multiplayer::TransportPeerId, multiplayer::PlayerId> remotePlayerByPeer_{};
+    // Digest of every loaded tower/enemy archetype id, sent to joining peers' content manifests
+    // for comparison. Computed once per level load, after bootstrap_.configureLevel().
+    std::string gameplayContentSha256_;
+    // Client-mode state: when isRemoteClient_ is true, this scene instance never ticks
+    // matchSimulation_ itself -- it only sends local input through the session's client and
+    // applies snapshots the real host publishes. localPlayerId_ defaults to the host/single-player
+    // id and is overwritten with whatever id the remote host assigns once a join is accepted.
+    bool isRemoteClient_ = false;
+    bool remoteJoinPending_ = false;
+    std::string remoteJoinFailureReason_;
+    multiplayer::PlayerId localPlayerId_ = 1;
+    // Match-start loaded-ready barrier (MultiplayerSession::signalLocalLoadedReady()): the host
+    // does not tick matchSimulation_/publish snapshots, and a client does not apply them, until
+    // every party member has finished loading. Always true (no barrier) for solo play.
+    bool loadedReadySignaled_ = false;
     std::string loadStatus_;
     PlayLevelBootstrap bootstrap_{};
     PlayLevelFrameCoordinator frameCoordinator_{};
@@ -113,7 +161,7 @@ class PlayLevelScene final : public GameScene {
 
     const TowerArchetype* selectedTowerArchetype() const;
     std::string validateTowerPlacement(const TowerArchetype& archetype, const glm::vec3& worldPos,
-                       int footprintSampleCount = 8) const;
+                       float availableFunds, int footprintSampleCount = 8) const;
     const PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex) const;
     PlacedTower* findPlacedTowerByPoolKey(const std::string& towerId, int poolIndex);
     const TowerArchetype::UpgradeNode* findUpgradeNodeById(const TowerArchetype& archetype,
@@ -124,8 +172,12 @@ class PlayLevelScene final : public GameScene {
                                   float& outRicochetRange, int& outProjectileCount, int& outChainTargetCount,
                                   int& outRicochetCount) const;
     std::string validateTowerUpgradeUnlock(const TowerArchetype& archetype, const PlacedTower& placedTower,
-                         const std::string& nodeId) const;
-    bool unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId, std::string& outReason);
+                                           const std::string& nodeId, multiplayer::PlayerId playerId) const;
+    bool unlockTowerUpgrade(PlacedTower& placedTower, const std::string& nodeId, multiplayer::PlayerId playerId,
+                            std::string& outReason);
+    bool spendPlayerMoney(multiplayer::PlayerId playerId, float amount);
+    bool creditPlayerMoney(multiplayer::PlayerId playerId, float amount);
+    void syncLocalPlayerMoney();
     void clearActiveSelectionForTowerPlacement(const char* reason);
     void updateTowerPlacementFromInput();
     glm::mat4 buildTowerModelTransform(const TowerArchetype& archetype, const glm::vec3& worldPos) const;
@@ -140,6 +192,38 @@ class PlayLevelScene final : public GameScene {
     void syncEnemyInstanceTransforms();
     std::string validateStartWaveRequest() const;
     void applyPendingGameplayCommands();
+    void advanceAuthoritativeSimulation(float elapsedSeconds);
+    // Single authority boundary: validates and applies one already-sequenced command against the
+    // simulation, regardless of whether it originated from the local host player or a remote peer
+    // drained off the session's host transport.
+    std::optional<multiplayer::CommandRejectionReason>
+    dispatchAuthoritativeCommand(const multiplayer::PlayerCommandRequest& command);
+    bool submitLocalCommand(const multiplayer::PlayerCommandRequest& command);
+    void drainRemotePlayerCommands(multiplayer::SimulationTick currentTick);
+    void publishRemoteSnapshotIfDue(multiplayer::SimulationTick currentTick);
+    // Validates every join request queued on the session's host transport since the last call
+    // (protocol version, content manifest, capacity), registers accepted peers with the
+    // simulation, and always replies with a JoinMatchResult -- accepted or rejected.
+    void processIncomingJoinRequests();
+    // Client-mode only: polls the pending join result once connected, adopting the host-assigned
+    // player id on acceptance or recording a failure reason on rejection/decode error.
+    void processRemoteJoinResult();
+    // Client-mode only: merges a decoded MatchSnapshot into placedTowers_/activeEnemies_/
+    // activeProjectiles_/gameplayState_ so the existing (host/single-player-oriented) render-sync
+    // code renders remote state without any changes of its own. Preserves per-entity client-only
+    // fields (e.g. animation timers) across snapshots by merging on runtime id rather than
+    // wiping-and-replacing wholesale.
+    void applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot& snapshot);
+    // Client-mode only: locally advances walkAnimElapsedSeconds/deathElapsedSeconds every frame so
+    // clips keep playing smoothly between snapshots. Purely cosmetic -- position/health/lifecycle
+    // (the state that actually matters for gameplay) still comes entirely from the host's snapshot.
+    void advanceClientCosmeticAnimations(float elapsedSeconds);
+    void processLocalStartWaveCommand();
+    bool processLocalTowerPlacementCommand(const TowerArchetype& archetype, const glm::vec3& worldPos);
+    bool processLocalTowerUpgradeCommand(multiplayer::TowerRuntimeId towerRuntimeId, const std::string& nodeId);
+    bool processLocalTowerTargetingCommand(multiplayer::TowerRuntimeId towerRuntimeId,
+                         playlevel::TowerTargetingMode targetingMode);
+    bool processLocalTowerSellCommand(multiplayer::TowerRuntimeId towerRuntimeId);
     void updateWaveSimulation(float dt);
     // One-time initialization: seeds every registered enemy archetype's own template animator
     // with its own Idle clip (only if that model has a clip by that name -- a no-op fallback

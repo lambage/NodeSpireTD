@@ -123,7 +123,8 @@ void PlayLevelCombatController::updateTowerAttacks(
     const std::function<glm::vec3(float)>& sampleRoutePosition,
     std::vector<playlevel::PlacedTower>& placedTowers,
     const std::vector<playlevel::ActiveEnemy>& activeEnemies,
-    std::vector<playlevel::ActiveProjectile>& activeProjectiles) const {
+    std::vector<playlevel::ActiveProjectile>& activeProjectiles,
+    std::uint64_t& nextProjectileRuntimeId) const {
     for (int towerIndex = 0; towerIndex < static_cast<int>(placedTowers.size()); ++towerIndex) {
         playlevel::PlacedTower& tower = placedTowers[static_cast<std::size_t>(towerIndex)];
         tower.attackCooldownRemainingSeconds = std::max(0.0f, tower.attackCooldownRemainingSeconds - dt);
@@ -231,8 +232,10 @@ void PlayLevelCombatController::updateTowerAttacks(
             projectile.chainTargetCount = std::max(1, tower.chainTargetCount);
             projectile.remainingRicochetCount = std::max(0, tower.ricochetCount);
             projectile.sourceTowerPoolIndex = towerIndex;
+            projectile.sourceTowerRuntimeId = tower.runtimeId;
             projectile.targetEnemyRuntimeId = targetEnemy.runtimeId;
             projectile.lastHitEnemyRuntimeId = 0;
+            projectile.runtimeId = nextProjectileRuntimeId++;
             activeProjectiles.push_back(std::move(projectile));
         }
 
@@ -364,6 +367,9 @@ void PlayLevelCombatController::updateProjectiles(float dt,
                     computeDamageDelta(projectile.damage, hitEnemy.armor, projectile.armorPiercing, resistancePercent);
                 hitEnemy.health -= delta;
                 hitEnemy.health = std::min(hitEnemy.maxHealth, hitEnemy.health);
+                if (delta > 0.0f && projectile.sourceTowerRuntimeId != 0) {
+                    hitEnemy.lastDamagingTowerRuntimeId = projectile.sourceTowerRuntimeId;
+                }
 
                 if (projectile.sourceTowerPoolIndex >= 0 &&
                     projectile.sourceTowerPoolIndex < static_cast<int>(placedTowers.size())) {
@@ -416,7 +422,7 @@ void PlayLevelCombatController::updateProjectiles(float dt,
 }
 
 void PlayLevelCombatController::collectDefeatedEnemies(std::vector<playlevel::ActiveEnemy>& activeEnemies,
-                                                       const std::function<void(float)>& onRewardGranted,
+                                                       const std::function<void(float, multiplayer::TowerRuntimeId)>& onRewardGranted,
                                                        const std::function<void()>& onEnemyDefeated) const {
     // Health hitting zero no longer removes the enemy on the spot: it flips Alive -> Dying (once)
     // so its Death clip can play out. advanceDyingEnemies() removes it once that clip finishes.
@@ -424,7 +430,7 @@ void PlayLevelCombatController::collectDefeatedEnemies(std::vector<playlevel::Ac
         if (enemy.lifecycleState == playlevel::EnemyLifecycleState::Alive && enemy.health <= 0.0f) {
             enemy.lifecycleState = playlevel::EnemyLifecycleState::Dying;
             enemy.deathElapsedSeconds = 0.0f;
-            onRewardGranted(std::max(0.0f, enemy.rewardMoney));
+            onRewardGranted(std::max(0.0f, enemy.rewardMoney), enemy.lastDamagingTowerRuntimeId);
             onEnemyDefeated();
         }
     }
