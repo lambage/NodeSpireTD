@@ -1,0 +1,17 @@
+{
+    "//": "Fonts preloaded into RmlUi at startup. Family, style, and weight are read",
+    "//2": "from each font file's own metadata (FreeType name table / OS-2",
+    "//3": "usWeightClass) — not declared here. 'fallback' marks a face as the",
+    "//4": "glyph-coverage fallback used when a character is missing from the",
+    "//5": "requested font-family. 'weight' is an optional override, only needed to",
+    "//6": "pin a specific weight out of a variable font.",
+    "fonts": [
+        { "file": "Inter-Regular.ttf" },
+        { "file": "Inter-SemiBold.ttf" },
+        { "file": "Inter-Bold.ttf" },
+        { "file": "Roboto-Regular.ttf" },
+        { "file": "times.ttf" },
+        { "file": "timesbd.ttf" },
+        { "file": "SegoeUI.ttf", "fallback": true }
+    ]
+}

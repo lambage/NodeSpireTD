@@ -62,7 +62,45 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(imgui)
 
+# Lua is fetched here (before RmlUi) so the vendored static "lua" target exists
+# in time to satisfy RmlUi's Lua bindings dependency lookup below.
+FetchContent_Declare(
+    luasrc
+    GIT_REPOSITORY https://github.com/lua/lua.git
+    GIT_TAG        v5.5.0
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(luasrc)
+
+file(GLOB LUA_SOURCES "${luasrc_SOURCE_DIR}/*.c")
+list(REMOVE_ITEM LUA_SOURCES 
+    "${luasrc_SOURCE_DIR}/lua.c" 
+    "${luasrc_SOURCE_DIR}/luac.c"
+    "${luasrc_SOURCE_DIR}/onelua.c"
+)
+
+# Compile Lua as a static library
+add_library(lua STATIC ${LUA_SOURCES})
+
+# Target configuration
+target_include_directories(lua PUBLIC "${luasrc_SOURCE_DIR}")
+
+# Required for Linux/macOS systems to link system math and dynamic loading utilities
+if(UNIX)
+    target_link_libraries(lua PRIVATE m dl)
+endif()
+
+# Satisfies RmlUi's "if(NOT TARGET Lua::Lua)" check in CMake/Dependencies.cmake,
+# so its Lua bindings link against our vendored Lua instead of find_package(Lua).
+# Must be a real (IMPORTED) target, not an ALIAS: RmlUi in turn does
+# `add_library(RmlUi::External::Lua ALIAS Lua::Lua)`, and CMake disallows an
+# ALIAS target pointing at another ALIAS target.
+add_library(Lua::Lua INTERFACE IMPORTED GLOBAL)
+target_link_libraries(Lua::Lua INTERFACE lua)
+
 # RmlUi is the UI replacement for Dear ImGui.
+set(RMLUI_LUA_BINDINGS ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     rmlui
     GIT_REPOSITORY https://github.com/mikke89/RmlUi.git
@@ -71,6 +109,14 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(rmlui)
+
+# The vendored FreeType (fetched transitively via SFML) compiles its autohint
+# code against HarfBuzz whenever HarfBuzz is available, but doesn't always add
+# the static link dependency itself (it assumes dynamic loading in that case).
+# Link it explicitly so rmlui_core resolves the hb_* symbols at link time.
+if(TARGET HarfBuzz::HarfBuzz)
+    target_link_libraries(rmlui_core PRIVATE HarfBuzz::HarfBuzz)
+endif()
 
 FetchContent_Declare(
     spdlog
@@ -184,33 +230,6 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(fastgltf)
-
-FetchContent_Declare(
-    luasrc
-    GIT_REPOSITORY https://github.com/lua/lua.git
-    GIT_TAG        v5.5.0
-    GIT_SHALLOW    ON
-)
-
-FetchContent_MakeAvailable(luasrc)
-
-file(GLOB LUA_SOURCES "${luasrc_SOURCE_DIR}/*.c")
-list(REMOVE_ITEM LUA_SOURCES 
-    "${luasrc_SOURCE_DIR}/lua.c" 
-    "${luasrc_SOURCE_DIR}/luac.c"
-    "${luasrc_SOURCE_DIR}/onelua.c"
-)
-
-# Compile Lua as a static library
-add_library(lua STATIC ${LUA_SOURCES})
-
-# Target configuration
-target_include_directories(lua PUBLIC "${luasrc_SOURCE_DIR}")
-
-# Required for Linux/macOS systems to link system math and dynamic loading utilities
-if(UNIX)
-    target_link_libraries(lua PRIVATE m dl)
-endif()
 
 add_subdirectory(src)
 

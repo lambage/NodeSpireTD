@@ -52,7 +52,7 @@ function(nodespire_stage_runtime_dependencies targetName)
     endif()
 endfunction()
 
-add_executable(NodeSpireTD 
+add_executable(NodeSpireTD-imgui 
     main.cpp
     AppController.cpp
     AudioEngine.cpp
@@ -119,21 +119,21 @@ add_executable(NodeSpireTD
 
 )
 
-target_compile_definitions(NodeSpireTD PRIVATE 
+target_compile_definitions(NodeSpireTD-imgui PRIVATE 
     VK_NO_PROTOTYPES 
     IMGUI_IMPL_VULKAN_USE_VOLK
     VMA_STATIC_VULKAN_FUNCTIONS=0
     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
 )
 
-target_include_directories(NodeSpireTD PRIVATE 
+target_include_directories(NodeSpireTD-imgui PRIVATE 
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${vma_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(NodeSpireTD PRIVATE 
+target_link_libraries(NodeSpireTD-imgui PRIVATE 
     glm::glm
     nlohmann_json::nlohmann_json
     NodeSpireMatchProtocol
@@ -150,9 +150,9 @@ target_link_libraries(NodeSpireTD PRIVATE
     Vulkan::Vulkan
 )
 
-nodespire_stage_runtime_dependencies(NodeSpireTD)
+nodespire_stage_runtime_dependencies(NodeSpireTD-imgui)
 
-set(NODESPIRE_INSTALL_TARGETS NodeSpireTD)
+set(NODESPIRE_INSTALL_TARGETS NodeSpireTD-imgui)
 
 install(TARGETS ${NODESPIRE_INSTALL_TARGETS}
     RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
@@ -190,7 +190,7 @@ if(Python3_Interpreter_FOUND)
     )
 
     add_custom_target(GenerateLuaMetadata DEPENDS "${LUA_META_OUTPUT}")
-    add_dependencies(NodeSpireTD GenerateLuaMetadata)
+    add_dependencies(NodeSpireTD-imgui GenerateLuaMetadata)
 else()
     message(WARNING "Python3 interpreter not found; Lua metadata will not auto-generate.")
 endif()
@@ -233,8 +233,41 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/groundCircle.vert.spv"
         "${SHADER_SRC}/groundCircle.frag.spv"
     )
-    add_dependencies(NodeSpireTD MeshShaders)
+    add_dependencies(NodeSpireTD-imgui MeshShaders)
 
 else()
     message(WARNING "glslc not found — pre-compile mesh.vert/frag to .spv manually and place in assets/shaders/")
 endif()
+
+# ── NodeSpireTD (RmlUi bring-up) ──────────────────────────────────────────────
+# Minimal SDL3+Vulkan hello-world smoke test for RmlUi, built with RmlUi's own
+# native SDL/Vulkan backend (self-contained, owns its own VkInstance/VkDevice —
+# not yet reconciled with VulkanContext). This is the seed for the eventual
+# RmlUi replacement of NodeSpireTD-imgui.
+set(RMLUI_BACKEND "SDL_VK" CACHE STRING "" FORCE)
+include("${rmlui_SOURCE_DIR}/CMake/DependenciesForBackends.cmake")
+add_subdirectory("${rmlui_SOURCE_DIR}/Backends" "${CMAKE_CURRENT_BINARY_DIR}/rmlui_backends")
+
+add_executable(NodeSpireTD
+    RmluiHelloWorld.cpp
+    RmlUiFontLoader.cpp
+)
+
+target_compile_definitions(NodeSpireTD PRIVATE
+    NODESPIRE_ASSET_ROOT="${CMAKE_SOURCE_DIR}/assets"
+)
+
+target_include_directories(NodeSpireTD PRIVATE
+    "${rmlui_SOURCE_DIR}/Backends"
+)
+
+target_link_libraries(NodeSpireTD PRIVATE
+    rmlui
+    rmlui_backend_SDL_VK
+    Vulkan::Vulkan
+    spdlog::spdlog
+    nlohmann_json::nlohmann_json
+)
+
+nodespire_stage_runtime_dependencies(NodeSpireTD)
+
