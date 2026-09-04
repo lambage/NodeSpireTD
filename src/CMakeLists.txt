@@ -251,6 +251,7 @@ endif()
 add_executable(NodeSpireTD
     RmlUiApp.cpp
     RmlUiFontLoader.cpp
+    SettingsManager.cpp
     rmlui_backend/RmlUi_Platform_SDL.cpp
     rmlui_backend/RmlUi_Renderer_VK.cpp
     rmlui_backend/RmlUi_Backend_SDL_VK.cpp
