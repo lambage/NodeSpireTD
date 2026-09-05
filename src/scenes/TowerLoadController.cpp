@@ -4,6 +4,8 @@
 #include "utility/WorldAssetLoader.hpp"
 
 #include <spdlog/spdlog.h>
+#include <algorithm>
+#include <unordered_set>
 #include <utility>
 
 TowerLoadController::TowerLoadController(lua_State* luaState) : L_(luaState) {}
@@ -628,6 +630,21 @@ bool TowerLoadController::loadTowerArchetype(const std::string& scriptPath) {
         loadoutIds_.push_back(archetype.id);
     }
     return true;
+}
+
+void TowerLoadController::setLoadoutIds(const std::vector<std::string>& towerIds) {
+    std::vector<std::string> selected;
+    std::unordered_set<std::string> seen;
+    selected.reserve(std::min<std::size_t>(towerIds.size(), 5));
+    for (const std::string& towerId : towerIds) {
+        if (selected.size() == 5) {
+            break;
+        }
+        if (archetypes_.contains(towerId) && seen.insert(towerId).second) {
+            selected.push_back(towerId);
+        }
+    }
+    loadoutIds_ = std::move(selected);
 }
 
 void TowerLoadController::populateWorldAssets(WorldAssetSpec& spec) {

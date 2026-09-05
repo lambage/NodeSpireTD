@@ -3,6 +3,7 @@
 #include "AudioEngine.hpp"
 #include "multiplayer/MultiplayerSession.hpp"
 #include "multiplayer/PlayerProfileStore.hpp"
+#include "scenes/TowerLoadController.hpp"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
@@ -11,6 +12,7 @@
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/StringUtilities.h>
+#include <RmlUi/Lua/Interpreter.h>
 
 #include <algorithm>
 #include <fstream>
@@ -52,10 +54,30 @@ void LobbyScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     audio_->preload(kHoverSound, AudioChannel::Sfx);
     audio_->preload(kClickSound, AudioChannel::Sfx);
 
+    towerCatalog_ = std::make_unique<TowerLoadController>(Rml::Lua::Interpreter::GetLuaState());
+    towerCatalog_->discoverTowerArchetypesInDirectory("assets/models/towers");
+    const bool loadoutConfigured = playLevelLaunchConfig_.towerLoadoutConfigured;
+    selectedTowerIds_ = playLevelLaunchConfig_.towerLoadoutIds;
+    towerCatalog_->setLoadoutIds(selectedTowerIds_);
+    selectedTowerIds_ = towerCatalog_->loadoutIds();
+    if (!loadoutConfigured) {
+        std::vector<std::string> towerIds;
+        towerIds.reserve(towerCatalog_->archetypes().size());
+        for (const auto& [towerId, tower] : towerCatalog_->archetypes()) {
+            (void)tower;
+            towerIds.push_back(towerId);
+        }
+        std::sort(towerIds.begin(), towerIds.end());
+        selectedTowerIds_.assign(towerIds.begin(), towerIds.begin() + std::min<std::size_t>(towerIds.size(), 5));
+    }
+    playLevelLaunchConfig_.towerLoadoutIds = selectedTowerIds_;
+    playLevelLaunchConfig_.towerLoadoutConfigured = true;
+
     document_ = context.LoadDocument("assets/ui/lobby/lobby.rml");
     if (document_) {
         loadLevelCatalog();
         renderSelectedLevel();
+        renderLoadout();
         document_->Show();
         addListeners();
         if (auto* playerName =
@@ -70,6 +92,93 @@ void LobbyScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     } else {
         Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to load document: %s", "assets/ui/lobby/lobby.rml");
     }
+}
+
+void LobbyScene::renderLoadout() {
+    if (!document_ || !towerCatalog_) {
+        return;
+    }
+
+    for (Rml::Element* card : towerCardElements_) {
+        card->RemoveEventListener(Rml::EventId::Click, this);
+        card->RemoveEventListener(Rml::EventId::Mouseover, this);
+    }
+    towerCardElements_.clear();
+
+    std::vector<const TowerArchetype*> towers;
+    towers.reserve(towerCatalog_->archetypes().size());
+    for (const auto& [towerId, tower] : towerCatalog_->archetypes()) {
+        (void)towerId;
+        towers.push_back(&tower);
+    }
+    std::sort(towers.begin(), towers.end(), [](const TowerArchetype* left, const TowerArchetype* right) {
+        return left->displayName < right->displayName;
+    });
+
+    Rml::String inventoryRml;
+    for (const TowerArchetype* tower : towers) {
+        const bool selected = std::find(selectedTowerIds_.begin(), selectedTowerIds_.end(), tower->id) !=
+                              selectedTowerIds_.end();
+        inventoryRml += "<button id=\"tower-card-" + Rml::StringUtilities::EncodeRml(tower->id) +
+                        "\" class=\"tower-card" + (selected ? " is-selected" : "") + "\">";
+        if (!tower->previewImagePath.empty()) {
+            inventoryRml += "<img class=\"tower-card-image\" src=\"" +
+                            Rml::StringUtilities::EncodeRml(tower->previewImagePath) + "\"/>";
+        } else {
+            inventoryRml += "<span class=\"tower-card-glyph\">T</span>";
+        }
+        inventoryRml += "<span class=\"tower-card-copy\"><span class=\"tower-card-name\">" +
+                        Rml::StringUtilities::EncodeRml(tower->displayName) +
+                        "</span><span class=\"tower-card-cost\">$" + std::to_string(tower->cost) +
+                        "</span></span></button>";
+    }
+    if (Rml::Element* inventory = document_->GetElementById("tower-inventory")) {
+        inventory->SetInnerRML(inventoryRml);
+    }
+
+    Rml::String slotsRml;
+    for (std::size_t slot = 0; slot < 5; ++slot) {
+        slotsRml += "<div class=\"loadout-slot";
+        if (slot < selectedTowerIds_.size()) {
+            slotsRml += " filled\"><span class=\"slot-number\">" + std::to_string(slot + 1) + "</span><span>";
+            const TowerArchetype* tower = towerCatalog_->findArchetype(selectedTowerIds_[slot]);
+            slotsRml += Rml::StringUtilities::EncodeRml(tower ? tower->displayName : selectedTowerIds_[slot]);
+            slotsRml += "</span>";
+        } else {
+            slotsRml += "\"><span class=\"slot-number\">" + std::to_string(slot + 1) +
+                        "</span><span>Empty slot</span>";
+        }
+        slotsRml += "</div>";
+    }
+    if (Rml::Element* slots = document_->GetElementById("loadout-slots")) {
+        slots->SetInnerRML(slotsRml);
+    }
+    if (Rml::Element* count = document_->GetElementById("loadout-count")) {
+        count->SetInnerRML(std::to_string(selectedTowerIds_.size()) + " / 5");
+    }
+
+    for (const TowerArchetype* tower : towers) {
+        if (Rml::Element* card = document_->GetElementById("tower-card-" + tower->id)) {
+            card->AddEventListener(Rml::EventId::Click, this);
+            card->AddEventListener(Rml::EventId::Mouseover, this);
+            towerCardElements_.push_back(card);
+        }
+    }
+}
+
+void LobbyScene::toggleLoadoutTower(const std::string& towerId) {
+    const auto selected = std::find(selectedTowerIds_.begin(), selectedTowerIds_.end(), towerId);
+    if (selected != selectedTowerIds_.end()) {
+        selectedTowerIds_.erase(selected);
+    } else if (selectedTowerIds_.size() < 5) {
+        selectedTowerIds_.push_back(towerId);
+    } else {
+        setStatus("Your loadout already has five towers. Remove one before adding another.");
+        return;
+    }
+    playLevelLaunchConfig_.towerLoadoutIds = selectedTowerIds_;
+    playLevelLaunchConfig_.towerLoadoutConfigured = true;
+    renderLoadout();
 }
 
 bool LobbyScene::loadLevelCatalog() {
@@ -214,10 +323,12 @@ void LobbyScene::onExit(Rml::Context& context) {
     if (document_) {
         removeListeners();
         levelCardElements_.clear();
+        towerCardElements_.clear();
         document_->Close();
         context.UnloadDocument(document_);
         document_ = nullptr;
     }
+    towerCatalog_.reset();
 }
 
 void LobbyScene::addListeners() {
@@ -242,6 +353,14 @@ void LobbyScene::removeListeners() {
     if (Rml::Element* chatInput = document_->GetElementById("chat-input")) {
         chatInput->RemoveEventListener(Rml::EventId::Change, this);
     }
+    for (Rml::Element* card : levelCardElements_) {
+        card->RemoveEventListener(Rml::EventId::Click, this);
+        card->RemoveEventListener(Rml::EventId::Mouseover, this);
+    }
+    for (Rml::Element* card : towerCardElements_) {
+        card->RemoveEventListener(Rml::EventId::Click, this);
+        card->RemoveEventListener(Rml::EventId::Mouseover, this);
+    }
 }
 
 void LobbyScene::showParty() {
@@ -258,6 +377,9 @@ void LobbyScene::showParty() {
     }
     if (Rml::Element* role = document_->GetElementById("party-role")) {
         role->SetInnerRML(session_.isHost() ? "Party leader" : "Party member");
+    }
+    if (Rml::Element* leave = document_->GetElementById("leave-button")) {
+        leave->SetInnerRML(session_.isHost() ? "Disband party" : "Leave party");
     }
     if (Rml::Element* chat = document_->GetElementById("chat-messages")) {
         chat->SetInnerRML(chatHistoryRml_);
@@ -467,8 +589,12 @@ void LobbyScene::setStatus(const Rml::String& text) {
 }
 
 void LobbyScene::configurePlayLevelLaunch(const LevelEntry& level) {
+    std::vector<std::string> towerLoadoutIds = playLevelLaunchConfig_.towerLoadoutIds;
+    const bool towerLoadoutConfigured = playLevelLaunchConfig_.towerLoadoutConfigured;
     playLevelLaunchConfig_ = {level.id, level.name, level.definition, level.mapAsset, level.startModel, level.endModel,
                               level.animatedTemplateModels};
+    playLevelLaunchConfig_.towerLoadoutIds = std::move(towerLoadoutIds);
+    playLevelLaunchConfig_.towerLoadoutConfigured = towerLoadoutConfigured;
 }
 
 bool LobbyScene::configurePlayLevelLaunch(const multiplayer::PartyMatchStartAnnouncement& announcement) {
@@ -485,6 +611,13 @@ bool LobbyScene::configurePlayLevelLaunch(const multiplayer::PartyMatchStartAnno
 }
 
 SceneTransition LobbyScene::update(float /*dt*/) {
+    if (leavePartyPending_) {
+        leavePartyPending_ = false;
+        const bool disbanding = session_.isHost();
+        session_.leaveParty();
+        showPartySetup(disbanding ? "Party disbanded." : "Left the party.");
+    }
+
     if (auto* chatInput =
             rmlui_dynamic_cast<Rml::ElementFormControlInput*>(document_->GetElementById("chat-input"))) {
         Rml::String value = chatInput->GetValue();
@@ -637,6 +770,8 @@ void LobbyScene::ProcessEvent(Rml::Event& event) {
             pendingLevelIndex_ = index;
             renderLevelCarousel();
         }
+    } else if (id.starts_with("tower-card-")) {
+        toggleLoadoutTower(id.substr(11));
     } else if (id == "host-button") {
         if (!savePlayerName()) {
             return;
@@ -673,8 +808,7 @@ void LobbyScene::ProcessEvent(Rml::Event& event) {
             setStatus("Ready state could not be updated.");
         }
     } else if (id == "leave-button") {
-        session_.leaveParty();
-        showPartySetup("Left the party.");
+        leavePartyPending_ = true;
     } else if (id == "chat-send-button" && inParty_) {
         submitChat();
     }

@@ -57,7 +57,9 @@ class MultiplayerSession {
     std::optional<PartyMatchStartAnnouncement> consumeMatchStartAnnouncement();
     const std::optional<PartyMatchStartAnnouncement>& activeMatch() const { return activeMatch_; }
     bool beginMatch();
+    bool endMatch();
     bool isMatchStarted() const { return matchStarted_; }
+    bool consumeMatchEnded();
 
     // Called by PlayLevelScene once its own load finishes (host and client alike).
     void signalLocalLoadedReady();
@@ -107,6 +109,7 @@ class MultiplayerSession {
     std::optional<PartyMatchStartAnnouncement> pendingMatchStartAnnouncement_;
     std::optional<PartyMatchStartAnnouncement> activeMatch_;
     bool matchStarted_ = false;
+    bool matchEndedPending_ = false;
     ChatCommandDispatcher chatDispatcher_;
     std::vector<PartyChatMessage> pendingChatMessages_;
     std::vector<std::string> pendingChatErrors_;

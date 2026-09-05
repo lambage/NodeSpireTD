@@ -81,21 +81,29 @@ stencil-based transformed clipping. The initial adapter uses axis-aligned Vulkan
 all clipping. This supports the production HUD documents; arbitrary transformed clip regions
 remain deferred until there is a demonstrated need to add stencil to the shared render target.
 
-Step 3 is implemented as a native `PlayLevelScene` shell. The active RmlUi scene owns an optional
-world-render callback, and the application invokes it before `Rml::Context::Render()` in the same
-dynamic-rendering command buffer. Lobby commits a structured launch configuration from
-`assets/levels/catalog.json`; the PlayLevel shell loads and renders that map with `WorldRenderer`
-and presents loading, failure/retry, and return-to-Lobby controls. Gameplay simulation, enemies,
-towers, and wave commands remain intentionally disabled until step 4 connects the existing C++
-controllers to `IPlayLevelUiApi`.
+The native `PlayLevelScene` now renders the world before `Rml::Context::Render()` in the same
+dynamic-rendering command buffer and owns the existing fixed-tick `MatchSimulation`. Match start
+begins the authored five-second wave countdown; only the host advances wave spawning and movement.
+Tower placement and upgrades are typed player commands validated by the host, and periodic match
+snapshots rebuild tower/enemy presentation on clients. Single player uses the same local command
+gate rather than mutating placed towers directly.
+
+Tower profile layout is native RmlUi. Shared profile attributes and statistics live in
+`playlevel.rml`, while each tower owns its upgrade topology in
+`assets/ui/playlevel/towers/<tower-id>.rml`. C++ supplies authoritative state and attaches command
+listeners to matching `upgrade-<node-id>` elements; it does not infer a generic visual tree from
+the archetype's tier and column fields. The Archer Hut is the first complete authored fragment.
 
 The native Lobby and PlayLevel share match lifecycle through `MultiplayerSession`. A host
 broadcasts the selected catalog level before entering PlayLevel; clients consume that announcement
 in the native Lobby update and transition automatically. Once every loaded scene reports ready,
 only the host can send `PartyMatchBegin`; clients show "Waiting for host to start" and never receive
 a start control. The active level descriptor remains in the session while a client returns to
-Lobby, enabling Rejoin without reconnecting. A host returning to Lobby ends the party transport,
-which returns connected clients to Lobby as soon as they observe the disconnect.
+Lobby, enabling Rejoin without reconnecting. Returning to Lobby preserves the party for every
+role. When the host leaves PlayLevel, it broadcasts `PartyMatchEnd`; every client returns to Lobby
+and the active match descriptor is cleared, while the party connection and roster persist. The
+host ends the party only through the Lobby's explicit Disband party action; clients use the
+corresponding Leave party action.
 
 The Escape menu is a trim-and-rebuild of the legacy ImGui pause panel. It keeps live master,
 music, and SFX volume controls, Resume, and Back to Lobby. Display mode, graphics quality, and

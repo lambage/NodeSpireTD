@@ -90,26 +90,16 @@
 				</div>
 			</section>
 
-			<aside class="shop-rail">
-				<div class="shop-header">
-					<div class="section-kicker">QUARTERMASTER</div>
-					<div class="coming-soon">COMING SOON</div>
+			<aside class="loadout-rail">
+				<div class="loadout-header">
+					<div class="section-kicker">TOWER LOADOUT</div>
+					<div id="loadout-count">0 / 5</div>
 				</div>
-				<h2>Game shop</h2>
-				<p>Towers, field skins, and commander cosmetics will live here.</p>
-				<div class="shop-preview tower-preview">
-					<div class="preview-glyph">T</div>
-					<div><span class="preview-name">Towers</span><span class="preview-note">Purchase new towers</span></div>
-				</div>
-				<div class="shop-preview skin-preview">
-					<div class="preview-glyph">S</div>
-					<div><span class="preview-name">Skins</span><span class="preview-note">Personalize your towers</span></div>
-				</div>
-				<div class="shop-preview crates-preview">
-					<div class="preview-glyph">C</div>
-					<div><span class="preview-name">Crates</span><span class="preview-note">Buy and open crates for special items</span></div>
-				</div>
-				<div class="shop-lock">STORE OFFLINE</div>
+				<h2>Choose your defenses</h2>
+				<p>Select up to five towers to take into the next match.</p>
+				<div id="loadout-slots"></div>
+				<div class="inventory-label">INVENTORY</div>
+				<div id="tower-inventory"></div>
 			</aside>
 		</main>
 

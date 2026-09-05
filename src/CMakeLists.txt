@@ -271,11 +271,17 @@ add_executable(NodeSpireTD
     SettingsManager.cpp
     AudioEngine.cpp
     multiplayer/ChatCommandDispatcher.cpp
+    multiplayer/FixedTickClock.cpp
     multiplayer/LanFramedConnection.cpp
     multiplayer/LanMatchClient.cpp
     multiplayer/LanMatchTransport.cpp
+    multiplayer/LocalMatchHost.cpp
+    multiplayer/MatchProtocolAdapter.cpp
+    multiplayer/MatchSimulation.cpp
+    multiplayer/MatchSnapshotBuilder.cpp
     multiplayer/MultiplayerSession.cpp
     multiplayer/PartyProtocolAdapter.cpp
+    multiplayer/PlayerAccounts.cpp
     multiplayer/PlayerProfileStore.cpp
     rmlui_backend/RmlUi_Platform_SDL.cpp
     rmlui_backend/RmlUi_Renderer_VK.cpp
@@ -287,6 +293,12 @@ add_executable(NodeSpireTD
     rmlui/scenes/MainMenuScene.cpp
     rmlui/scenes/LobbyScene.cpp
     rmlui/scenes/OptionsScene.cpp
+    scenes/EnemyLoadController.cpp
+    scenes/EnemySpawnFactory.cpp
+    scenes/PlayLevelCombatController.cpp
+    scenes/PlayLevelWaveController.cpp
+    scenes/TowerLoadController.cpp
+    scenes/TowerPlacementRules.cpp
     utility/StaticGeometryBVH.cpp
     utility/TemplateAnimator.cpp
     utility/WorldAssetLoader.cpp

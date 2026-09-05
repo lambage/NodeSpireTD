@@ -144,3 +144,25 @@ chat, ready, and solo launch remain local interaction previews. Their element
 IDs and state transitions are intended to be wired to those services when the
 multiplayer and PlayLevel migration reaches this executable; the UI does not
 claim a network connection or transition into unavailable gameplay.
+
+## Lobby loadout and PlayLevel placement
+
+The RmlUi scene manager owns the selected tower loadout as part of
+`PlayLevelLaunchConfig`. The Lobby discovers the player's available tower
+archetypes from `assets/models/towers`, lets the player select up to five unique
+tower IDs, and carries those IDs through the existing Lobby-to-PlayLevel handoff.
+The first visit defaults to the first five deterministic tower IDs; after that,
+an intentionally empty loadout remains empty.
+
+The migrated PlayLevel reuses `TowerLoadController` for archetype parsing and
+world-asset registration and reuses `TowerPlacementRules::validatePlacement`
+for affordability, match state, spacing, path, slope, and footprint checks. The
+old ImGui-specific cursor sampling was replaced by an input-agnostic screen-point
+sampler; the legacy scene supplies ImGui coordinates while the RmlUi scene
+supplies SDL mouse coordinates and the Vulkan viewport extent. This keeps the
+placement policy shared while allowing each UI stack to own its input handling.
+
+This slice ports loadout selection and local tower placement only. The migrated
+PlayLevel does not yet run the legacy wave/combat/upgrade/sell simulation, and
+network-authoritative tower placement remains a follow-up when that simulation
+is moved to the RmlUi executable.

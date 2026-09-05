@@ -10,8 +10,56 @@
 				<div class="eyebrow">ACTIVE DEPLOYMENT</div>
 				<div id="level-name" class="level-name">Battlefield</div>
 			</div>
-			<div id="match-role" class="status-chip">SOLO</div>
+			<div class="match-resources">
+				<div id="money-value" class="money-value">$250</div>
+				<div id="match-role" class="status-chip">SOLO</div>
+			</div>
 		</header>
+
+		<section id="wave-hud" class="wave-hud hidden">
+			<div id="wave-label" class="wave-label">Next wave in</div>
+			<div id="wave-seconds" class="wave-seconds">5</div>
+			<div class="countdown-track"><div id="countdown-progress" class="countdown-progress"></div></div>
+		</section>
+
+		<section class="battle-stats">
+			<div><span id="base-health-value">100</span><small>BASE</small></div>
+			<div><span id="wave-value">1</span><small>WAVE</small></div>
+			<div><span id="enemy-count-value">0</span><small>ENEMIES</small></div>
+		</section>
+
+		<section id="tower-loadout" class="tower-loadout hidden">
+			<div class="loadout-title">TOWER LOADOUT</div>
+			<div class="tower-slots">
+				<button id="tower-slot-0" class="tower-slot"></button>
+				<button id="tower-slot-1" class="tower-slot"></button>
+				<button id="tower-slot-2" class="tower-slot"></button>
+				<button id="tower-slot-3" class="tower-slot"></button>
+				<button id="tower-slot-4" class="tower-slot"></button>
+			</div>
+			<div id="placement-feedback" class="placement-feedback"></div>
+		</section>
+
+		<section id="tower-profile" class="tower-profile hidden">
+			<div class="profile-heading">
+				<div><div class="section-kicker">TOWER PROFILE</div><h2 id="tower-profile-name">Tower</h2></div>
+				<button id="close-tower-profile" class="icon-button">X</button>
+			</div>
+			<p id="tower-profile-bio" class="tower-bio"></p>
+			<div class="tower-stats">
+				<div><small>DAMAGE</small><span id="tower-damage">0</span></div>
+				<div><small>RANGE</small><span id="tower-range">0</span></div>
+				<div><small>RATE</small><span id="tower-rate">0</span></div>
+				<div><small>SPENT</small><span id="tower-spent">$0</span></div>
+			</div>
+			<div class="tower-details">
+				<span id="tower-damage-type">Physical damage</span>
+				<span id="tower-armor-piercing">Armor piercing: 0</span>
+				<span id="tower-projectile">Projectile: 0 speed, x1</span>
+				<span id="tower-area-stats">Splash: 0 | Chain: 0 | Ricochet: 0</span>
+			</div>
+			<div id="tower-tech-tree" class="tower-tech-tree"></div>
+		</section>
 
 		<div class="status-panel">
 			<div class="section-kicker">FIELD STATUS</div>

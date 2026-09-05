@@ -372,9 +372,9 @@ void PlayLevelScene::onEnter(SceneSharedState& state) {
     // match-level traffic: a client sends a JoinMatchRequest over the already-open connection,
     // and a host performs match-level join validation over its already-listening transport. A
     // session that is not currently in a party (solo play) skips networking entirely.
-    if (session_ && session_->isClient()) {
+    if (session_ && session_->isInParty() && session_->isClient()) {
         startJoiningHost(std::string{}, 0, "Player");
-    } else if (session_ && session_->isHost()) {
+    } else if (session_ && session_->isInParty() && session_->isHost()) {
         startHostingOnPort(0);
     }
 
@@ -780,8 +780,10 @@ void PlayLevelScene::updateTowerPlacementFromInput() {
             const auto result = towerPlacementPreviewResolver_.resolve(
                 selected,
                 [this, &placementContext]() {
-                    return TowerPlacementRules::sampleTerrainAtCursor(placementContext, buildViewMatrix(),
-                                                                      cameraController_.position());
+                    const ImGuiIO& io = ImGui::GetIO();
+                    return TowerPlacementRules::sampleTerrainAtScreenPoint(
+                        placementContext, buildViewMatrix(), cameraController_.position(), io.MousePos.x,
+                        io.MousePos.y, io.DisplaySize.x, io.DisplaySize.y);
                 },
                 validatePlacement);
             if (!result.hasHit) {

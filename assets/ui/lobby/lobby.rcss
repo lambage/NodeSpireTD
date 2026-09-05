@@ -148,7 +148,7 @@ main
 	border-right: 1dp #38443e;
 }
 
-.shop-rail
+.loadout-rail
 {
 	display: block;
 	width: 30%;
@@ -174,7 +174,7 @@ h2
 	margin: 5dp 5dp 10dp 0;
 }
 
-.section-copy, .shop-rail p, #solo-briefing p
+.section-copy, .loadout-rail p, #solo-briefing p
 {
 	font-size: 14dp;
 	line-height: 21dp;
@@ -276,7 +276,7 @@ button
 	border-color: #9cbaaa;
 }
 
-.join-row, .party-actions, .chat-compose, .party-heading, .shop-header
+.join-row, .party-actions, .chat-compose, .party-heading, .loadout-header
 {
 	display: flex;
 	flex-direction: row;
@@ -552,74 +552,124 @@ input[type="text"]:focus
 	width: 22%;
 }
 
-.shop-header
+.loadout-header
 {
 	justify-content: space-between;
 }
 
-.shop-preview
+#loadout-count
+{
+	font-size: 11dp;
+	color: #e1bd67;
+}
+
+#loadout-slots
+{
+	display: flex;
+	flex-direction: column;
+	margin-bottom: 14dp;
+}
+
+.loadout-slot
 {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
-	padding: 13dp;
-	margin-top: 9dp;
-	background-color: #121816e8;
-	border: 1dp #37423d;
-}
-
-.preview-glyph
-{
-	display: block;
-	width: 40dp;
-	height: 40dp;
-	margin-right: 12dp;
-	font-family: "Times New Roman";
-	font-weight: bold;
-	font-size: 24dp;
-	line-height: 40dp;
-	text-align: center;
-	color: #0c1110;
-	background-color: #b99a52;
-}
-
-.skin-preview .preview-glyph
-{
-	background-color: #6e9d8a;
-}
-
-.crates-preview .preview-glyph
-{
-	background-color: #45689c;
-}
-
-.preview-name, .preview-note
-{
-	display: block;
-}
-
-.preview-name
-{
-	font-family: "Times New Roman";
-	font-weight: bold;
-	font-size: 16dp;
-	color: #e9e8de;
-}
-
-.preview-note
-{
+	height: 28dp;
+	margin-bottom: 3dp;
+	padding: 0 8dp;
 	font-size: 11dp;
-	color: #78847d;
+	color: #667169;
+	background-color: #0c1211;
+	border-left: 2dp #29332e;
 }
 
-.shop-lock
+.loadout-slot.filled
 {
-	margin-top: 18dp;
-	padding: 10dp;
+	color: #dce8df;
+	border-left-color: #83b9a4;
+}
+
+.slot-number
+{
+	width: 22dp;
+	color: #e1bd67;
+}
+
+.inventory-label
+{
+	margin: 8dp 0 6dp 0;
 	font-size: 10dp;
+	color: #83b9a4;
+}
+
+#tower-inventory
+{
+	display: flex;
+	flex-direction: column;
+	max-height: 190dp;
+	overflow-y: auto;
+}
+
+.tower-card
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	width: 100%;
+	min-height: 48dp;
+	margin-bottom: 5dp;
+	padding: 6dp;
+	color: #c7d0ca;
+	background-color: #111917;
+	border: 1dp #3e4c45;
+}
+
+.tower-card:hover
+{
+	background-color: #1b2924;
+	border-color: #83b9a4;
+}
+
+.tower-card.is-selected
+{
+	color: #ffffff;
+	background-color: #20382f;
+	border-color: #69bc95;
+}
+
+.tower-card-image, .tower-card-glyph
+{
+	width: 36dp;
+	height: 36dp;
+	margin-right: 9dp;
+}
+
+.tower-card-glyph
+{
+	padding-top: 8dp;
+	font-family: "Times New Roman";
+	font-size: 20dp;
 	text-align: center;
-	color: #776d50;
-	border: 1dp #4c4635;
+	color: #e1bd67;
+	background-color: #20251c;
+}
+
+.tower-card-copy, .tower-card-name, .tower-card-cost
+{
+	display: block;
+}
+
+.tower-card-name
+{
+	font-size: 12dp;
+}
+
+.tower-card-cost
+{
+	margin-top: 2dp;
+	font-size: 10dp;
+	color: #e1bd67;
 }
 
 #level-selector

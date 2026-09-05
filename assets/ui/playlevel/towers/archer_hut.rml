@@ -1,0 +1,34 @@
+<div class="tree-title">ARCHER HUT TALENT TREE</div>
+<div class="tech-tree archer-tree">
+	<div class="tech-row root-row">
+		<button id="upgrade-quickdraw_rig" class="tech-node core-node"><img src="../../images/talents/archer/archer_quickdraw_rig.png"/><span>Quickdraw Rig</span></button>
+	</div>
+	<div class="tree-link vertical-link"></div>
+	<div class="tech-row root-row">
+		<button id="upgrade-hardened_draw" class="tech-node core-node"><img src="../../images/talents/archer/archer_hardened_draw.png"/><span>Hardened Draw</span></button>
+	</div>
+	<div class="branch-line"></div>
+	<div class="branch-row">
+		<div class="branch-column">
+			<button id="upgrade-stone_specialization" class="tech-node stone-node"><img src="../../images/talents/archer/archer_stone_specialization.png"/><span>Stone</span></button>
+			<button id="upgrade-stone_shatter" class="tech-node stone-node"><span>Shatter</span></button>
+			<button id="upgrade-stone_penetrator" class="tech-node stone-node"><span>Penetrator</span></button>
+			<button id="upgrade-stone_aftershock" class="tech-node stone-node"><span>Aftershock</span></button>
+			<button id="upgrade-stone_metal_hybrid" class="tech-node hybrid-node"><span>Forged Core</span></button>
+		</div>
+		<div class="branch-column">
+			<button id="upgrade-metal_specialization" class="tech-node metal-node"><img src="../../images/talents/archer/archer_metal_specialization.png"/><span>Metal</span></button>
+			<button id="upgrade-metal_overdraw" class="tech-node metal-node"><span>Overdraw</span></button>
+			<button id="upgrade-metal_serrated" class="tech-node metal-node"><span>Serrated</span></button>
+			<button id="upgrade-metal_triple_shot" class="tech-node metal-node"><span>Triple Shot</span></button>
+			<button id="upgrade-metal_precision" class="tech-node metal-node"><span>Precision</span></button>
+		</div>
+		<div class="branch-column">
+			<button id="upgrade-electric_specialization" class="tech-node electric-node"><img src="../../images/talents/archer/archer_electric_specialization.png"/><span>Electric</span></button>
+			<button id="upgrade-electric_chain" class="tech-node electric-node"><span>Chain Arc</span></button>
+			<button id="upgrade-electric_focus" class="tech-node electric-node"><span>Focus</span></button>
+			<button id="upgrade-electric_ricochet" class="tech-node electric-node"><span>Ricochet</span></button>
+			<button id="upgrade-electric_static_field" class="tech-node electric-node"><span>Static Field</span></button>
+		</div>
+	</div>
+</div>

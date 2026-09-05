@@ -52,6 +52,7 @@ void MultiplayerSession::leaveParty() {
     pendingMatchStartAnnouncement_.reset();
     activeMatch_.reset();
     matchStarted_ = false;
+    matchEndedPending_ = false;
     role_ = MultiplayerRole::Solo;
     resetToSolo();
 }
@@ -111,6 +112,7 @@ bool MultiplayerSession::announceMatchStart(std::string levelName, std::string l
                                              std::move(levelAssetPath)};
     activeMatch_ = announcement;
     matchStarted_ = false;
+    matchEndedPending_ = false;
     if (const auto serialized = PartyProtocolAdapter::serializePartyMatchStartAnnouncement(announcement)) {
         hostTransport_.broadcastPartyMatchStart(*serialized);
     }
@@ -132,6 +134,23 @@ bool MultiplayerSession::beginMatch() {
     matchStarted_ = true;
     hostTransport_.broadcastPartyMatchBegin();
     return true;
+}
+
+bool MultiplayerSession::endMatch() {
+    if (!isHost() || !activeMatch_) {
+        return false;
+    }
+    activeMatch_.reset();
+    pendingMatchStartAnnouncement_.reset();
+    matchStarted_ = false;
+    partyGate_.resetLoadedFlags();
+    hostTransport_.broadcastPartyMatchEnd();
+    broadcastRoster();
+    return true;
+}
+
+bool MultiplayerSession::consumeMatchEnded() {
+    return std::exchange(matchEndedPending_, false);
 }
 
 void MultiplayerSession::signalLocalLoadedReady() {
@@ -406,10 +425,17 @@ void MultiplayerSession::pumpClientSide() {
             pendingMatchStartAnnouncement_ = announcement;
             activeMatch_ = announcement;
             matchStarted_ = false;
+            matchEndedPending_ = false;
         }
     }
     if (client_.consumePartyMatchBegin()) {
         matchStarted_ = true;
+    }
+    if (client_.consumePartyMatchEnd()) {
+        pendingMatchStartAnnouncement_.reset();
+        activeMatch_.reset();
+        matchStarted_ = false;
+        matchEndedPending_ = true;
     }
 
     for (auto& payload : client_.drainPartyChatMessages()) {

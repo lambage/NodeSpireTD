@@ -28,6 +28,8 @@ struct PlayLevelLaunchConfig {
         "assets/models/enemy/goblin1.glb",
         "assets/models/enemy/goblin_scout.glb",
     };
+    std::vector<std::string> towerLoadoutIds;
+    bool towerLoadoutConfigured = false;
 };
 
 // A scene's per-frame update returns one of these to request a transition.

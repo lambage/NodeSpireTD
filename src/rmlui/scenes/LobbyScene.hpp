@@ -6,10 +6,12 @@
 #include <RmlUi/Core/Types.h>
 
 #include <optional>
+#include <memory>
 #include <string>
 #include <vector>
 
 class AudioEngine;
+class TowerLoadController;
 
 namespace multiplayer {
 class MultiplayerSession;
@@ -59,6 +61,8 @@ class LobbyScene final : public IScene, public Rml::EventListener {
     bool loadLevelCatalog();
     void renderSelectedLevel();
     void renderLevelCarousel();
+    void renderLoadout();
+    void toggleLoadoutTower(const std::string& towerId);
     void openLevelSelector();
     void closeLevelSelector(bool commitSelection);
     void showParty();
@@ -81,6 +85,7 @@ class LobbyScene final : public IScene, public Rml::EventListener {
     Rml::ElementDocument* document_ = nullptr;
     AudioEngine* audio_ = nullptr;
     SceneTransition pendingTransition_;
+    bool leavePartyPending_ = false;
     bool inParty_ = false;
     Rml::String chatHistoryRml_;
     Rml::String renderedRosterRml_;
@@ -93,6 +98,9 @@ class LobbyScene final : public IScene, public Rml::EventListener {
     std::size_t pendingLevelIndex_ = 0;
     std::size_t carouselStartIndex_ = 0;
     std::vector<Rml::Element*> levelCardElements_;
+    std::vector<Rml::Element*> towerCardElements_;
+    std::unique_ptr<TowerLoadController> towerCatalog_;
+    std::vector<std::string> selectedTowerIds_;
     bool removeChatFocusKey_ = false;
     bool normalizeSlashPrefix_ = false;
 };

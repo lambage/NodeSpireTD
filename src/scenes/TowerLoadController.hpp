@@ -122,6 +122,7 @@ class TowerLoadController {
 
     const TowerArchetype* findArchetype(const std::string& towerId) const;
     const TowerArchetype* archetypeAtLoadoutSlot(int slot) const;
+    void setLoadoutIds(const std::vector<std::string>& towerIds);
 
     const std::vector<std::string>& loadoutIds() const { return loadoutIds_; }
     const std::unordered_map<std::string, TowerArchetype>& archetypes() const { return archetypes_; }
