@@ -107,8 +107,22 @@ void LanFramedConnection::beginWrite() {
                                       return;
                                   }
                                   outgoing_.pop_front();
+                                  if (outgoing_.empty() && closeAfterWrites_) {
+                                      close();
+                                      return;
+                                  }
                                   beginWrite();
                               });
+}
+
+void LanFramedConnection::closeAfterWrites() {
+    if (closed_) {
+        return;
+    }
+    closeAfterWrites_ = true;
+    if (!writing_ && outgoing_.empty()) {
+        close();
+    }
 }
 
 void LanFramedConnection::close() {

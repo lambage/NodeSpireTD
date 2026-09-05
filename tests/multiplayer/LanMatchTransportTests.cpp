@@ -137,6 +137,29 @@ TEST(LanMatchTransport, DisconnectingAPeerStopsFurtherReceivesFromIt) {
     EXPECT_FALSE(host.sendCommandResult(peerId, "unreachable"));
 }
 
+TEST(LanMatchTransport, FlushesQueuedResultBeforeDisconnectingPeer) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto acceptedPeers = host.drainAcceptedPeers();
+    ASSERT_EQ(acceptedPeers.size(), 1U);
+    const auto peerId = acceptedPeers.front();
+    ASSERT_TRUE(host.sendPartyJoinResult(peerId, "rejected-payload"));
+    ASSERT_TRUE(host.disconnectPeerAfterWrites(peerId));
+    EXPECT_FALSE(host.sendPartyJoinResult(peerId, "unreachable"));
+
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    const auto result = client.consumePartyJoinResult();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "rejected-payload");
+}
+
 TEST(LanMatchTransport, SendsPartyChatMessageToOneJoinedPeer) {
     boost::asio::io_context ioContext;
 

@@ -1196,7 +1196,7 @@ void PlayLevelScene::processIncomingJoinRequests() {
         }
         transport.sendJoinResult(request.peerId, outcome->serializedResult);
         if (!outcome->acceptedPlayerId) {
-            transport.disconnectPeer(request.peerId);
+            transport.disconnectPeerAfterWrites(request.peerId);
             continue;
         }
         const multiplayer::PlayerId playerId = *outcome->acceptedPlayerId;

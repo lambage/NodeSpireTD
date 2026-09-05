@@ -192,6 +192,16 @@ bool LanMatchTransport::disconnectPeer(TransportPeerId peerId) {
     return true;
 }
 
+bool LanMatchTransport::disconnectPeerAfterWrites(TransportPeerId peerId) {
+    const auto connectionIt = connections_.find(peerId);
+    if (connectionIt == connections_.end()) {
+        return false;
+    }
+    connectionIt->second.connection->closeAfterWrites();
+    connections_.erase(connectionIt);
+    return true;
+}
+
 std::vector<PartyPeerFrame> LanMatchTransport::drainPartyJoinRequests() {
     std::vector<PartyPeerFrame> requests;
     requests.reserve(pendingPartyJoinRequests_.size());

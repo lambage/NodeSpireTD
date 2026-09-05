@@ -48,6 +48,7 @@ class LanMatchTransport final : public IMatchTransport {
     bool markPeerJoined(TransportPeerId peerId);
     bool sendJoinResult(TransportPeerId peerId, std::string payload);
     bool disconnectPeer(TransportPeerId peerId);
+    bool disconnectPeerAfterWrites(TransportPeerId peerId);
 
     // Peers whose connection dropped unexpectedly (not via an explicit disconnectPeer() call)
     // since the last drain. The owner (MultiplayerSession) uses this to remove the peer's party

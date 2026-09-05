@@ -56,6 +56,7 @@ class LanFramedConnection : public std::enable_shared_from_this<LanFramedConnect
     // the first read/write failure (the connection is unusable afterward).
     void startReading(FrameHandler onFrame, ErrorHandler onError);
     void queueWrite(std::uint8_t kind, std::string payload);
+    void closeAfterWrites();
     void close();
 
     static constexpr std::size_t kHeaderSize = 5;
@@ -71,6 +72,7 @@ class LanFramedConnection : public std::enable_shared_from_this<LanFramedConnect
     std::string readBody_;
     std::deque<std::string> outgoing_;
     bool writing_ = false;
+    bool closeAfterWrites_ = false;
     bool closed_ = false;
 };
 

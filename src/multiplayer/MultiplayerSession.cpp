@@ -8,6 +8,25 @@
 #include <utility>
 
 namespace multiplayer {
+namespace {
+
+const char* partyJoinRejectionName(PartyJoinRejectionReason reason) {
+    switch (reason) {
+    case PartyJoinRejectionReason::ProtocolVersionUnsupported:
+        return "protocol version unsupported";
+    case PartyJoinRejectionReason::PartyFull:
+        return "party full";
+    case PartyJoinRejectionReason::DisplayNameInvalid:
+        return "display name invalid";
+    case PartyJoinRejectionReason::AlreadyConnected:
+        return "player identity already connected";
+    case PartyJoinRejectionReason::Unspecified:
+    default:
+        return "unspecified";
+    }
+}
+
+} // namespace
 
 bool MultiplayerSession::hostParty(unsigned short port, std::string displayName, std::string playerUuid) {
     leaveParty();
@@ -291,6 +310,9 @@ void MultiplayerSession::pumpHostSide() {
             spdlog::info("MultiplayerSession[host]: peer {} joined party as player {} ('{}').", request.peerId,
                          playerId, decoded.request->displayName);
             joinedDisplayName = decoded.request->displayName;
+        } else if (const auto* rejected = std::get_if<PartyJoinRejected>(&result)) {
+            spdlog::warn("MultiplayerSession[host]: rejected party join from peer {}: {}.", request.peerId,
+                         partyJoinRejectionName(rejected->reason));
         }
 
         if (const auto serialized = PartyProtocolAdapter::serializePartyJoinResult(result)) {
@@ -300,7 +322,7 @@ void MultiplayerSession::pumpHostSide() {
             broadcastSystemMessage(joinedDisplayName + " connected.");
             sendSystemMessageToPeer(request.peerId, "Welcome to the party, " + joinedDisplayName + ".");
         } else if (std::holds_alternative<PartyJoinRejected>(result)) {
-            hostTransport_.disconnectPeer(request.peerId);
+            hostTransport_.disconnectPeerAfterWrites(request.peerId);
         }
     }
 
@@ -326,7 +348,7 @@ void MultiplayerSession::pumpHostSide() {
             for (auto it = peerToPlayerId_.begin(); it != peerToPlayerId_.end(); ++it) {
                 if (it->second == request->targetPlayerId) {
                     notifyPeerKicked(it->first);
-                    hostTransport_.disconnectPeer(it->first);
+                    hostTransport_.disconnectPeerAfterWrites(it->first);
                     peerToPlayerId_.erase(it);
                     break;
                 }
@@ -397,8 +419,9 @@ void MultiplayerSession::pumpClientSide() {
                 if (const auto* accepted = std::get_if<PartyJoinAccepted>(&*result)) {
                     localPlayerId_ = accepted->playerId;
                     remoteRoster_ = accepted->roster;
-                } else {
-                    spdlog::warn("MultiplayerSession[client]: party join rejected by host.");
+                } else if (const auto* rejected = std::get_if<PartyJoinRejected>(&*result)) {
+                    spdlog::warn("MultiplayerSession[client]: party join rejected by host: {}.",
+                                 partyJoinRejectionName(rejected->reason));
                     client_.disconnect();
                     role_ = MultiplayerRole::Solo;
                     resetToSolo();

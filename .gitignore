@@ -59,6 +59,7 @@ compile_commands.json
 *.bak
 *.swp
 logs/
+config/profile.json
 
 # vcpkg
 vcpkg_installed/
