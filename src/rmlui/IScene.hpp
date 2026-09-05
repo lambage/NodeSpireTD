@@ -34,6 +34,9 @@ class IScene {
     virtual SceneTransition onKeyDown(Rml::Input::KeyIdentifier /*key*/) {
         return std::nullopt;
     }
+
+    // Called after RmlUi leaves a key unhandled. Return true when the active scene consumes it.
+    virtual bool handleShortcut(Rml::Input::KeyIdentifier /*key*/) { return false; }
 };
 
 } // namespace NodeSpireUi

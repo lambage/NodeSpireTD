@@ -201,6 +201,13 @@ void MultiplayerSession::broadcastSystemMessage(std::string text) {
     }
 }
 
+void MultiplayerSession::sendSystemMessageToPeer(TransportPeerId peerId, std::string text) {
+    const PartyChatMessage message{0, "System", std::move(text), false};
+    if (const auto serialized = PartyProtocolAdapter::serializePartyChatMessage(message)) {
+        hostTransport_.sendPartyChatMessage(peerId, *serialized);
+    }
+}
+
 void MultiplayerSession::notifyPeerKicked(TransportPeerId peerId) {
     if (const auto serialized = PartyProtocolAdapter::serializePartyChatCommandError(
             PartyChatCommandError{"You were kicked from the party."})) {
@@ -237,6 +244,7 @@ void MultiplayerSession::pumpHostSide() {
     for (auto& request : hostTransport_.drainPartyJoinRequests()) {
         const auto decoded = PartyProtocolAdapter::decodePartyJoinRequest(request.payload);
         PartyJoinResult result = PartyJoinRejected{PartyJoinRejectionReason::Unspecified};
+        std::string joinedDisplayName;
         if (decoded.request) {
             result = partyGate_.evaluateJoin(*decoded.request);
         }
@@ -250,13 +258,16 @@ void MultiplayerSession::pumpHostSide() {
             hostTransport_.markPeerPartyJoined(request.peerId);
             spdlog::info("MultiplayerSession[host]: peer {} joined party as player {} ('{}').", request.peerId,
                          playerId, decoded.request->displayName);
-            broadcastSystemMessage(decoded.request->displayName + " joined the party.");
+            joinedDisplayName = decoded.request->displayName;
         }
 
         if (const auto serialized = PartyProtocolAdapter::serializePartyJoinResult(result)) {
             hostTransport_.sendPartyJoinResult(request.peerId, *serialized);
         }
-        if (std::holds_alternative<PartyJoinRejected>(result)) {
+        if (!joinedDisplayName.empty()) {
+            broadcastSystemMessage(joinedDisplayName + " connected.");
+            sendSystemMessageToPeer(request.peerId, "Welcome to the party, " + joinedDisplayName + ".");
+        } else if (std::holds_alternative<PartyJoinRejected>(result)) {
             hostTransport_.disconnectPeer(request.peerId);
         }
     }

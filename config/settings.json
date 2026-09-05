@@ -2,12 +2,12 @@
     "displayHeight": 1024,
     "displayWidth": 1600,
     "exclusiveFullscreen": false,
-    "fullscreen": false,
+    "fullscreen": true,
     "graphicsQuality": 0,
     "masterVolume": 0.14999999105930328,
     "musicVolume": 0.14000000059604645,
     "muteWhenUnfocused": true,
-    "refreshRate": 60,
+    "refreshRate": 30,
     "sfxVolume": 1.0,
-    "vSyncEnabled": false
+    "vSyncEnabled": true
 }

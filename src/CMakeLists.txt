@@ -163,19 +163,6 @@ endfunction()
 
 # nodespire_stage_runtime_dependencies(NodeSpireTD-imgui)
 
-# set(NODESPIRE_INSTALL_TARGETS NodeSpireTD-imgui)
-
-install(TARGETS ${NODESPIRE_INSTALL_TARGETS}
-    RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
-    RUNTIME DESTINATION "."
-)
-install(RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
-    DESTINATION "."
-    PRE_EXCLUDE_REGEXES "api-ms-win-.*" "ext-ms-win-.*"
-    POST_EXCLUDE_REGEXES ".*[\\/]system32[\\/].*"
-)
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ".")
-
 # ── Lua metadata generation for LuaLS ─────────────────────────────────────────
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
@@ -266,6 +253,13 @@ add_executable(NodeSpireTD
     RmlUiFontLoader.cpp
     SettingsManager.cpp
     AudioEngine.cpp
+    multiplayer/ChatCommandDispatcher.cpp
+    multiplayer/LanFramedConnection.cpp
+    multiplayer/LanMatchClient.cpp
+    multiplayer/LanMatchTransport.cpp
+    multiplayer/MultiplayerSession.cpp
+    multiplayer/PartyProtocolAdapter.cpp
+    multiplayer/PlayerProfileStore.cpp
     rmlui_backend/RmlUi_Platform_SDL.cpp
     rmlui_backend/RmlUi_Renderer_VK.cpp
     rmlui_backend/RmlUi_Backend_SDL_VK.cpp
@@ -295,7 +289,20 @@ target_link_libraries(NodeSpireTD PRIVATE
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     fmt::fmt
+    NodeSpireMatchProtocol
+    NodeSpirePartyProtocol
 )
 
 nodespire_stage_runtime_dependencies(NodeSpireTD)
+
+install(TARGETS NodeSpireTD
+    RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+    RUNTIME DESTINATION "."
+)
+install(RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+    DESTINATION "."
+    PRE_EXCLUDE_REGEXES "api-ms-win-.*" "ext-ms-win-.*"
+    POST_EXCLUDE_REGEXES ".*[\\/]system32[\\/].*"
+)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ".")
 

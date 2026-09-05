@@ -12,6 +12,11 @@ class Context;
 
 class AudioEngine;
 
+namespace multiplayer {
+class MultiplayerSession;
+class PlayerProfileStore;
+}
+
 namespace NodeSpireUi {
 
 // Owns the currently active scene and switches between scenes on request.
@@ -19,10 +24,12 @@ namespace NodeSpireUi {
 // constructed lazily on entry and destroyed on exit.
 class SceneManager {
   public:
-    SceneManager(Rml::Context& context, SceneId initialScene, AudioEngine& audio);
+    SceneManager(Rml::Context& context, SceneId initialScene, AudioEngine& audio,
+           multiplayer::MultiplayerSession& multiplayerSession,
+           multiplayer::PlayerProfileStore& playerProfileStore);
 
     void update(float dt);
-    void handleKeyDown(Rml::Input::KeyIdentifier key);
+    bool handleKeyDown(Rml::Input::KeyIdentifier key);
 
     SceneId activeSceneId() const { return activeSceneId_; }
 
@@ -32,6 +39,8 @@ class SceneManager {
 
     Rml::Context& context_;
     AudioEngine& audio_;
+    multiplayer::MultiplayerSession& multiplayerSession_;
+    multiplayer::PlayerProfileStore& playerProfileStore_;
     SceneId activeSceneId_;
     std::unique_ptr<IScene> activeScene_;
 };

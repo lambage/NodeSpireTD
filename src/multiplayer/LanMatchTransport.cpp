@@ -248,6 +248,16 @@ std::vector<PartyPeerFrame> LanMatchTransport::drainPartyChatSendRequests() {
     return requests;
 }
 
+bool LanMatchTransport::sendPartyChatMessage(TransportPeerId peerId, std::string payload) {
+    const auto connectionIt = connections_.find(peerId);
+    if (payload.empty() || connectionIt == connections_.end() || !connectionIt->second.partyJoined) {
+        return false;
+    }
+    connectionIt->second.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyChatMessage),
+                                                std::move(payload));
+    return true;
+}
+
 bool LanMatchTransport::markPeerPartyJoined(TransportPeerId peerId) {
     const auto connectionIt = connections_.find(peerId);
     if (connectionIt == connections_.end()) {

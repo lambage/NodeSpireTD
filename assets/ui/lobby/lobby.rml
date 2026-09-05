@@ -6,11 +6,12 @@
 <body>
 	<div id="lobby-root">
 		<div id="lobby-background"></div>
+		<div id="lobby-shade"></div>
 		<header>
 			<button id="back-button" class="icon-button">&#x2039;</button>
 			<div class="brand-block">
-				<div class="eyebrow">NODE SPIRE COMMAND</div>
-				<div class="title">Match Lobby</div>
+				<div class="eyebrow">NODE SPIRE TD</div>
+				<div class="title">Match</div>
 			</div>
 			<div class="account-strip">
 				<span class="online-dot"></span>
@@ -22,7 +23,7 @@
 		<main>
 			<section class="launch-rail">
 				<div class="section-kicker">DEPLOYMENT</div>
-				<h1>Choose your run</h1>
+				<h1>Start your adventure</h1>
 				<p class="section-copy">Take the first watch alone, or build a party before entering the Spire.</p>
 				<button id="solo-button" class="primary-button">
 					<span class="button-label">Start solo</span>
@@ -30,6 +31,8 @@
 				</button>
 				<div class="mode-divider"><span>OR PARTY UP</span></div>
 				<div id="party-setup">
+					<label class="profile-label" for="player-name">CALLSIGN</label>
+					<input id="player-name" type="text" maxlength="32" placeholder="Player name"/>
 					<button id="host-button" class="secondary-button">Create party</button>
 					<div class="join-row">
 						<input id="join-address" type="text" value="127.0.0.1" maxlength="64"/>
@@ -44,7 +47,7 @@
 						</div>
 						<div class="party-code">4 SLOTS</div>
 					</div>
-					<div class="roster">
+					<div id="party-roster" class="roster">
 						<div class="roster-row local-player">
 							<span id="local-player-name" class="player-name">You</span>
 							<span id="local-player-state" class="player-state">NOT READY</span>

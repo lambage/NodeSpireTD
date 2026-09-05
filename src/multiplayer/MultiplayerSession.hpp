@@ -84,6 +84,7 @@ class MultiplayerSession {
     // log and, if hosting, relays it to every connected member -- used for join/leave/kick/host
     // lifecycle notices so they read like ordinary chat lines instead of a separate UI element.
     void broadcastSystemMessage(std::string text);
+    void sendSystemMessageToPeer(TransportPeerId peerId, std::string text);
     // Host-only: best-effort targeted notice sent to a peer immediately before disconnecting them
     // for a kick, so their own client can distinguish "kicked" from an ordinary connection drop.
     void notifyPeerKicked(TransportPeerId peerId);

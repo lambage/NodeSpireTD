@@ -4,6 +4,8 @@
 #include "AudioEngine.hpp"
 #include "RmlUiFontLoader.hpp"
 #include "SettingsManager.hpp"
+#include "multiplayer/MultiplayerSession.hpp"
+#include "multiplayer/PlayerProfileStore.hpp"
 #include "rmlui/SceneManager.hpp"
 #include "rmlui/SceneTypes.hpp"
 
@@ -73,9 +75,7 @@ bool ProcessKeyDownShortcuts(Rml::Context* /*context*/, Rml::Input::KeyIdentifie
     // scene transition, so unrelated keys still reach the RmlUi context.
     if (!priority && g_sceneManager)
     {
-        const NodeSpireUi::SceneId before = g_sceneManager->activeSceneId();
-        g_sceneManager->handleKeyDown(key);
-        if (g_sceneManager->activeSceneId() != before)
+        if (g_sceneManager->handleKeyDown(key))
             return false;
     }
     return true;
@@ -121,8 +121,11 @@ int main(int /*argc*/, char** /*argv*/)
 
     AudioEngine audioEngine;
     audioEngine.setEffectiveSettings(SettingsManager().loadOrCreateDefaults());
+    multiplayer::MultiplayerSession multiplayerSession;
+    multiplayer::PlayerProfileStore playerProfileStore;
 
-    NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash, audioEngine);
+    NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash, audioEngine, multiplayerSession,
+                                           playerProfileStore);
     g_sceneManager = &sceneManager;
 
     double lastElapsedTime = systemInterface.GetElapsedTime();
@@ -130,11 +133,13 @@ int main(int /*argc*/, char** /*argv*/)
     bool running = true;
     while (running)
     {
-        running = Backend::ProcessEvents(context, ProcessKeyDownShortcuts, true);
+        // Bound the event wait so party traffic advances without focus while rendering stays paced.
+        running = Backend::ProcessEvents(context, ProcessKeyDownShortcuts, true, 1.0 / 60.0);
 
         const double elapsedTime = systemInterface.GetElapsedTime();
         const float dt = static_cast<float>(elapsedTime - lastElapsedTime);
         lastElapsedTime = elapsedTime;
+        multiplayerSession.update();
         sceneManager.update(dt);
         audioEngine.update(dt);
 

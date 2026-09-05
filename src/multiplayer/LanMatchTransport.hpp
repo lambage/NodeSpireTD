@@ -72,6 +72,7 @@ class LanMatchTransport final : public IMatchTransport {
     // Chat/emote traffic. Like ready/kick, a peer must be party-joined before its chat intents
     // are trusted (enforced in handleFrame(), not by the caller).
     std::vector<PartyPeerFrame> drainPartyChatSendRequests();
+    bool sendPartyChatMessage(TransportPeerId peerId, std::string payload);
     void broadcastPartyChatMessage(std::string payload);
     bool sendPartyChatCommandError(TransportPeerId peerId, std::string payload);
 

@@ -212,7 +212,7 @@ static void SynchronizeWindowSize(Rml::Context* context)
 	}
 }
 
-bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_callback, bool power_save)
+bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_callback, bool power_save, double max_wait_seconds)
 {
 	RMLUI_ASSERT(data && context);
 
@@ -250,7 +250,7 @@ bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_call
 
 	SDL_Event ev;
 	if (power_save)
-		has_event = SDL_WaitEventTimeout(&ev, static_cast<int>(Rml::Math::Min(context->GetNextUpdateDelay(), 10.0) * 1000));
+		has_event = SDL_WaitEventTimeout(&ev, static_cast<int>(Rml::Math::Min(context->GetNextUpdateDelay(), max_wait_seconds) * 1000));
 	else
 		has_event = SDL_PollEvent(&ev);
 

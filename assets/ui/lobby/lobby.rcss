@@ -17,15 +17,23 @@ body
 	background-color: #090c0de8;
 }
 
-#lobby-background
+#lobby-background, #lobby-shade
 {
 	position: absolute;
 	left: 0;
 	top: 0;
 	width: 100%;
 	height: 100%;
+}
+
+#lobby-background
+{
 	decorator: image("../../images/splash_screen.png" cover center center);
-	filter: brightness(0.24) saturate(0.55);
+}
+
+#lobby-shade
+{
+	background-color: #050908c2;
 }
 
 header
@@ -200,6 +208,19 @@ button
 	border-color: #ff9a7f;
 }
 
+.primary-button:disabled, .primary-button:disabled:hover
+{
+	color: #696d68;
+	background-color: #202522;
+	border-color: #3e4842;
+	opacity: 0.55;
+}
+
+.primary-button:disabled .button-note, .primary-button:disabled:hover .button-note
+{
+	color: #696d68;
+}
+
 .button-label, .button-note
 {
 	display: block;
@@ -268,6 +289,20 @@ input[type="text"]
 input[type="text"]:focus
 {
 	border-color: #8bb9a5;
+}
+
+.profile-label
+{
+	display: block;
+	margin-bottom: 5dp;
+	font-size: 10dp;
+	color: #83b9a4;
+}
+
+#player-name
+{
+	width: 100%;
+	margin-bottom: 10dp;
 }
 
 #join-address
@@ -441,8 +476,9 @@ input[type="text"]:focus
 	border: 1dp #344039;
 }
 
-.chat-placeholder, .system-message, .chat-message
+.chat-placeholder, .system-message, .chat-message, .emote-message
 {
+	display: block;
 	font-size: 12dp;
 	color: #69766e;
 	margin: 0 0 7dp 0;
@@ -456,6 +492,11 @@ input[type="text"]:focus
 .chat-message
 {
 	color: #d7ded5;
+}
+
+.emote-message
+{
+	color: #d99a62;
 }
 
 .chat-author
