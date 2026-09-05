@@ -35,9 +35,6 @@ if(NOT TARGET Freetype::Freetype)
     add_library(Freetype::Freetype ALIAS freetype-interface)
 endif()
 
-# SDL3 is the windowing/input/audio replacement for SFML. Both are fetched
-# side-by-side during the migration; SFML is removed once every call site
-# (windowing, Vulkan surface creation, audio) has moved over.
 # Pinned to 3.4.16 (not 3.2.20): SDL_mixer 3.2.4 requires the SDL_ALIGNED()
 # macro and newer SDL_*AudioStream() signatures that 3.2.20's SDL_begin_code.h
 # doesn't have yet, which fails to compile against the older SDL3.
@@ -132,7 +129,7 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(rmlui)
 
-# The vendored FreeType (fetched transitively via SFML) compiles its autohint
+# The vendored FreeType compiles its autohint
 # code against HarfBuzz whenever HarfBuzz is available, but doesn't always add
 # the static link dependency itself (it assumes dynamic loading in that case).
 # Link it explicitly so rmlui_core resolves the hb_* symbols at link time.
