@@ -41,6 +41,8 @@ bool LanMatchClient::connect(const std::string& host, unsigned short port) {
                 latestPartyRosterSnapshot_ = std::move(payload);
             } else if (kind == static_cast<std::uint8_t>(LanFrameKind::PartyMatchStart)) {
                 latestPartyMatchStart_ = std::move(payload);
+            } else if (kind == static_cast<std::uint8_t>(LanFrameKind::PartyMatchBegin)) {
+                partyMatchBeginPending_ = true;
             } else if (kind == static_cast<std::uint8_t>(LanFrameKind::PartyChatMessage)) {
                 partyChatMessages_.push_back(std::move(payload));
             } else if (kind == static_cast<std::uint8_t>(LanFrameKind::PartyChatCommandError)) {
@@ -74,6 +76,8 @@ void LanMatchClient::disconnect() {
         connection_->close();
         connection_.reset();
     }
+    latestPartyMatchStart_.reset();
+    partyMatchBeginPending_ = false;
 }
 
 bool LanMatchClient::isConnected() const {
@@ -158,6 +162,10 @@ std::optional<std::string> LanMatchClient::consumePartyMatchStart() {
         return std::nullopt;
     }
     return std::exchange(latestPartyMatchStart_, std::nullopt);
+}
+
+bool LanMatchClient::consumePartyMatchBegin() {
+    return std::exchange(partyMatchBeginPending_, false);
 }
 
 bool LanMatchClient::sendPartyChatSendRequest(std::string payload) {

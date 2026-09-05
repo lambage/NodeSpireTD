@@ -62,6 +62,29 @@ function(nodespire_stage_runtime_dependencies targetName)
     endif()
 endfunction()
 
+# SDL-native game Vulkan ownership shared by world and RmlUi rendering.
+add_library(NodeSpireVulkanContext STATIC
+    VulkanContext.cpp
+)
+
+target_compile_definitions(NodeSpireVulkanContext
+    PUBLIC VK_NO_PROTOTYPES
+    PRIVATE
+    VMA_STATIC_VULKAN_FUNCTIONS=0
+    VMA_DYNAMIC_VULKAN_FUNCTIONS=1
+)
+
+target_include_directories(NodeSpireVulkanContext PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+target_link_libraries(NodeSpireVulkanContext PUBLIC
+    SDL3::SDL3
+    GPUOpen::VulkanMemoryAllocator
+    volk::volk
+    vk-bootstrap::vk-bootstrap
+)
+
 # add_executable(NodeSpireTD-imgui 
 #     main.cpp
 #     AppController.cpp
@@ -231,22 +254,16 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/groundCircle.vert.spv"
         "${SHADER_SRC}/groundCircle.frag.spv"
     )
-    # No target currently depends on MeshShaders: NodeSpireTD-imgui (the only
-    # consumer, via WorldRenderer) is disabled now that SFML is gone, and
-    # NodeSpireTD (RmlUi) hasn't reached the PlayLevel scene yet.
+    # NodeSpireTD depends on MeshShaders below because its native PlayLevel scene
+    # renders WorldRenderer before the RmlUi HUD in the shared command buffer.
 
 else()
     message(WARNING "glslc not found — pre-compile mesh.vert/frag to .spv manually and place in assets/shaders/")
 endif()
 
 # ── NodeSpireTD (RmlUi bring-up) ──────────────────────────────────────────────
-# SDL3+Vulkan RmlUi app. The RmlUi SDL_VK sample backend is forked (not used via
-# add_subdirectory("Backends")/rmlui_backend_SDL_VK) into src/rmlui_backend/ so
-# RenderInterface_VK::LoadTexture can be modified to decode more than 24/32bit
-# uncompressed TGA (see src/rmlui_backend/RmlUi_Renderer_VK.cpp). It is still
-# self-contained (owns its own VkInstance/VkDevice) and not yet reconciled with
-# VulkanContext. This is the seed for the eventual RmlUi replacement of
-# NodeSpireTD-imgui.
+# SDL3+Vulkan RmlUi app. The renderer is forked from RmlUi's SDL_VK sample but
+# borrows VulkanContext's device, allocator, swapchain formats, and active command buffer.
 
 add_executable(NodeSpireTD
     RmlUiApp.cpp
@@ -264,14 +281,22 @@ add_executable(NodeSpireTD
     rmlui_backend/RmlUi_Renderer_VK.cpp
     rmlui_backend/RmlUi_Backend_SDL_VK.cpp
     rmlui/SceneManager.cpp
+    rmlui/playlevel/PlayLevelUiContract.cpp
+    rmlui/scenes/PlayLevelScene.cpp
     rmlui/scenes/SplashScene.cpp
     rmlui/scenes/MainMenuScene.cpp
     rmlui/scenes/LobbyScene.cpp
     rmlui/scenes/OptionsScene.cpp
+    utility/StaticGeometryBVH.cpp
+    utility/TemplateAnimator.cpp
+    utility/WorldAssetLoader.cpp
+    utility/WorldRenderer.cpp
 )
 
 target_compile_definitions(NodeSpireTD PRIVATE
     RMLUI_SDL_VERSION_MAJOR=3
+    VMA_STATIC_VULKAN_FUNCTIONS=0
+    VMA_DYNAMIC_VULKAN_FUNCTIONS=1
 )
 
 target_include_directories(NodeSpireTD PRIVATE
@@ -285,13 +310,19 @@ target_link_libraries(NodeSpireTD PRIVATE
     rmlui
     SDL3::SDL3
     SDL3_mixer::SDL3_mixer
-    Vulkan::Vulkan
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     fmt::fmt
+    glm::glm
+    fastgltf
     NodeSpireMatchProtocol
     NodeSpirePartyProtocol
+    NodeSpireVulkanContext
 )
+
+if(TARGET MeshShaders)
+    add_dependencies(NodeSpireTD MeshShaders)
+endif()
 
 nodespire_stage_runtime_dependencies(NodeSpireTD)
 

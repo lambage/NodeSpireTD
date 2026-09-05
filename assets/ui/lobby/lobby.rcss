@@ -165,13 +165,13 @@ h1, h2
 h1
 {
 	font-size: 30dp;
-	margin: 5dp 0 10dp 0;
+	margin: 5dp 5dp 10dp 0;
 }
 
 h2
 {
 	font-size: 24dp;
-	margin: 5dp 0 10dp 0;
+	margin: 5dp 5dp 10dp 0;
 }
 
 .section-copy, .shop-rail p, #solo-briefing p
@@ -200,6 +200,19 @@ button
 	padding: 15dp 18dp;
 	background-color: #9a3f32;
 	border: 1dp #d06b55;
+}
+
+#rejoin-button
+{
+	margin-top: 10dp;
+	background-color: #245543;
+	border-color: #65a98b;
+}
+
+#rejoin-button:hover
+{
+	background-color: #307057;
+	border-color: #8bd0b0;
 }
 
 .primary-button:hover
@@ -403,7 +416,26 @@ input[type="text"]:focus
 #solo-briefing
 {
 	display: block;
-	height: 45%;
+	height: 48%;
+}
+
+.level-picker-button
+{
+	display: block;
+	width: 100%;
+	margin-top: 16dp;
+	padding: 10dp 13dp;
+	font-size: 12dp;
+	text-align: left;
+	color: #dce8df;
+	background-color: #17231f;
+	border: 1dp #60786b;
+}
+
+.level-picker-button:hover
+{
+	background-color: #24352f;
+	border-color: #9ac7b2;
 }
 
 .briefing-mark
@@ -556,6 +588,11 @@ input[type="text"]:focus
 	background-color: #6e9d8a;
 }
 
+.crates-preview .preview-glyph
+{
+	background-color: #45689c;
+}
+
 .preview-name, .preview-note
 {
 	display: block;
@@ -583,6 +620,189 @@ input[type="text"]:focus
 	text-align: center;
 	color: #776d50;
 	border: 1dp #4c4635;
+}
+
+#level-selector
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	z-index: 20;
+}
+
+.level-selector-shade
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	background-color: #030605d9;
+}
+
+.level-selector-panel
+{
+	position: absolute;
+	left: 7%;
+	top: 16%;
+	width: 86%;
+	height: 68%;
+	padding: 24dp 28dp;
+	background-color: #0e1513;
+	border: 1dp #718078;
+}
+
+.level-selector-header, .level-selector-actions, .level-carousel
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+}
+
+.level-selector-header
+{
+	justify-content: space-between;
+	height: 16%;
+	border-bottom: 1dp #344039;
+}
+
+.level-selector-header h2
+{
+	margin-bottom: 7dp;
+}
+
+.carousel-count
+{
+	font-size: 10dp;
+	color: #849188;
+}
+
+.level-carousel
+{
+	height: 68%;
+	padding-top: 18dp;
+	padding-bottom: 18dp;
+}
+
+#level-carousel-track
+{
+	display: flex;
+	flex-direction: row;
+	width: 90%;
+	height: 100%;
+}
+
+.carousel-arrow
+{
+	width: 5%;
+	height: 54dp;
+	font-family: "Times New Roman";
+	font-size: 34dp;
+	line-height: 34dp;
+	color: #dce5de;
+	background-color: transparent;
+	border: 0;
+}
+
+.carousel-arrow:hover
+{
+	color: #ffffff;
+	background-color: #24332e;
+}
+
+.carousel-arrow.is-disabled, .carousel-arrow.is-disabled:hover
+{
+	color: #414b46;
+	background-color: transparent;
+}
+
+.level-card
+{
+	display: block;
+	width: 31.33%;
+	height: 100%;
+	margin: 0 1%;
+	padding: 0;
+	text-align: left;
+	background-color: #121a17;
+	border: 1dp #3d4a44;
+}
+
+.level-card:hover
+{
+	background-color: #18231f;
+	border-color: #779286;
+}
+
+.level-card.is-selected, .level-card.is-selected:hover
+{
+	background-color: #1b2924;
+	border: 2dp #d7ae54;
+}
+
+.level-thumbnail
+{
+	display: block;
+	width: 100%;
+	height: 50%;
+}
+
+.level-card-copy, .level-card-name, .level-card-description, .level-card-meta
+{
+	display: block;
+}
+
+.level-card-copy
+{
+	padding: 12dp 14dp;
+}
+
+.level-card-name
+{
+	font-family: "Times New Roman";
+	font-weight: bold;
+	font-size: 19dp;
+	color: #f3f0df;
+}
+
+.level-card-description
+{
+	height: 44dp;
+	margin-top: 5dp;
+	font-size: 11dp;
+	line-height: 15dp;
+	color: #9ca8a1;
+}
+
+.level-card-meta
+{
+	margin-top: 7dp;
+	font-size: 9dp;
+	color: #d7ae54;
+}
+
+.level-selector-actions
+{
+	justify-content: flex-end;
+	height: 16%;
+	border-top: 1dp #344039;
+}
+
+.level-selector-actions .text-button
+{
+	width: 120dp;
+	margin-right: 10dp;
+	text-align: center;
+}
+
+.level-selector-actions .primary-button
+{
+	width: 180dp;
+	padding: 11dp 16dp;
+	font-size: 14dp;
+	text-align: center;
 }
 
 footer

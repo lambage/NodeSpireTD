@@ -8,15 +8,17 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
-#include <SFML/Graphics/Image.hpp>
+#include <stb_image.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <map>
@@ -258,40 +260,71 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
             setActivity(0.08f + 0.52f * (static_cast<float>(imgsDone) / std::max(1, totalImgs)),
                         "Decoding " + imgName + " (" + activityLabel + ")");
 
-            sf::Image sfImg;
-            bool ok = false;
+            WorldStagedTexture stagedTexture;
+            stagedTexture.imageIndex = textureKey;
+            stagedTexture.displayName = imgName;
+
+            const auto decodeImage = [&stagedTexture](const std::byte* bytes, std::size_t byteCount) {
+                if (!bytes || byteCount == 0 || byteCount > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+                    return false;
+                }
+
+                int width = 0;
+                int height = 0;
+                int sourceChannels = 0;
+                stbi_uc* pixels = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(bytes),
+                                                        static_cast<int>(byteCount), &width, &height,
+                                                        &sourceChannels, STBI_rgb_alpha);
+                if (!pixels || width <= 0 || height <= 0) {
+                    stbi_image_free(pixels);
+                    return false;
+                }
+
+                const std::size_t pixelByteCount = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4;
+                stagedTexture.width = static_cast<std::uint32_t>(width);
+                stagedTexture.height = static_cast<std::uint32_t>(height);
+                stagedTexture.pixels.assign(pixels, pixels + pixelByteCount);
+                stbi_image_free(pixels);
+                return true;
+            };
+
+            bool decoded = false;
 
             std::visit(fastgltf::visitor{
                 [&](const fastgltf::sources::URI& src) {
-                    ok = sfImg.loadFromFile(srcDir / std::string(src.uri.path()));
+                    const std::filesystem::path imagePath = srcDir / std::string(src.uri.path());
+                    std::ifstream input(imagePath, std::ios::binary | std::ios::ate);
+                    if (!input) {
+                        return;
+                    }
+                    const std::streamsize size = input.tellg();
+                    if (size <= 0) {
+                        return;
+                    }
+                    input.seekg(0, std::ios::beg);
+                    std::vector<std::byte> bytes(static_cast<std::size_t>(size));
+                    if (input.read(reinterpret_cast<char*>(bytes.data()), size)) {
+                        decoded = decodeImage(bytes.data(), bytes.size());
+                    }
                 },
                 [&](const fastgltf::sources::BufferView& src) {
                     const auto& bv = srcAsset.bufferViews[src.bufferViewIndex];
                     const auto& buf = srcAsset.buffers[bv.bufferIndex];
                     std::visit(fastgltf::visitor{
                         [&](const fastgltf::sources::Array& d) {
-                            ok = sfImg.loadFromMemory(
-                                static_cast<const void*>(d.bytes.data() + bv.byteOffset),
-                                bv.byteLength);
+                            decoded = decodeImage(d.bytes.data() + bv.byteOffset, bv.byteLength);
                         },
                         [](const auto&) {}
                     }, buf.data);
                 },
                 [&](const fastgltf::sources::Array& src) {
-                    ok = sfImg.loadFromMemory(static_cast<const void*>(src.bytes.data()), src.bytes.size());
+                    decoded = decodeImage(src.bytes.data(), src.bytes.size());
                 },
                 [](const auto&) {}
             }, gltfImg.data);
 
-            if (ok) {
-                const auto sz = sfImg.getSize();
-                WorldStagedTexture st;
-                st.imageIndex = textureKey;
-                st.displayName = imgName;
-                st.width = sz.x;
-                st.height = sz.y;
-                st.pixels.assign(sfImg.getPixelsPtr(), sfImg.getPixelsPtr() + sz.x * sz.y * 4);
-                outResult.textures.push_back(std::move(st));
+            if (decoded) {
+                outResult.textures.push_back(std::move(stagedTexture));
                 queuedTextureKeys.insert(textureKey);
             }
             ++imgsDone;

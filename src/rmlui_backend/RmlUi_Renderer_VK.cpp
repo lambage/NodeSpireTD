@@ -1,7 +1,6 @@
 // Forked from RmlUi's Backends/RmlUi_Renderer_VK.cpp (SDL_VK sample backend, MIT
-// licensed, see build/_deps/rmlui-src/LICENSE.txt). Modified by NodeSpireTD to add
-// multi-format texture decoding via stb_image in LoadTexture (search "NodeSpireTD"
-// for the changed sections). Everything else is unmodified upstream code.
+// licensed, see build/_deps/rmlui-src/LICENSE.txt). Modified by NodeSpireTD to use
+// VulkanContext-owned device/frame resources and to add multi-format texture decoding.
 #include "RmlUi_Renderer_VK.h"
 #include "RmlUi_Vulkan/ShadersCompiledSPV.h"
 #include <RmlUi/Core/Core.h>
@@ -163,32 +162,12 @@ void RenderInterface_VK::RenderGeometry(Rml::CompiledGeometryHandle geometry, Rm
 		"at all or 2. - Somehing is wrong with allocation and somehow it was corrupted by something.");
 
 	shader_vertex_user_data_t* p_data = nullptr;
-
-	if (p_casted_compiled_geometry->m_p_shader_allocation == nullptr)
-	{
-		// it means it was freed in ReleaseCompiledGeometry method
-		bool status = m_memory_pool.Alloc_GeneralBuffer(sizeof(m_user_data_for_vertex_shader), reinterpret_cast<void**>(&p_data),
-			&p_casted_compiled_geometry->m_p_shader, &p_casted_compiled_geometry->m_p_shader_allocation);
-		RMLUI_VK_ASSERTMSG(status, "failed to allocate VkDescriptorBufferInfo for uniform data to shaders");
-	}
-	else
-	{
-		// it means our state is dirty and we need to update data, but it is not right in terms of architecture, for real better experience would
-		// be great to free all "compiled" geometries and "re-build" them in one general way, but here I got only three callings for
-		// font-face-layer textures (load_document example) and that shit. So better to think how to make it right, if it is fine okay, if it is
-		// not okay and like we really expect that ReleaseCompiledGeometry for all objects that needs to be rebuilt so better to implement that,
-		// but still it is a big architectural thing (or at least you need to do something big commits here to implement a such feature), so my
-		// implementation doesn't break anything what we had, but still it looks strange. If I get callings for releasing maybe I need to use it
-		// for all objects not separately????? Otherwise it is better to provide method for resizing (or some kind of "resizing" callback) for
-		// recalculating all geometry IDK, so it means you pass the existed geometry that wasn't pass to ReleaseCompiledGeometry, but from another
-		// hand you need to re-build compiled geometry again so we have two kinds of geometry one is compiled and never changes and one is dynamic
-		// and it goes through pipeline InitializationOfProgram...->Compile->Render->Release->Compile->Render->Release...
-
-		m_memory_pool.Free_GeometryHandle_ShaderDataOnly(p_casted_compiled_geometry);
-		bool status = m_memory_pool.Alloc_GeneralBuffer(sizeof(m_user_data_for_vertex_shader), reinterpret_cast<void**>(&p_data),
-			&p_casted_compiled_geometry->m_p_shader, &p_casted_compiled_geometry->m_p_shader_allocation);
-		RMLUI_VK_ASSERTMSG(status, "failed to allocate VkDescriptorBufferInfo for uniform data to shaders");
-	}
+	VkDescriptorBufferInfo shader_buffer = {};
+	VmaVirtualAllocation shader_allocation = nullptr;
+	const bool status = m_memory_pool.Alloc_GeneralBuffer(sizeof(m_user_data_for_vertex_shader), reinterpret_cast<void**>(&p_data),
+		&shader_buffer, &shader_allocation);
+	RMLUI_VK_ASSERTMSG(status, "failed to allocate VkDescriptorBufferInfo for uniform data to shaders");
+	m_pending_for_deletion_uniforms_by_frames[m_semaphore_index_previous].push_back(shader_allocation);
 
 	if (p_data)
 	{
@@ -200,7 +179,7 @@ void RenderInterface_VK::RenderGeometry(Rml::CompiledGeometryHandle geometry, Rm
 		RMLUI_VK_ASSERTMSG(p_data, "you can't reach this zone, it means something bad");
 	}
 
-	const uint32_t pDescriptorOffsets = static_cast<uint32_t>(p_casted_compiled_geometry->m_p_shader.offset);
+	const uint32_t pDescriptorOffsets = static_cast<uint32_t>(shader_buffer.offset);
 
 	VkDescriptorSet p_texture_descriptor_set = nullptr;
 
@@ -265,18 +244,13 @@ void RenderInterface_VK::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
 
 	geometry_handle_t* p_casted_geometry = reinterpret_cast<geometry_handle_t*>(geometry);
 
-	m_pending_for_deletion_geometries.push_back(p_casted_geometry);
+	m_pending_for_deletion_geometries_by_frames[m_semaphore_index_previous].push_back(p_casted_geometry);
 }
 
 void RenderInterface_VK::EnableScissorRegion(bool enable)
 {
 	if (m_p_current_command_buffer == nullptr)
 		return;
-
-	if (m_is_transform_enabled)
-	{
-		m_is_apply_to_regular_geometry_stencil = true;
-	}
 
 	m_is_use_scissor_specified = enable;
 
@@ -291,79 +265,24 @@ void RenderInterface_VK::SetScissorRegion(Rml::Rectanglei region)
 {
 	if (m_is_use_scissor_specified)
 	{
-		if (m_is_transform_enabled)
-		{
-			Rml::Vertex vertices[4];
-
-			vertices[0].position = Rml::Vector2f(region.TopLeft());
-			vertices[1].position = Rml::Vector2f(region.TopRight());
-			vertices[2].position = Rml::Vector2f(region.BottomRight());
-			vertices[3].position = Rml::Vector2f(region.BottomLeft());
-
-			int indices[6] = {0, 2, 1, 0, 3, 2};
-
-			m_is_use_stencil_pipeline = true;
+		m_scissor.offset.x = Rml::Math::Clamp(region.Left(), 0, m_width);
+		m_scissor.offset.y = Rml::Math::Clamp(region.Top(), 0, m_height);
+		m_scissor.extent.width = Rml::Math::Clamp(region.Right(), m_scissor.offset.x, m_width) - m_scissor.offset.x;
+		m_scissor.extent.height = Rml::Math::Clamp(region.Bottom(), m_scissor.offset.y, m_height) - m_scissor.offset.y;
 
 #ifdef RMLUI_DEBUG
-			VkDebugUtilsLabelEXT info{};
-			info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-			info.color[0] = 1.0f;
-			info.color[1] = 1.0f;
-			info.color[2] = 0.0f;
-			info.color[3] = 1.0f;
-			info.pLabelName = "SetScissorRegion (generated region)";
+		VkDebugUtilsLabelEXT info{};
+		info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+		info.color[0] = 1.0f;
+		info.color[1] = 0.0f;
+		info.color[2] = 0.0f;
+		info.color[3] = 1.0f;
+		info.pLabelName = "SetScissorRegion (offset)";
 
-			vkCmdInsertDebugUtilsLabelEXT(m_p_current_command_buffer, &info);
+		vkCmdInsertDebugUtilsLabelEXT(m_p_current_command_buffer, &info);
 #endif
 
-			VkClearDepthStencilValue info_clear_color{};
-
-			info_clear_color.depth = 1.0f;
-			info_clear_color.stencil = 0;
-
-			VkClearAttachment clear_attachment = {};
-			clear_attachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-			clear_attachment.clearValue.depthStencil = info_clear_color;
-			clear_attachment.colorAttachment = 1;
-
-			VkClearRect clear_rect = {};
-			clear_rect.layerCount = 1;
-			clear_rect.rect.extent.width = m_width;
-			clear_rect.rect.extent.height = m_height;
-
-			vkCmdClearAttachments(m_p_current_command_buffer, 1, &clear_attachment, 1, &clear_rect);
-
-			if (Rml::CompiledGeometryHandle handle = CompileGeometry({vertices, 4}, {indices, 6}))
-			{
-				RenderGeometry(handle, {}, {});
-				ReleaseGeometry(handle);
-			}
-
-			m_is_use_stencil_pipeline = false;
-
-			m_is_apply_to_regular_geometry_stencil = true;
-		}
-		else
-		{
-			m_scissor.extent.width = region.Width();
-			m_scissor.extent.height = region.Height();
-			m_scissor.offset.x = Rml::Math::Clamp(region.Left(), 0, m_width);
-			m_scissor.offset.y = Rml::Math::Clamp(region.Top(), 0, m_height);
-
-#ifdef RMLUI_DEBUG
-			VkDebugUtilsLabelEXT info{};
-			info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-			info.color[0] = 1.0f;
-			info.color[1] = 0.0f;
-			info.color[2] = 0.0f;
-			info.color[3] = 1.0f;
-			info.pLabelName = "SetScissorRegion (offset)";
-
-			vkCmdInsertDebugUtilsLabelEXT(m_p_current_command_buffer, &info);
-#endif
-
-			vkCmdSetScissor(m_p_current_command_buffer, 0, 1, &m_scissor);
-		}
+		vkCmdSetScissor(m_p_current_command_buffer, 0, 1, &m_scissor);
 	}
 }
 
@@ -629,52 +548,18 @@ void RenderInterface_VK::SetTransform(const Rml::Matrix4f* transform)
 	m_user_data_for_vertex_shader.m_transform = m_projection * (transform ? *transform : Rml::Matrix4f::Identity());
 }
 
-void RenderInterface_VK::BeginFrame()
+void RenderInterface_VK::BeginFrame(VkCommandBuffer command_buffer, VkExtent2D extent, uint32_t frame_index)
 {
-	Wait();
-
+	m_semaphore_index_previous = frame_index % kSwapchainBackBufferCount;
 	Update_PendingForDeletion_Textures_By_Frames();
 	Update_PendingForDeletion_Geometries();
-
-	m_command_buffer_ring.OnBeginFrame();
-	m_p_current_command_buffer = m_command_buffer_ring.GetCommandBufferForActiveFrame(CommandBufferName::Primary);
-
-	VkCommandBufferBeginInfo info = {};
-
-	info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	info.pInheritanceInfo = nullptr;
-	info.pNext = nullptr;
-	info.flags = VkCommandBufferUsageFlagBits::VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-	auto status = vkBeginCommandBuffer(m_p_current_command_buffer, &info);
-
-	RMLUI_VK_ASSERTMSG(status == VkResult::VK_SUCCESS, "failed to vkBeginCommandBuffer");
-
-	VkClearValue for_filling_back_buffer_color;
-	VkClearValue for_stencil_depth;
-
-	for_stencil_depth.depthStencil = {1.0f, 0};
-	for_filling_back_buffer_color.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-
-	const VkClearValue p_color_rt[] = {for_filling_back_buffer_color, for_stencil_depth};
-
-	VkRenderPassBeginInfo info_pass = {};
-
-	info_pass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	info_pass.pNext = nullptr;
-	info_pass.renderPass = m_p_render_pass;
-	info_pass.framebuffer = m_swapchain_frame_buffers[m_image_index];
-	info_pass.pClearValues = p_color_rt;
-	info_pass.clearValueCount = 2;
-	info_pass.renderArea.offset.x = 0;
-	info_pass.renderArea.offset.y = 0;
-	info_pass.renderArea.extent.width = m_width;
-	info_pass.renderArea.extent.height = m_height;
-
-	vkCmdBeginRenderPass(m_p_current_command_buffer, &info_pass, VkSubpassContents::VK_SUBPASS_CONTENTS_INLINE);
+	m_p_current_command_buffer = command_buffer;
+	SetViewport(static_cast<int>(extent.width), static_cast<int>(extent.height));
 	vkCmdSetViewport(m_p_current_command_buffer, 0, 1, &m_viewport);
+	vkCmdSetScissor(m_p_current_command_buffer, 0, 1, &m_scissor_original);
 
 	m_is_apply_to_regular_geometry_stencil = false;
+	m_is_use_stencil_pipeline = false;
 }
 
 void RenderInterface_VK::EndFrame()
@@ -682,101 +567,50 @@ void RenderInterface_VK::EndFrame()
 	if (m_p_current_command_buffer == nullptr)
 		return;
 
-	vkCmdEndRenderPass(m_p_current_command_buffer);
-
-	auto status = vkEndCommandBuffer(m_p_current_command_buffer);
-
-	RMLUI_VK_ASSERTMSG(status == VkResult::VK_SUCCESS, "failed to vkEndCommandBuffer");
-
-	Submit();
-	Present();
-
 	m_p_current_command_buffer = nullptr;
 }
 
 void RenderInterface_VK::SetViewport(int width, int height)
 {
-	auto status = vkDeviceWaitIdle(m_p_device);
-	RMLUI_VK_ASSERTMSG(status == VkResult::VK_SUCCESS, "failed to vkDeviceWaitIdle");
-
-	if (width > 0 && height > 0)
-	{
-		m_width = width;
-		m_height = height;
-	}
-
-	if (m_p_swapchain)
-	{
-		Destroy_Swapchain();
-		DestroyResourcesDependentOnSize();
-		m_p_swapchain = {};
-	}
-
-	VkExtent2D window_extent = GetValidSurfaceExtent();
-	if (window_extent.width == 0 || window_extent.height == 0)
+	if (width <= 0 || height <= 0)
 		return;
-
-#ifdef RMLUI_VK_DEBUG
-	Rml::Log::Message(Rml::Log::Type::LT_DEBUG, "Rml width: %d height: %d | Vulkan width: %d height: %d", m_width, m_height, window_extent.width,
-		window_extent.height);
-#endif
-
-	//  we need to sync the data from Vulkan so we can't use native Rml's data about width and height so be careful otherwise we create framebuffer
-	//  with Rml's width and height but they're different to what Vulkan determines for our window (e.g. device/swapchain)
-	m_width = window_extent.width;
-	m_height = window_extent.height;
-
-	Initialize_Swapchain(window_extent);
-	CreateResourcesDependentOnSize(window_extent);
+	m_width = width;
+	m_height = height;
+	CreateResourcesDependentOnSize({static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
 }
 
 bool RenderInterface_VK::IsSwapchainValid()
 {
-	return m_p_swapchain != nullptr;
+	return m_p_device != VK_NULL_HANDLE;
 }
 
 void RenderInterface_VK::RecreateSwapchain()
 {
-	SetViewport(m_width, m_height);
+	// VulkanContext owns swapchain recreation.
 }
 
 void RenderInterface_VK::SetVSyncEnabled(bool enabled)
 {
-	const VkPresentModeKHR desired = enabled ? VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR : VkPresentModeKHR::VK_PRESENT_MODE_IMMEDIATE_KHR;
-	if (desired == m_desired_present_mode)
-		return;
-
-	m_desired_present_mode = desired;
-	RecreateSwapchain();
+	m_desired_present_mode = enabled ? VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR : VkPresentModeKHR::VK_PRESENT_MODE_IMMEDIATE_KHR;
 }
 
-bool RenderInterface_VK::Initialize(Rml::Vector<const char*> required_extensions, CreateSurfaceCallback create_surface_callback)
+bool RenderInterface_VK::Initialize(VkInstance instance, VkPhysicalDevice physical_device, VkDevice device, VkQueue graphics_queue,
+	uint32_t graphics_queue_family, VmaAllocator allocator, VkFormat color_format, VkFormat depth_format, VkExtent2D extent)
 {
 	RMLUI_ZoneScopedN("Vulkan - Initialize");
-
-	int glad_result = 0;
-	glad_result = gladLoaderLoadVulkan(VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE);
-	RMLUI_VK_ASSERTMSG(glad_result != 0, "Vulkan loader failed - Global functions");
-
-	Initialize_Instance(std::move(required_extensions));
-
+	m_p_instance = instance;
+	m_p_physical_device = physical_device;
+	m_p_device = device;
+	m_p_queue_graphics = graphics_queue;
+	m_queue_index_graphics = graphics_queue_family;
+	m_p_allocator = allocator;
+	m_color_format = color_format;
+	m_depth_format = depth_format;
 	VkPhysicalDeviceProperties physical_device_properties = {};
-	Initialize_PhysicalDevice(physical_device_properties);
-
-	glad_result = gladLoaderLoadVulkan(m_p_instance, m_p_physical_device, VK_NULL_HANDLE);
-	RMLUI_VK_ASSERTMSG(glad_result != 0, "Vulkan loader failed - Instance functions");
-
-	Initialize_Surface(create_surface_callback);
-	Initialize_QueueIndecies();
-	Initialize_Device();
-
-	glad_result = gladLoaderLoadVulkan(m_p_instance, m_p_physical_device, m_p_device);
-	RMLUI_VK_ASSERTMSG(glad_result != 0, "Vulkan loader failed - Device functions");
-
-	Initialize_Queues();
-	Initialize_SyncPrimitives();
-	Initialize_Allocator();
+	vkGetPhysicalDeviceProperties(m_p_physical_device, &physical_device_properties);
 	Initialize_Resources(physical_device_properties);
+	Create_Pipelines();
+	SetViewport(static_cast<int>(extent.width), static_cast<int>(extent.height));
 
 	return true;
 }
@@ -789,17 +623,12 @@ void RenderInterface_VK::Shutdown()
 
 	RMLUI_VK_ASSERTMSG(status == VkResult::VK_SUCCESS, "you must have a valid status here");
 
-	DestroyResourcesDependentOnSize();
+	Destroy_Pipelines();
 	Destroy_Resources();
-	Destroy_Allocator();
-	Destroy_SyncPrimitives();
-	Destroy_Swapchain();
-	Destroy_Surface();
-	Destroy_Device();
-	Destroy_ReportDebugCallback();
-	Destroy_Instance();
-
-	gladLoaderUnloadVulkan();
+	m_p_allocator = VK_NULL_HANDLE;
+	m_p_device = VK_NULL_HANDLE;
+	m_p_physical_device = VK_NULL_HANDLE;
+	m_p_instance = VK_NULL_HANDLE;
 }
 
 void RenderInterface_VK::Initialize_Instance(Rml::Vector<const char*> required_extensions) noexcept
@@ -1126,8 +955,6 @@ void RenderInterface_VK::Initialize_SyncPrimitives() noexcept
 
 void RenderInterface_VK::Initialize_Resources(const VkPhysicalDeviceProperties& physical_device_properties) noexcept
 {
-	m_command_buffer_ring.Initialize(m_p_device, m_queue_index_graphics);
-
 	const VkDeviceSize min_buffer_alignment = physical_device_properties.limits.minUniformBufferOffsetAlignment;
 	m_memory_pool.Initialize(kVideoMemoryForAllocation, min_buffer_alignment, m_p_allocator, m_p_device);
 
@@ -1206,7 +1033,6 @@ void RenderInterface_VK::Destroy_SyncPrimitives() noexcept
 
 void RenderInterface_VK::Destroy_Resources() noexcept
 {
-	m_command_buffer_ring.Shutdown();
 	m_upload_manager.Shutdown();
 
 	if (m_p_descriptor_set)
@@ -1897,7 +1723,7 @@ void RenderInterface_VK::CreateSamplers() noexcept
 void RenderInterface_VK::Create_Pipelines() noexcept
 {
 	RMLUI_VK_ASSERTMSG(m_p_pipeline_layout, "must be initialized");
-	RMLUI_VK_ASSERTMSG(m_p_render_pass, "must be initialized");
+	RMLUI_VK_ASSERTMSG(m_color_format != VK_FORMAT_UNDEFINED, "color format must be initialized");
 
 	VkPipelineInputAssemblyStateCreateInfo info_assembly_state = {};
 	info_assembly_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1936,13 +1762,13 @@ void RenderInterface_VK::Create_Pipelines() noexcept
 	info_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 	info_depth.pNext = nullptr;
 	info_depth.depthTestEnable = VK_FALSE;
-	info_depth.depthWriteEnable = VK_TRUE;
+	info_depth.depthWriteEnable = VK_FALSE;
 	info_depth.depthBoundsTestEnable = VK_FALSE;
 	info_depth.maxDepthBounds = 1.0f;
 
 	info_depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
 
-	info_depth.stencilTestEnable = VK_TRUE;
+	info_depth.stencilTestEnable = VK_FALSE;
 	info_depth.back.compareOp = VK_COMPARE_OP_ALWAYS;
 	info_depth.back.failOp = VK_STENCIL_OP_KEEP;
 	info_depth.back.depthFailOp = VK_STENCIL_OP_KEEP;
@@ -2025,7 +1851,12 @@ void RenderInterface_VK::Create_Pipelines() noexcept
 
 	VkGraphicsPipelineCreateInfo info = {};
 	info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	info.pNext = nullptr;
+	VkPipelineRenderingCreateInfo rendering_info = {};
+	rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+	rendering_info.colorAttachmentCount = 1;
+	rendering_info.pColorAttachmentFormats = &m_color_format;
+	rendering_info.depthAttachmentFormat = m_depth_format;
+	info.pNext = &rendering_info;
 	info.pInputAssemblyState = &info_assembly_state;
 	info.pRasterizationState = &info_raster_state;
 	info.pColorBlendState = &info_color_blend_state;
@@ -2037,7 +1868,7 @@ void RenderInterface_VK::Create_Pipelines() noexcept
 	info.pStages = shaders_that_will_be_used_in_pipeline.data();
 	info.pVertexInputState = &info_vertex;
 	info.layout = m_p_pipeline_layout;
-	info.renderPass = m_p_render_pass;
+	info.renderPass = VK_NULL_HANDLE;
 	info.subpass = 0;
 
 	auto status = vkCreateGraphicsPipelines(m_p_device, nullptr, 1, &info, nullptr, &m_p_pipeline_with_textures);
@@ -2314,10 +2145,6 @@ void RenderInterface_VK::CreateResourcesDependentOnSize(const VkExtent2D& real_r
 	m_projection = correction_matrix * m_projection;
 
 	SetTransform(nullptr);
-
-	CreateRenderPass();
-	CreateSwapchainFrameBuffers(real_render_image_size);
-	Create_Pipelines();
 }
 
 RenderInterface_VK::buffer_data_t RenderInterface_VK::CreateResource_StagingBuffer(VkDeviceSize size, VkBufferUsageFlags flags) noexcept
@@ -2376,7 +2203,11 @@ void RenderInterface_VK::Destroy_Textures() noexcept
 
 void RenderInterface_VK::Destroy_Geometries() noexcept
 {
-	Update_PendingForDeletion_Geometries();
+	for (uint32_t frame_index = 0; frame_index < kSwapchainBackBufferCount; ++frame_index)
+	{
+		m_semaphore_index_previous = frame_index;
+		Update_PendingForDeletion_Geometries();
+	}
 	m_memory_pool.Shutdown();
 }
 
@@ -2588,13 +2419,18 @@ void RenderInterface_VK::Update_PendingForDeletion_Textures_By_Frames() noexcept
 
 void RenderInterface_VK::Update_PendingForDeletion_Geometries() noexcept
 {
-	for (geometry_handle_t* p_geometry_handle : m_pending_for_deletion_geometries)
+	auto& geometries = m_pending_for_deletion_geometries_by_frames[m_semaphore_index_previous];
+	for (geometry_handle_t* p_geometry_handle : geometries)
 	{
 		m_memory_pool.Free_GeometryHandle(p_geometry_handle);
 		delete p_geometry_handle;
 	}
+	geometries.clear();
 
-	m_pending_for_deletion_geometries.clear();
+	auto& uniforms = m_pending_for_deletion_uniforms_by_frames[m_semaphore_index_previous];
+	for (VmaVirtualAllocation allocation : uniforms)
+		m_memory_pool.Free_Allocation(allocation);
+	uniforms.clear();
 }
 
 void RenderInterface_VK::Submit() noexcept
@@ -2960,39 +2796,21 @@ void RenderInterface_VK::MemoryPool::Free_GeometryHandle(geometry_handle_t* p_va
 	RMLUI_VK_ASSERTMSG(p_valid_geometry_handle->m_p_vertex_allocation, "you must have a VALID pointer of VmaAllocation for vertex buffer");
 	RMLUI_VK_ASSERTMSG(p_valid_geometry_handle->m_p_index_allocation, "you must have a VALID pointer of VmaAllocation for index buffer");
 
-	// TODO: The following assertion is disabled for now. The shader allocation pointer is only set once the geometry
-	// handle is rendered with. However, currently the Vulkan renderer does not handle all draw calls from RmlUi, so
-	// this pointer may never be set if the geometry was only used in a unsupported draw calls. This can then trigger
-	// the following assertion. The free call below gracefully handles zero pointers so this should be safe regardless.
-	// RMLUI_VK_ASSERTMSG(p_valid_geometry_handle->m_p_shader_allocation,
-	//		"you must have a VALID pointer of VmaAllocation for shader operations (like uniforms and etc)");
-
 	RMLUI_VK_ASSERTMSG(m_p_block, "you have to allocate the virtual block before do this operation...");
 
 	vmaVirtualFree(m_p_block, p_valid_geometry_handle->m_p_vertex_allocation);
 	vmaVirtualFree(m_p_block, p_valid_geometry_handle->m_p_index_allocation);
-	vmaVirtualFree(m_p_block, p_valid_geometry_handle->m_p_shader_allocation);
 
 	p_valid_geometry_handle->m_p_vertex_allocation = nullptr;
-	p_valid_geometry_handle->m_p_shader_allocation = nullptr;
 	p_valid_geometry_handle->m_p_index_allocation = nullptr;
 	p_valid_geometry_handle->m_num_indices = 0;
 }
 
-void RenderInterface_VK::MemoryPool::Free_GeometryHandle_ShaderDataOnly(geometry_handle_t* p_valid_geometry_handle) noexcept
+void RenderInterface_VK::MemoryPool::Free_Allocation(VmaVirtualAllocation allocation) noexcept
 {
-	RMLUI_VK_ASSERTMSG(p_valid_geometry_handle,
-		"you must pass a VALID pointer to geometry_handle_t, otherwise something is wrong and debug your code");
-	RMLUI_VK_ASSERTMSG(p_valid_geometry_handle->m_p_vertex_allocation, "you must have a VALID pointer of VmaAllocation for vertex buffer");
-	RMLUI_VK_ASSERTMSG(p_valid_geometry_handle->m_p_index_allocation, "you must have a VALID pointer of VmaAllocation for index buffer");
-	RMLUI_VK_ASSERTMSG(p_valid_geometry_handle->m_p_shader_allocation,
-		"you must have a VALID pointer of VmaAllocation for shader operations (like uniforms and etc)");
 	RMLUI_VK_ASSERTMSG(m_p_block, "you have to allocate the virtual block before do this operation...");
-
-	vmaVirtualFree(m_p_block, p_valid_geometry_handle->m_p_shader_allocation);
-	p_valid_geometry_handle->m_p_shader_allocation = nullptr;
+	if (allocation)
+		vmaVirtualFree(m_p_block, allocation);
 }
+// End of the NodeSpireTD RmlUi Vulkan adapter.
 
-#define GLAD_VULKAN_IMPLEMENTATION
-#define VMA_IMPLEMENTATION
-#include "RmlUi_Include_Vulkan.h"

@@ -12,19 +12,29 @@
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/StringUtilities.h>
 
+#include <algorithm>
+#include <fstream>
+#include <nlohmann/json.hpp>
+#include <utility>
+
 namespace NodeSpireUi {
 
 namespace {
 constexpr const char* kHoverSound = "assets/audio/hover.ogg";
 constexpr const char* kClickSound = "assets/audio/click.ogg";
 constexpr unsigned short kPartyPort = 47321;
+constexpr const char* kLevelCatalogPath = "assets/levels/catalog.json";
+constexpr std::size_t kVisibleLevelCards = 3;
 constexpr const char* kInteractiveIds[] = {
-    "back-button", "solo-button", "host-button", "join-button", "ready-button", "leave-button", "chat-send-button",
+    "back-button",          "solo-button",       "rejoin-button",      "host-button",        "join-button",
+    "ready-button",         "leave-button",      "chat-send-button",   "choose-level-button",
+    "level-previous-button", "level-next-button", "level-confirm-button", "level-cancel-button",
 };
 } // namespace
 
-LobbyScene::LobbyScene(multiplayer::MultiplayerSession& session, multiplayer::PlayerProfileStore& profileStore)
-    : session_(session), profileStore_(profileStore) {}
+LobbyScene::LobbyScene(multiplayer::MultiplayerSession& session, multiplayer::PlayerProfileStore& profileStore,
+                       PlayLevelLaunchConfig& playLevelLaunchConfig)
+    : session_(session), profileStore_(profileStore), playLevelLaunchConfig_(playLevelLaunchConfig) {}
 
 void LobbyScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     pendingTransition_ = std::nullopt;
@@ -34,12 +44,18 @@ void LobbyScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     renderedLaunchRml_.clear();
     renderedReady_.reset();
     renderedLaunchEnabled_.reset();
+    levels_.clear();
+    selectedLevelIndex_ = 0;
+    pendingLevelIndex_ = 0;
+    carouselStartIndex_ = 0;
     audio_ = &audio;
     audio_->preload(kHoverSound, AudioChannel::Sfx);
     audio_->preload(kClickSound, AudioChannel::Sfx);
 
     document_ = context.LoadDocument("assets/ui/lobby/lobby.rml");
     if (document_) {
+        loadLevelCatalog();
+        renderSelectedLevel();
         document_->Show();
         addListeners();
         if (auto* playerName =
@@ -56,9 +72,148 @@ void LobbyScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     }
 }
 
+bool LobbyScene::loadLevelCatalog() {
+    std::ifstream input(kLevelCatalogPath);
+    if (!input) {
+        Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to open level catalog: %s", kLevelCatalogPath);
+        return false;
+    }
+
+    try {
+        const nlohmann::json catalog = nlohmann::json::parse(input);
+        const std::string defaultLevelId = catalog.value("defaultLevel", std::string{});
+        for (const auto& item : catalog.at("levels")) {
+            LevelEntry level{
+                item.at("id").get<std::string>(),          item.at("name").get<std::string>(),
+                item.value("subtitle", item.at("name").get<std::string>()),
+            item.value("description", std::string{}), item.value("threat", std::string{"UNKNOWN"}),
+            item.value("players", std::string{"1-4"}), item.value("waves", std::string{"--"}),
+            item.value("thumbnail", std::string{}),   item.value("definition", std::string{}),
+            item.value("mapAsset", std::string{}),    item.value("startModel", std::string{}),
+            item.value("endModel", std::string{}),
+            item.value("animatedTemplateModels", std::vector<std::string>{}),
+            };
+            if (!level.id.empty() && !level.name.empty()) {
+                levels_.push_back(std::move(level));
+            }
+        }
+
+        const auto defaultLevel = std::find_if(levels_.begin(), levels_.end(), [&defaultLevelId](const LevelEntry& level) {
+            return level.id == defaultLevelId;
+        });
+        if (defaultLevel != levels_.end()) {
+            selectedLevelIndex_ = static_cast<std::size_t>(std::distance(levels_.begin(), defaultLevel));
+        }
+        pendingLevelIndex_ = selectedLevelIndex_;
+        return !levels_.empty();
+    } catch (const std::exception& error) {
+        levels_.clear();
+        Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to parse level catalog %s: %s", kLevelCatalogPath, error.what());
+        return false;
+    }
+}
+
+void LobbyScene::renderSelectedLevel() {
+    if (!document_ || levels_.empty()) {
+        return;
+    }
+
+    const LevelEntry& level = levels_[selectedLevelIndex_];
+    if (Rml::Element* name = document_->GetElementById("selected-level-name")) {
+        name->SetInnerRML(Rml::StringUtilities::EncodeRml(level.subtitle));
+    }
+    if (Rml::Element* description = document_->GetElementById("selected-level-description")) {
+        description->SetInnerRML(Rml::StringUtilities::EncodeRml(level.description));
+    }
+    if (Rml::Element* threat = document_->GetElementById("selected-level-threat")) {
+        threat->SetInnerRML(Rml::StringUtilities::EncodeRml(level.threat));
+    }
+    if (Rml::Element* players = document_->GetElementById("selected-level-players")) {
+        players->SetInnerRML(Rml::StringUtilities::EncodeRml(level.players));
+    }
+    if (Rml::Element* waves = document_->GetElementById("selected-level-waves")) {
+        waves->SetInnerRML(Rml::StringUtilities::EncodeRml(level.waves));
+    }
+}
+
+void LobbyScene::renderLevelCarousel() {
+    if (!document_) {
+        return;
+    }
+
+    for (Rml::Element* card : levelCardElements_) {
+        card->RemoveEventListener(Rml::EventId::Click, this);
+        card->RemoveEventListener(Rml::EventId::Mouseover, this);
+    }
+    levelCardElements_.clear();
+
+    Rml::String cardsRml;
+    const std::size_t end = std::min(carouselStartIndex_ + kVisibleLevelCards, levels_.size());
+    for (std::size_t index = carouselStartIndex_; index < end; ++index) {
+        const LevelEntry& level = levels_[index];
+        cardsRml += "<button id=\"level-card-" + std::to_string(index) + "\" class=\"level-card";
+        if (index == pendingLevelIndex_) {
+            cardsRml += " is-selected";
+        }
+        cardsRml += "\"><img class=\"level-thumbnail\" src=\"" + Rml::StringUtilities::EncodeRml(level.thumbnail) +
+                    "\"/><span class=\"level-card-copy\"><span class=\"level-card-name\">" +
+                    Rml::StringUtilities::EncodeRml(level.name) +
+                    "</span><span class=\"level-card-description\">" +
+                    Rml::StringUtilities::EncodeRml(level.description) +
+                    "</span><span class=\"level-card-meta\">" + Rml::StringUtilities::EncodeRml(level.threat) +
+                    " THREAT  /  " + Rml::StringUtilities::EncodeRml(level.waves) + " WAVES</span></span></button>";
+    }
+
+    if (Rml::Element* track = document_->GetElementById("level-carousel-track")) {
+        track->SetInnerRML(cardsRml);
+        for (std::size_t index = carouselStartIndex_; index < end; ++index) {
+            if (Rml::Element* card = document_->GetElementById("level-card-" + std::to_string(index))) {
+                card->AddEventListener(Rml::EventId::Click, this);
+                card->AddEventListener(Rml::EventId::Mouseover, this);
+                levelCardElements_.push_back(card);
+            }
+        }
+    }
+
+    if (Rml::Element* previous = document_->GetElementById("level-previous-button")) {
+        previous->SetClass("is-disabled", carouselStartIndex_ == 0);
+    }
+    if (Rml::Element* next = document_->GetElementById("level-next-button")) {
+        next->SetClass("is-disabled", end >= levels_.size());
+    }
+}
+
+void LobbyScene::openLevelSelector() {
+    if (levels_.empty()) {
+        setStatus("No levels are available.");
+        return;
+    }
+    pendingLevelIndex_ = selectedLevelIndex_;
+    carouselStartIndex_ = pendingLevelIndex_ > 0 ? pendingLevelIndex_ - 1 : 0;
+    if (levels_.size() > kVisibleLevelCards) {
+        carouselStartIndex_ = std::min(carouselStartIndex_, levels_.size() - kVisibleLevelCards);
+    }
+    renderLevelCarousel();
+    if (Rml::Element* selector = document_->GetElementById("level-selector")) {
+        selector->SetClass("hidden", false);
+    }
+}
+
+void LobbyScene::closeLevelSelector(bool commitSelection) {
+    if (commitSelection && !levels_.empty()) {
+        selectedLevelIndex_ = pendingLevelIndex_;
+        renderSelectedLevel();
+        setStatus("Selected " + levels_[selectedLevelIndex_].name + ".");
+    }
+    if (Rml::Element* selector = document_->GetElementById("level-selector")) {
+        selector->SetClass("hidden", true);
+    }
+}
+
 void LobbyScene::onExit(Rml::Context& context) {
     if (document_) {
         removeListeners();
+        levelCardElements_.clear();
         document_->Close();
         context.UnloadDocument(document_);
         document_ = nullptr;
@@ -98,9 +253,6 @@ void LobbyScene::showParty() {
     if (Rml::Element* party = document_->GetElementById("active-party")) {
         party->SetClass("hidden", false);
     }
-    if (Rml::Element* briefing = document_->GetElementById("solo-briefing")) {
-        briefing->SetClass("hidden", true);
-    }
     if (Rml::Element* chatShell = document_->GetElementById("party-chat-shell")) {
         chatShell->SetClass("hidden", false);
     }
@@ -133,9 +285,6 @@ void LobbyScene::showPartySetup(const Rml::String& status) {
     }
     if (Rml::Element* party = document_->GetElementById("active-party")) {
         party->SetClass("hidden", true);
-    }
-    if (Rml::Element* briefing = document_->GetElementById("solo-briefing")) {
-        briefing->SetClass("hidden", false);
     }
     if (Rml::Element* chatShell = document_->GetElementById("party-chat-shell")) {
         chatShell->SetClass("hidden", true);
@@ -265,11 +414,18 @@ void LobbyScene::refreshPartyView() {
     }
     const auto roster = session_.roster();
     refreshLaunchButton(roster);
+    refreshRejoinButton();
     renderRoster(roster);
     if (session_.isClient() && !roster.members.empty()) {
         setStatus("Connected to party host.");
     }
     consumeChat();
+}
+
+void LobbyScene::refreshRejoinButton() {
+    if (Rml::Element* rejoin = document_->GetElementById("rejoin-button")) {
+        rejoin->SetClass("hidden", !(session_.isClient() && session_.activeMatch().has_value()));
+    }
 }
 
 bool LobbyScene::savePlayerName() {
@@ -310,6 +466,24 @@ void LobbyScene::setStatus(const Rml::String& text) {
     }
 }
 
+void LobbyScene::configurePlayLevelLaunch(const LevelEntry& level) {
+    playLevelLaunchConfig_ = {level.id, level.name, level.definition, level.mapAsset, level.startModel, level.endModel,
+                              level.animatedTemplateModels};
+}
+
+bool LobbyScene::configurePlayLevelLaunch(const multiplayer::PartyMatchStartAnnouncement& announcement) {
+    const auto level = std::find_if(levels_.begin(), levels_.end(), [&announcement](const LevelEntry& candidate) {
+        return candidate.definition == announcement.levelScriptPath ||
+               candidate.mapAsset == announcement.levelAssetPath || candidate.name == announcement.levelName;
+    });
+    if (level == levels_.end()) {
+        setStatus("The host selected a level that is not in the local catalog.");
+        return false;
+    }
+    configurePlayLevelLaunch(*level);
+    return true;
+}
+
 SceneTransition LobbyScene::update(float /*dt*/) {
     if (auto* chatInput =
             rmlui_dynamic_cast<Rml::ElementFormControlInput*>(document_->GetElementById("chat-input"))) {
@@ -335,6 +509,14 @@ SceneTransition LobbyScene::update(float /*dt*/) {
             showParty();
         }
         refreshPartyView();
+    }
+
+    if (session_.isClient()) {
+        if (const auto announcement = session_.consumeMatchStartAnnouncement()) {
+            if (configurePlayLevelLaunch(*announcement)) {
+                pendingTransition_ = SceneId::PlayLevel;
+            }
+        }
     }
 
     SceneTransition transition = pendingTransition_;
@@ -397,8 +579,14 @@ void LobbyScene::ProcessEvent(Rml::Event& event) {
     if (id == "back-button") {
         pendingTransition_ = SceneId::MainMenu;
     } else if (id == "solo-button") {
+        if (levels_.empty()) {
+            setStatus("No deployable levels are available.");
+            return;
+        }
         if (!inParty_) {
-            setStatus("Solo selected. PlayLevel is not available in the RmlUi executable yet.");
+            const LevelEntry& level = levels_[selectedLevelIndex_];
+            configurePlayLevelLaunch(level);
+            pendingTransition_ = SceneId::PlayLevel;
             return;
         }
 
@@ -411,7 +599,43 @@ void LobbyScene::ProcessEvent(Rml::Event& event) {
         } else if (!allReady) {
             setStatus("All players must be ready before the match can start.");
         } else {
-            setStatus("Online match selected. PlayLevel is not available in the RmlUi executable yet.");
+            const LevelEntry& level = levels_[selectedLevelIndex_];
+            if (session_.announceMatchStart(level.name, level.definition, level.mapAsset)) {
+                configurePlayLevelLaunch(level);
+                pendingTransition_ = SceneId::PlayLevel;
+            } else {
+                setStatus("Could not start the online match.");
+            }
+        }
+    } else if (id == "rejoin-button") {
+        const auto& activeMatch = session_.activeMatch();
+        if (activeMatch && configurePlayLevelLaunch(*activeMatch)) {
+            pendingTransition_ = SceneId::PlayLevel;
+        } else {
+            setStatus("That match is no longer available.");
+            refreshRejoinButton();
+        }
+    } else if (id == "choose-level-button") {
+        openLevelSelector();
+    } else if (id == "level-previous-button") {
+        if (carouselStartIndex_ > 0) {
+            --carouselStartIndex_;
+            renderLevelCarousel();
+        }
+    } else if (id == "level-next-button") {
+        if (carouselStartIndex_ + kVisibleLevelCards < levels_.size()) {
+            ++carouselStartIndex_;
+            renderLevelCarousel();
+        }
+    } else if (id == "level-confirm-button") {
+        closeLevelSelector(true);
+    } else if (id == "level-cancel-button") {
+        closeLevelSelector(false);
+    } else if (id.starts_with("level-card-")) {
+        const std::size_t index = static_cast<std::size_t>(std::stoul(id.substr(11)));
+        if (index < levels_.size()) {
+            pendingLevelIndex_ = index;
+            renderLevelCarousel();
         }
     } else if (id == "host-button") {
         if (!savePlayerName()) {

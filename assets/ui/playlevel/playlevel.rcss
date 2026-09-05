@@ -1,0 +1,273 @@
+body
+{
+	width: 100%;
+	height: 100%;
+	font-family: "Inter 18pt";
+	color: #edf0e8;
+}
+
+#playlevel-root
+{
+	position: relative;
+	width: 100%;
+	height: 100%;
+}
+
+header
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	width: 100%;
+	height: 84dp;
+	padding: 0 34dp;
+	background-color: #080d0dcc;
+	border-bottom: 1dp #526057;
+}
+
+.mission-title
+{
+	width: 70%;
+}
+
+.eyebrow, .section-kicker
+{
+	font-size: 11dp;
+	color: #83b9a4;
+}
+
+.level-name
+{
+	font-family: "Times New Roman";
+	font-size: 28dp;
+	font-weight: bold;
+	color: #f3f0df;
+}
+
+.status-chip
+{
+	margin-left: auto;
+	padding: 8dp 12dp;
+	font-size: 11dp;
+	color: #e1bd67;
+	background-color: #211d13;
+	border: 1dp #69592f;
+}
+
+.status-panel
+{
+	position: absolute;
+	left: 34dp;
+	bottom: 34dp;
+	width: 390dp;
+	padding: 22dp 24dp;
+	background-color: #080d0de8;
+	border-left: 3dp #83b9a4;
+	border-top: 1dp #526057;
+	border-right: 1dp #526057;
+	border-bottom: 1dp #526057;
+}
+
+.status-panel h1
+{
+	margin: 7dp 0 5dp 0;
+	font-family: "Times New Roman";
+	font-size: 26dp;
+	color: #f3f0df;
+}
+
+.status-panel p
+{
+	margin: 0 0 16dp 0;
+	font-size: 13dp;
+	color: #b8c1ba;
+}
+
+.progress-track
+{
+	width: 100%;
+	height: 5dp;
+	background-color: #27312d;
+}
+
+.progress-fill
+{
+	width: 0%;
+	height: 100%;
+	background-color: #83b9a4;
+}
+
+.status-actions
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-top: 14dp;
+}
+
+#retry-button
+{
+	display: none;
+	padding: 9dp 18dp;
+	color: #edf0e8;
+	background-color: #26342f;
+	border: 1dp #83b9a4;
+}
+
+#start-match-button
+{
+	display: none;
+	padding: 9dp 18dp;
+	color: #edf0e8;
+	background-color: #9a3f32;
+	border: 1dp #d06b55;
+}
+
+#start-match-button.visible
+{
+	display: block;
+}
+
+#retry-button.visible
+{
+	display: block;
+}
+
+#ready-state
+{
+	display: none;
+	margin-left: 12dp;
+	font-size: 11dp;
+	color: #54d394;
+}
+
+.hidden
+{
+	display: none;
+}
+
+#pause-menu, .pause-shade
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+}
+
+#pause-menu
+{
+	z-index: 20;
+}
+
+.pause-shade
+{
+	background-color: #020504b8;
+}
+
+.pause-panel
+{
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 500dp;
+	margin-left: -250dp;
+	margin-top: -210dp;
+	padding: 28dp;
+	background-color: #0b1110f5;
+	border: 1dp #66786e;
+	border-left: 3dp #83b9a4;
+}
+
+.pause-panel h2
+{
+	margin: 6dp 0 4dp 0;
+	font-family: "Times New Roman";
+	font-size: 30dp;
+	color: #f3f0df;
+}
+
+.pause-panel p
+{
+	margin: 0 0 20dp 0;
+	font-size: 12dp;
+	color: #9da9a1;
+}
+
+.setting-row
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin: 12dp 0;
+}
+
+.setting-row label
+{
+	width: 35%;
+	font-size: 13dp;
+}
+
+.setting-row input
+{
+	width: 50%;
+}
+
+.setting-row span
+{
+	width: 15%;
+	font-size: 12dp;
+	text-align: right;
+	color: #83b9a4;
+}
+
+.pause-actions
+{
+	display: flex;
+	flex-direction: row;
+	margin-top: 24dp;
+}
+
+.pause-actions button
+{
+	width: 50%;
+	padding: 11dp 14dp;
+	color: #edf0e8;
+	background-color: #26342f;
+	border: 1dp #738c7f;
+}
+
+.pause-actions .danger-button
+{
+	margin-left: 10dp;
+	color: #f2c4ba;
+	background-color: #3a1d19;
+	border-color: #a85d4e;
+}
+
+#ready-state.visible
+{
+	display: block;
+}
+
+.hud-edge
+{
+	position: absolute;
+	top: 84dp;
+	width: 1dp;
+	height: 38%;
+	background-color: #83b9a455;
+}
+
+.left-edge
+{
+	left: 18dp;
+}
+
+.right-edge
+{
+	right: 18dp;
+}

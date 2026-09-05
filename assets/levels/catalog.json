@@ -1,0 +1,41 @@
+{
+  "defaultLevel": "grassy",
+  "levels": [
+    {
+      "id": "grassy",
+      "name": "Grassy",
+      "subtitle": "Grassy",
+      "description": "Hold the route, establish your tower network, and survive the incoming waves.",
+      "threat": "NORMAL",
+      "players": "1-4",
+      "waves": "25",
+      "thumbnail": "../../levels/grassy/grassy.png",
+      "definition": "assets/levels/grassy/level.lua",
+      "mapAsset": "assets/levels/grassy/grassy_map.glb",
+      "startModel": "assets/models/base/portal.glb",
+      "endModel": "assets/models/base/base.glb",
+      "animatedTemplateModels": [
+        "assets/models/enemy/goblin1.glb",
+        "assets/models/enemy/goblin_scout.glb"
+      ]
+    },
+    {
+      "id": "mesa_canyon",
+      "name": "Mesa Canyon",
+      "subtitle": "Mesa Canyon",
+      "description": "Defend the winding canyon route where long sightlines reward careful placement.",
+      "threat": "NORMAL",
+      "players": "1-4",
+      "waves": "25",
+      "thumbnail": "../../levels/mesa_canyon/mesa_canyon.png",
+      "definition": "assets/levels/mesa_canyon/level.lua",
+      "mapAsset": "assets/levels/mesa_canyon/mesa_canyon_map.glb",
+      "startModel": "assets/models/base/portal.glb",
+      "endModel": "assets/models/base/base.glb",
+      "animatedTemplateModels": [
+        "assets/models/enemy/goblin1.glb",
+        "assets/models/enemy/goblin_scout.glb"
+      ]
+    }
+  ]
+}

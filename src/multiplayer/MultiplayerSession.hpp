@@ -55,6 +55,9 @@ class MultiplayerSession {
     bool announceMatchStart(std::string levelName, std::string levelScriptPath, std::string levelAssetPath);
     // Non-null exactly once per announcement the client hasn't yet consumed.
     std::optional<PartyMatchStartAnnouncement> consumeMatchStartAnnouncement();
+    const std::optional<PartyMatchStartAnnouncement>& activeMatch() const { return activeMatch_; }
+    bool beginMatch();
+    bool isMatchStarted() const { return matchStarted_; }
 
     // Called by PlayLevelScene once its own load finishes (host and client alike).
     void signalLocalLoadedReady();
@@ -102,6 +105,8 @@ class MultiplayerSession {
     std::unordered_map<TransportPeerId, PlayerId> peerToPlayerId_;
     bool clientJoinPending_ = false;
     std::optional<PartyMatchStartAnnouncement> pendingMatchStartAnnouncement_;
+    std::optional<PartyMatchStartAnnouncement> activeMatch_;
+    bool matchStarted_ = false;
     ChatCommandDispatcher chatDispatcher_;
     std::vector<PartyChatMessage> pendingChatMessages_;
     std::vector<std::string> pendingChatErrors_;

@@ -50,6 +50,8 @@ void MultiplayerSession::leaveParty() {
     peerToPlayerId_.clear();
     clientJoinPending_ = false;
     pendingMatchStartAnnouncement_.reset();
+    activeMatch_.reset();
+    matchStarted_ = false;
     role_ = MultiplayerRole::Solo;
     resetToSolo();
 }
@@ -107,6 +109,8 @@ bool MultiplayerSession::announceMatchStart(std::string levelName, std::string l
     partyGate_.resetLoadedFlags();
     PartyMatchStartAnnouncement announcement{std::move(levelName), std::move(levelScriptPath),
                                              std::move(levelAssetPath)};
+    activeMatch_ = announcement;
+    matchStarted_ = false;
     if (const auto serialized = PartyProtocolAdapter::serializePartyMatchStartAnnouncement(announcement)) {
         hostTransport_.broadcastPartyMatchStart(*serialized);
     }
@@ -119,6 +123,15 @@ std::optional<PartyMatchStartAnnouncement> MultiplayerSession::consumeMatchStart
         return std::nullopt;
     }
     return std::exchange(pendingMatchStartAnnouncement_, std::nullopt);
+}
+
+bool MultiplayerSession::beginMatch() {
+    if (!isHost() || !activeMatch_ || !partyGate_.allLoaded()) {
+        return false;
+    }
+    matchStarted_ = true;
+    hostTransport_.broadcastPartyMatchBegin();
+    return true;
 }
 
 void MultiplayerSession::signalLocalLoadedReady() {
@@ -391,7 +404,12 @@ void MultiplayerSession::pumpClientSide() {
     if (const auto payload = client_.consumePartyMatchStart()) {
         if (const auto announcement = PartyProtocolAdapter::decodePartyMatchStartAnnouncement(*payload)) {
             pendingMatchStartAnnouncement_ = announcement;
+            activeMatch_ = announcement;
+            matchStarted_ = false;
         }
+    }
+    if (client_.consumePartyMatchBegin()) {
+        matchStarted_ = true;
     }
 
     for (auto& payload : client_.drainPartyChatMessages()) {

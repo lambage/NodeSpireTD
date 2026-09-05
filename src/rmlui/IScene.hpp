@@ -3,6 +3,7 @@
 #include "rmlui/SceneTypes.hpp"
 
 #include <RmlUi/Core/Input.h>
+#include <volk.h>
 
 class AudioEngine;
 
@@ -27,6 +28,9 @@ class IScene {
     // Called once per frame before context.Update(). Return a SceneId to
     // request a transition.
     virtual SceneTransition update(float dt) = 0;
+
+    // Records scene-owned 3D rendering before RmlUi in the application's active command buffer.
+    virtual void renderWorld(VkCommandBuffer /*commandBuffer*/, VkExtent2D /*extent*/) {}
 
     // Called for every key press while this scene is active. Return a
     // SceneId to request a transition; return std::nullopt to leave the key

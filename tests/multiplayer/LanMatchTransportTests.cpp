@@ -161,3 +161,26 @@ TEST(LanMatchTransport, SendsPartyChatMessageToOneJoinedPeer) {
     EXPECT_EQ(messages.front(), "welcome-payload");
 }
 
+TEST(LanMatchTransport, BroadcastsMatchBeginOnlyToPartyJoinedPeers) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto acceptedPeers = host.drainAcceptedPeers();
+    ASSERT_EQ(acceptedPeers.size(), 1U);
+    host.broadcastPartyMatchBegin();
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    EXPECT_FALSE(client.consumePartyMatchBegin());
+
+    ASSERT_TRUE(host.markPeerPartyJoined(acceptedPeers.front()));
+    host.broadcastPartyMatchBegin();
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    EXPECT_TRUE(client.consumePartyMatchBegin());
+    EXPECT_FALSE(client.consumePartyMatchBegin());
+}
+

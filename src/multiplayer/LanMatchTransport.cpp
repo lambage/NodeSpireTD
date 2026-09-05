@@ -326,6 +326,15 @@ void LanMatchTransport::broadcastPartyMatchStart(std::string payload) {
     }
 }
 
+void LanMatchTransport::broadcastPartyMatchBegin() {
+    for (auto& [peerId, peerConnection] : connections_) {
+        (void)peerId;
+        if (peerConnection.partyJoined) {
+            peerConnection.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyMatchBegin), {});
+        }
+    }
+}
+
 std::vector<ReceivedClientCommand> LanMatchTransport::drainClientCommands() {
     std::vector<ReceivedClientCommand> commands;
     commands.reserve(pendingCommands_.size());

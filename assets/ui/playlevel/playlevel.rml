@@ -1,0 +1,48 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Play Level</title>
+	<link type="text/rcss" href="playlevel.rcss"/>
+</head>
+<body>
+	<div id="playlevel-root">
+		<header>
+			<div class="mission-title">
+				<div class="eyebrow">ACTIVE DEPLOYMENT</div>
+				<div id="level-name" class="level-name">Battlefield</div>
+			</div>
+			<div id="match-role" class="status-chip">SOLO</div>
+		</header>
+
+		<div class="status-panel">
+			<div class="section-kicker">FIELD STATUS</div>
+			<h1 id="status-headline">Loading battlefield</h1>
+			<p id="status-copy">Preparing the battlefield...</p>
+			<div class="progress-track"><div id="loading-progress" class="progress-fill"></div></div>
+			<div class="status-actions">
+				<button id="retry-button">Retry</button>
+				<button id="start-match-button">Start match</button>
+				<div id="ready-state">WORLD READY</div>
+			</div>
+		</div>
+
+		<div id="pause-menu" class="hidden">
+			<div class="pause-shade"></div>
+			<section class="pause-panel">
+				<div class="section-kicker">MATCH MENU</div>
+				<h2>Paused</h2>
+				<p>Audio changes apply immediately.</p>
+				<div class="setting-row"><label>Master volume</label><input id="master-volume-slider" type="range" min="0" max="1" step="0.01"/><span id="master-volume-value">0%</span></div>
+				<div class="setting-row"><label>Music volume</label><input id="music-volume-slider" type="range" min="0" max="1" step="0.01"/><span id="music-volume-value">0%</span></div>
+				<div class="setting-row"><label>SFX volume</label><input id="sfx-volume-slider" type="range" min="0" max="1" step="0.01"/><span id="sfx-volume-value">0%</span></div>
+				<div class="pause-actions">
+					<button id="resume-button">Resume</button>
+					<button id="back-to-lobby-button" class="danger-button">Back to lobby</button>
+				</div>
+			</section>
+		</div>
+
+		<div class="hud-edge left-edge"></div>
+		<div class="hud-edge right-edge"></div>
+	</div>
+</body>
+</rml>

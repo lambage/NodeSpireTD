@@ -11,6 +11,7 @@ class Context;
 }
 
 class AudioEngine;
+class VulkanContext;
 
 namespace multiplayer {
 class MultiplayerSession;
@@ -25,11 +26,14 @@ namespace NodeSpireUi {
 class SceneManager {
   public:
     SceneManager(Rml::Context& context, SceneId initialScene, AudioEngine& audio,
+          VulkanContext& vulkanContext,
            multiplayer::MultiplayerSession& multiplayerSession,
            multiplayer::PlayerProfileStore& playerProfileStore);
 
     void update(float dt);
+    void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent);
     bool handleKeyDown(Rml::Input::KeyIdentifier key);
+    void shutdown();
 
     SceneId activeSceneId() const { return activeSceneId_; }
 
@@ -39,8 +43,10 @@ class SceneManager {
 
     Rml::Context& context_;
     AudioEngine& audio_;
+    VulkanContext& vulkanContext_;
     multiplayer::MultiplayerSession& multiplayerSession_;
     multiplayer::PlayerProfileStore& playerProfileStore_;
+    PlayLevelLaunchConfig playLevelLaunchConfig_;
     SceneId activeSceneId_;
     std::unique_ptr<IScene> activeScene_;
 };

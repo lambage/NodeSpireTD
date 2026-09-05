@@ -6,12 +6,15 @@
 #include <RmlUi/Core/Types.h>
 
 #include <optional>
+#include <string>
+#include <vector>
 
 class AudioEngine;
 
 namespace multiplayer {
 class MultiplayerSession;
 class PlayerProfileStore;
+struct PartyMatchStartAnnouncement;
 struct PartyRosterSnapshot;
 }
 
@@ -24,7 +27,8 @@ namespace NodeSpireUi {
 
 class LobbyScene final : public IScene, public Rml::EventListener {
   public:
-    LobbyScene(multiplayer::MultiplayerSession& session, multiplayer::PlayerProfileStore& profileStore);
+    LobbyScene(multiplayer::MultiplayerSession& session, multiplayer::PlayerProfileStore& profileStore,
+           PlayLevelLaunchConfig& playLevelLaunchConfig);
 
     void onEnter(Rml::Context& context, AudioEngine& audio) override;
     void onExit(Rml::Context& context) override;
@@ -34,21 +38,46 @@ class LobbyScene final : public IScene, public Rml::EventListener {
     void ProcessEvent(Rml::Event& event) override;
 
   private:
+    struct LevelEntry {
+        std::string id;
+        std::string name;
+        std::string subtitle;
+        std::string description;
+        std::string threat;
+        std::string players;
+        std::string waves;
+        std::string thumbnail;
+        std::string definition;
+        std::string mapAsset;
+        std::string startModel;
+        std::string endModel;
+        std::vector<std::string> animatedTemplateModels;
+    };
+
     void addListeners();
     void removeListeners();
+    bool loadLevelCatalog();
+    void renderSelectedLevel();
+    void renderLevelCarousel();
+    void openLevelSelector();
+    void closeLevelSelector(bool commitSelection);
     void showParty();
     void showPartySetup(const Rml::String& status);
     void refreshPartyView();
     void refreshLaunchButton(const multiplayer::PartyRosterSnapshot& roster);
+    void refreshRejoinButton();
     void renderRoster(const multiplayer::PartyRosterSnapshot& roster);
     void consumeChat();
     void appendChatLine(const Rml::String& author, const Rml::String& text, bool systemMessage, bool emote);
     bool savePlayerName();
     void submitChat();
     void setStatus(const Rml::String& text);
+    void configurePlayLevelLaunch(const LevelEntry& level);
+    bool configurePlayLevelLaunch(const multiplayer::PartyMatchStartAnnouncement& announcement);
 
     multiplayer::MultiplayerSession& session_;
     multiplayer::PlayerProfileStore& profileStore_;
+    PlayLevelLaunchConfig& playLevelLaunchConfig_;
     Rml::ElementDocument* document_ = nullptr;
     AudioEngine* audio_ = nullptr;
     SceneTransition pendingTransition_;
@@ -59,6 +88,11 @@ class LobbyScene final : public IScene, public Rml::EventListener {
     Rml::String renderedLaunchRml_;
     std::optional<bool> renderedReady_;
     std::optional<bool> renderedLaunchEnabled_;
+    std::vector<LevelEntry> levels_;
+    std::size_t selectedLevelIndex_ = 0;
+    std::size_t pendingLevelIndex_ = 0;
+    std::size_t carouselStartIndex_ = 0;
+    std::vector<Rml::Element*> levelCardElements_;
     bool removeChatFocusKey_ = false;
     bool normalizeSlashPrefix_ = false;
 };

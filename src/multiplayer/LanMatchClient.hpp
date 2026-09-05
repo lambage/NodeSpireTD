@@ -37,6 +37,7 @@ class LanMatchClient {
     bool sendPartyKickRequest(std::string payload);
     bool sendPartyMatchLoadedReady(std::string payload);
     std::optional<std::string> consumePartyMatchStart();
+    bool consumePartyMatchBegin();
 
     // Chat/emote traffic. Unlike the roster (latest-wins snapshot), chat is a stream: every line
     // must be delivered, so these accumulate in a queue drained in order.
@@ -53,6 +54,7 @@ class LanMatchClient {
     std::optional<std::string> latestPartyJoinResult_;
     std::optional<std::string> latestPartyRosterSnapshot_;
     std::optional<std::string> latestPartyMatchStart_;
+    bool partyMatchBeginPending_ = false;
     std::deque<std::string> partyChatMessages_;
     std::deque<std::string> partyChatCommandErrors_;
 };

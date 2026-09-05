@@ -29,6 +29,10 @@
 					<span class="button-label">Start solo</span>
 					<span class="button-note">Immediate deployment</span>
 				</button>
+				<button id="rejoin-button" class="primary-button hidden">
+					<span class="button-label">Rejoin match</span>
+					<span class="button-note">Return to the active deployment</span>
+				</button>
 				<div class="mode-divider"><span>OR PARTY UP</span></div>
 				<div id="party-setup">
 					<label class="profile-label" for="player-name">CALLSIGN</label>
@@ -66,14 +70,15 @@
 			<section class="social-stage">
 				<div id="solo-briefing">
 					<div class="briefing-mark">01</div>
-					<div class="section-kicker">CURRENT CONTRACT</div>
-					<h2>Grassy Approach</h2>
-					<p>Hold the route, establish your tower network, and survive the incoming waves.</p>
+					<div class="section-kicker">SELECTED LEVEL</div>
+					<h2 id="selected-level-name">placeholder</h2>
+					<p id="selected-level-description">placeholder</p>
 					<div class="contract-stats">
-						<div><span class="stat-value">NORMAL</span><span class="stat-label">THREAT</span></div>
-						<div><span class="stat-value">1-4</span><span class="stat-label">PLAYERS</span></div>
-						<div><span class="stat-value">25</span><span class="stat-label">WAVES</span></div>
+						<div><span id="selected-level-threat" class="stat-value">NORMAL</span><span class="stat-label">THREAT</span></div>
+						<div><span id="selected-level-players" class="stat-value">1-4</span><span class="stat-label">PLAYERS</span></div>
+						<div><span id="selected-level-waves" class="stat-value">25</span><span class="stat-label">WAVES</span></div>
 					</div>
+					<button id="choose-level-button" class="level-picker-button">Choose another level</button>
 				</div>
 				<div id="party-chat-shell" class="hidden">
 					<div class="chat-title"><span>Party channel</span><span class="live-label">LIVE</span></div>
@@ -90,19 +95,45 @@
 					<div class="section-kicker">QUARTERMASTER</div>
 					<div class="coming-soon">COMING SOON</div>
 				</div>
-				<h2>Expand your arsenal</h2>
+				<h2>Game shop</h2>
 				<p>Towers, field skins, and commander cosmetics will live here.</p>
 				<div class="shop-preview tower-preview">
 					<div class="preview-glyph">T</div>
-					<div><span class="preview-name">Tower licenses</span><span class="preview-note">New tactical roles</span></div>
+					<div><span class="preview-name">Towers</span><span class="preview-note">Purchase new towers</span></div>
 				</div>
 				<div class="shop-preview skin-preview">
 					<div class="preview-glyph">S</div>
-					<div><span class="preview-name">Field skins</span><span class="preview-note">Personalize your build</span></div>
+					<div><span class="preview-name">Skins</span><span class="preview-note">Personalize your towers</span></div>
+				</div>
+				<div class="shop-preview crates-preview">
+					<div class="preview-glyph">C</div>
+					<div><span class="preview-name">Crates</span><span class="preview-note">Buy and open crates for special items</span></div>
 				</div>
 				<div class="shop-lock">STORE OFFLINE</div>
 			</aside>
 		</main>
+
+		<div id="level-selector" class="hidden">
+			<div class="level-selector-shade"></div>
+			<div class="level-selector-panel">
+				<div class="level-selector-header">
+					<div>
+						<div class="section-kicker">MISSION BOARD</div>
+						<h2>Select a level</h2>
+					</div>
+					<div class="carousel-count">AVAILABLE DEPLOYMENTS</div>
+				</div>
+				<div class="level-carousel">
+					<button id="level-previous-button" class="carousel-arrow" title="Previous levels">&#x2039;</button>
+					<div id="level-carousel-track"></div>
+					<button id="level-next-button" class="carousel-arrow" title="Next levels">&#x203a;</button>
+				</div>
+				<div class="level-selector-actions">
+					<button id="level-cancel-button" class="text-button">Cancel</button>
+					<button id="level-confirm-button" class="primary-button">Select level</button>
+				</div>
+			</div>
+		</div>
 
 		<footer>
 			<span id="lobby-status">Choose solo play or form a party.</span>

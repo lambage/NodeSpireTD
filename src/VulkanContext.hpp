@@ -1,11 +1,12 @@
 #pragma once
 
-#include <SFML/Window.hpp>
 #include <VkBootstrap.h>
 #include <cstdint>
 #include <vector>
 #include <vk_mem_alloc.h>
 #include <volk.h>
+
+struct SDL_Window;
 
 struct SwapchainData {
     vkb::Swapchain vkbSwapchain;
@@ -19,7 +20,7 @@ class VulkanContext {
   public:
     static constexpr size_t kMaxFramesInFlight = 2;
 
-    explicit VulkanContext(sf::Window& window);
+    explicit VulkanContext(SDL_Window* window);
     ~VulkanContext();
 
     VulkanContext(const VulkanContext&) = delete;
@@ -27,6 +28,7 @@ class VulkanContext {
 
     void waitForFrameFence(size_t frameIndex) const;
     bool recreateSwapchain(uint32_t width, uint32_t height);
+    void setVSyncEnabled(bool enabled);
     void waitIdle() const;
 
     enum class AcquireStatus {
@@ -81,7 +83,8 @@ class VulkanContext {
 
   private:
     static SwapchainData createEngineSwapchain(vkb::Device& vkbDevice, uint32_t width, uint32_t height,
-                                               VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
+                                                                                             VkPresentModeKHR presentMode,
+                                                                                             VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE);
 
     void initializeInstanceAndDevice();
     void initializeAllocator();
@@ -91,7 +94,7 @@ class VulkanContext {
     void createDepthResources();
     void destroySwapchainDependentResources();
 
-    sf::Window& window_;
+    SDL_Window* window_ = nullptr;
 
     vkb::Instance vkbInstance_;
     VkInstance instance_ = VK_NULL_HANDLE;
@@ -112,6 +115,7 @@ class VulkanContext {
     SwapchainData swapchainData_;
     uint32_t currentWidth_ = 1280;
     uint32_t currentHeight_ = 720;
+    bool vSyncEnabled_ = true;
 
     static constexpr VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 

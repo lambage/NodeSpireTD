@@ -1,7 +1,8 @@
 #pragma once
 
 // Forked from RmlUi's Backends/RmlUi_Renderer_VK.h (SDL_VK sample backend, MIT
-// licensed, see build/_deps/rmlui-src/LICENSE.txt). Unmodified except for this notice.
+// licensed, see build/_deps/rmlui-src/LICENSE.txt). Adapted to record into an
+// externally owned Vulkan command buffer.
 
 #include <RmlUi/Core/RenderInterface.h>
 
@@ -32,12 +33,11 @@ public:
 	RenderInterface_VK();
 	~RenderInterface_VK();
 
-	using CreateSurfaceCallback = bool (*)(VkInstance instance, VkSurfaceKHR* out_surface);
-
-	bool Initialize(Rml::Vector<const char*> required_extensions, CreateSurfaceCallback create_surface_callback);
+	bool Initialize(VkInstance instance, VkPhysicalDevice physical_device, VkDevice device, VkQueue graphics_queue,
+		uint32_t graphics_queue_family, VmaAllocator allocator, VkFormat color_format, VkFormat depth_format, VkExtent2D extent);
 	void Shutdown();
 
-	void BeginFrame();
+	void BeginFrame(VkCommandBuffer command_buffer, VkExtent2D extent, uint32_t frame_index);
 	void EndFrame();
 
 	void SetViewport(int width, int height);
@@ -93,13 +93,11 @@ private:
 
 		VkDescriptorBufferInfo m_p_vertex;
 		VkDescriptorBufferInfo m_p_index;
-		VkDescriptorBufferInfo m_p_shader;
 
 		// @ this is for freeing our logical blocks for VMA
 		// see https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/virtual_allocator.html
 		VmaVirtualAllocation m_p_vertex_allocation;
 		VmaVirtualAllocation m_p_index_allocation;
-		VmaVirtualAllocation m_p_shader_allocation;
 	};
 
 	struct buffer_data_t {
@@ -263,7 +261,7 @@ private:
 			VkDescriptorSet p_set) noexcept;
 
 		void Free_GeometryHandle(geometry_handle_t* p_valid_geometry_handle) noexcept;
-		void Free_GeometryHandle_ShaderDataOnly(geometry_handle_t* p_valid_geometry_handle) noexcept;
+		void Free_Allocation(VmaVirtualAllocation allocation) noexcept;
 
 	private:
 		VkDeviceSize m_memory_total_size;
@@ -400,6 +398,7 @@ private:
 	void Initialize_Device() noexcept;
 	void Initialize_PhysicalDevice(VkPhysicalDeviceProperties& out_physical_device_properties) noexcept;
 	void Initialize_Swapchain(VkExtent2D window_extent) noexcept;
+	using CreateSurfaceCallback = bool (*)(VkInstance instance, VkSurfaceKHR* out_surface);
 	void Initialize_Surface(CreateSurfaceCallback create_surface_callback) noexcept;
 	void Initialize_QueueIndecies() noexcept;
 	void Initialize_Queues() noexcept;
@@ -517,6 +516,8 @@ private:
 	VkSwapchainKHR m_p_swapchain;
 	VkPresentModeKHR m_desired_present_mode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
 	VmaAllocator m_p_allocator;
+	VkFormat m_color_format = VK_FORMAT_UNDEFINED;
+	VkFormat m_depth_format = VK_FORMAT_UNDEFINED;
 	// @ obtained from command list see PrepareRenderBuffer method
 	VkCommandBuffer m_p_current_command_buffer;
 
@@ -558,9 +559,8 @@ private:
 	Rml::Vector<VkImageView> m_swapchain_image_views;
 	Rml::Vector<VkShaderModule> m_shaders;
 	Rml::Array<Rml::Vector<texture_data_t*>, kSwapchainBackBufferCount> m_pending_for_deletion_textures_by_frames;
-
-	// vma handles that thing, so there's no need for frame splitting
-	Rml::Vector<geometry_handle_t*> m_pending_for_deletion_geometries;
+	Rml::Array<Rml::Vector<geometry_handle_t*>, kSwapchainBackBufferCount> m_pending_for_deletion_geometries_by_frames;
+	Rml::Array<Rml::Vector<VmaVirtualAllocation>, kSwapchainBackBufferCount> m_pending_for_deletion_uniforms_by_frames;
 
 	CommandBufferRing m_command_buffer_ring;
 	MemoryPool m_memory_pool;

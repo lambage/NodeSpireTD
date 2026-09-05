@@ -68,6 +68,7 @@ class LanMatchTransport final : public IMatchTransport {
     bool sendPartyJoinResult(TransportPeerId peerId, std::string payload);
     void broadcastPartyRosterSnapshot(std::string payload);
     void broadcastPartyMatchStart(std::string payload);
+    void broadcastPartyMatchBegin();
 
     // Chat/emote traffic. Like ready/kick, a peer must be party-joined before its chat intents
     // are trusted (enforced in handleFrame(), not by the caller).

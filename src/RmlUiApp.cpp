@@ -1,9 +1,8 @@
-// RmlUi-based app bootstrap: SDL3+Vulkan backend (RmlUi's own, not yet
-// reconciled with VulkanContext -- see rmlui-sdl-vulkan-backend skill notes)
-// with the Lua scripting plugin wired up, driving scenes via SceneManager.
+// RmlUi-based app bootstrap using SDL3 and the game-owned VulkanContext.
 #include "AudioEngine.hpp"
 #include "RmlUiFontLoader.hpp"
 #include "SettingsManager.hpp"
+#include "VulkanContext.hpp"
 #include "multiplayer/MultiplayerSession.hpp"
 #include "multiplayer/PlayerProfileStore.hpp"
 #include "rmlui/SceneManager.hpp"
@@ -13,6 +12,7 @@
 #include <RmlUi/Debugger.h>
 #include <RmlUi/Lua.h>
 #include <RmlUi_Backend.h>
+#include <memory>
 #include <spdlog/spdlog.h>
 
 namespace
@@ -90,6 +90,14 @@ int main(int /*argc*/, char** /*argv*/)
     if (!Backend::Initialize("NodeSpireTD", windowWidth, windowHeight, true))
         return -1;
 
+    auto vulkanContext = std::make_unique<VulkanContext>(Backend::GetWindow());
+    if (!Backend::InitializeRenderer(*vulkanContext))
+    {
+        vulkanContext.reset();
+        Backend::Shutdown();
+        return -1;
+    }
+
     SpdlogSystemInterface systemInterface(Backend::GetSystemInterface());
     Rml::SetSystemInterface(&systemInterface);
     Rml::SetRenderInterface(Backend::GetRenderInterface());
@@ -104,11 +112,15 @@ int main(int /*argc*/, char** /*argv*/)
     // one-Lua-VM-per-scene model doesn't carry over as-is.
     Rml::Lua::Initialise();
 
-    Rml::Context* context = Rml::CreateContext("main", Rml::Vector2i(windowWidth, windowHeight));
+    const VkExtent2D initialExtent = vulkanContext->extent();
+    Rml::Context* context = Rml::CreateContext(
+        "main", Rml::Vector2i(static_cast<int>(initialExtent.width), static_cast<int>(initialExtent.height)));
     if (!context)
     {
         Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to create Rml::Context");
         Rml::Shutdown();
+        Backend::ShutdownRenderer();
+        vulkanContext.reset();
         Backend::Shutdown();
         return -1;
     }
@@ -124,13 +136,14 @@ int main(int /*argc*/, char** /*argv*/)
     multiplayer::MultiplayerSession multiplayerSession;
     multiplayer::PlayerProfileStore playerProfileStore;
 
-    NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash, audioEngine, multiplayerSession,
+    NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash, audioEngine, *vulkanContext, multiplayerSession,
                                            playerProfileStore);
     g_sceneManager = &sceneManager;
 
     double lastElapsedTime = systemInterface.GetElapsedTime();
 
     bool running = true;
+    size_t frameIndex = 0;
     while (running)
     {
         // Bound the event wait so party traffic advances without focus while rendering stays paced.
@@ -145,14 +158,36 @@ int main(int /*argc*/, char** /*argv*/)
 
         context->Update();
 
-        Backend::BeginFrame();
+        vulkanContext->waitForFrameFence(frameIndex);
+        uint32_t imageIndex = 0;
+        if (vulkanContext->acquireNextImage(frameIndex, imageIndex) == VulkanContext::AcquireStatus::OutOfDate)
+        {
+            const VkExtent2D extent = vulkanContext->extent();
+            vulkanContext->recreateSwapchain(extent.width, extent.height);
+            continue;
+        }
+
+        VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(frameIndex, imageIndex);
+        sceneManager.renderWorld(commandBuffer, vulkanContext->extent());
+        Backend::BeginFrame(commandBuffer, static_cast<uint32_t>(frameIndex));
         context->Render();
         Backend::PresentFrame();
+        vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
+        if (vulkanContext->present(imageIndex))
+        {
+            const VkExtent2D extent = vulkanContext->extent();
+            vulkanContext->recreateSwapchain(extent.width, extent.height);
+        }
+        frameIndex = (frameIndex + 1) % VulkanContext::kMaxFramesInFlight;
     }
 
     g_sceneManager = nullptr;
 
+    vulkanContext->waitIdle();
+    sceneManager.shutdown();
     Rml::Shutdown();
+    Backend::ShutdownRenderer();
+    vulkanContext.reset();
     Backend::Shutdown();
 
     return 0;

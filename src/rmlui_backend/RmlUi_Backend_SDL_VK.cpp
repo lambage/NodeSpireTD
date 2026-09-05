@@ -4,6 +4,7 @@
 #include "RmlUi_Backend.h"
 #include "RmlUi_Platform_SDL.h"
 #include "RmlUi_Renderer_VK.h"
+#include "VulkanContext.hpp"
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/FileInterface.h>
@@ -32,6 +33,8 @@ struct BackendData {
 	TextInputMethodEditor_SDL text_input_method_editor;
 
 	SDL_Window* window = nullptr;
+	VulkanContext* vulkan_context = nullptr;
+	bool renderer_initialized = false;
 
 	bool running = true;
 };
@@ -74,17 +77,11 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 	SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN, true);
 	SDL_Window* window = SDL_CreateWindowWithProperties(props);
 	SDL_DestroyProperties(props);
-	auto CreateSurface = [](VkInstance instance, VkSurfaceKHR* out_surface) {
-		return SDL_Vulkan_CreateSurface(data->window, instance, nullptr, out_surface);
-	};
 #else
 	const Uint32 window_flags = (SDL_WINDOW_VULKAN | (allow_resize ? SDL_WINDOW_RESIZABLE : 0));
 	SDL_Window* window = SDL_CreateWindow(window_name, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, window_flags);
 	// SDL2 implicitly activates text input on window creation. Turn it off for now, it will be activated again e.g. when focusing a text input field.
 	SDL_StopTextInput();
-	auto CreateSurface = [](VkInstance instance, VkSurfaceKHR* out_surface) {
-		return (bool)SDL_Vulkan_CreateSurface(data->window, instance, out_surface);
-	};
 #endif
 
 	if (!window)
@@ -96,57 +93,38 @@ bool Backend::Initialize(const char* window_name, int width, int height, bool al
 	data = Rml::MakeUnique<BackendData>(window);
 	data->window = window;
 
-	Rml::Vector<const char*> extensions;
-	{
-		unsigned int count;
-#if SDL_MAJOR_VERSION >= 3
-		const char* const* extensions_list = SDL_Vulkan_GetInstanceExtensions(&count);
-		if (!extensions_list)
-		{
-			data.reset();
-			Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to get required vulkan extensions");
-			return false;
-		}
-		extensions.resize(count);
-		for (unsigned int i = 0; i < count; i++)
-			extensions[i] = extensions_list[i];
-#else
-
-		if (!SDL_Vulkan_GetInstanceExtensions(window, &count, nullptr))
-		{
-			data.reset();
-			Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to get required vulkan extensions");
-			return false;
-		}
-		extensions.resize(count);
-		if (!SDL_Vulkan_GetInstanceExtensions(window, &count, extensions.data()))
-		{
-			data.reset();
-			Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to get required vulkan extensions");
-			return false;
-		}
-#endif
-	}
-
-	if (!data->render_interface.Initialize(std::move(extensions), CreateSurface))
-	{
-		data.reset();
-		Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to initialize Vulkan render interface");
-		return false;
-	}
-
-	data->render_interface.SetViewport(width, height);
-
 	Rml::SetTextInputHandler(&data->text_input_method_editor);
 
 	return true;
+}
+
+bool Backend::InitializeRenderer(VulkanContext& vulkan_context)
+{
+	RMLUI_ASSERT(data && !data->renderer_initialized);
+	data->vulkan_context = &vulkan_context;
+	const VkExtent2D extent = vulkan_context.extent();
+	data->renderer_initialized = data->render_interface.Initialize(vulkan_context.instance(), vulkan_context.physicalDevice(),
+		vulkan_context.device(), vulkan_context.graphicsQueue(), vulkan_context.graphicsQueueFamily(), vulkan_context.allocator(),
+		vulkan_context.swapchainColorFormat(), vulkan_context.depthFormat(), extent);
+	return data->renderer_initialized;
+}
+
+void Backend::ShutdownRenderer()
+{
+	RMLUI_ASSERT(data);
+	if (data->renderer_initialized)
+	{
+		data->render_interface.Shutdown();
+		data->renderer_initialized = false;
+		data->vulkan_context = nullptr;
+	}
 }
 
 void Backend::Shutdown()
 {
 	RMLUI_ASSERT(data);
 
-	data->render_interface.Shutdown();
+	ShutdownRenderer();
 
 	SDL_DestroyWindow(data->window);
 
@@ -167,36 +145,10 @@ Rml::RenderInterface* Backend::GetRenderInterface()
 	return &data->render_interface;
 }
 
-static bool WaitForValidSwapchain()
+SDL_Window* Backend::GetWindow()
 {
-#if SDL_MAJOR_VERSION >= 3
-	constexpr auto event_quit = SDL_EVENT_QUIT;
-#else
-	constexpr auto event_quit = SDL_QUIT;
-#endif
-
-	bool result = true;
-
-	// In some situations the swapchain may become invalid, such as when the window is minimized. In this state the renderer cannot accept any render
-	// calls. Since we don't have full control over the main loop here we may risk calls to Context::Render if we were to return. Instead, we keep the
-	// application inside this loop until we are able to recreate the swapchain and render again.
-	while (!data->render_interface.IsSwapchainValid())
-	{
-		SDL_Event ev;
-		while (SDL_PollEvent(&ev))
-		{
-			if (ev.type == event_quit)
-			{
-				// Restore the window so that we can recreate the swapchain, and then properly release all resource and shutdown cleanly.
-				SDL_RestoreWindow(data->window);
-				result = false;
-			}
-		}
-		SDL_Delay(10);
-		data->render_interface.RecreateSwapchain();
-	}
-
-	return result;
+	RMLUI_ASSERT(data);
+	return data->window;
 }
 
 static void SynchronizeWindowSize(Rml::Context* context)
@@ -206,6 +158,8 @@ static void SynchronizeWindowSize(Rml::Context* context)
 	SDL_GetWindowSizeInPixels(data->window, &pixel_width, &pixel_height);
 	if (pixel_width > 0 && pixel_height > 0)
 	{
+		if (data->vulkan_context)
+			data->vulkan_context->recreateSwapchain(static_cast<uint32_t>(pixel_width), static_cast<uint32_t>(pixel_height));
 		data->render_interface.SetViewport(pixel_width, pixel_height);
 		if (context)
 			context->SetDimensions({pixel_width, pixel_height});
@@ -314,9 +268,6 @@ bool Backend::ProcessEvents(Rml::Context* context, KeyDownCallback key_down_call
 		has_event = SDL_PollEvent(&ev);
 	}
 
-	if (!WaitForValidSwapchain())
-		result = false;
-
 	return result;
 }
 
@@ -366,13 +317,14 @@ void Backend::ApplyDisplaySettings(Rml::Context& context, bool fullscreen, bool 
 void Backend::SetVSyncEnabled(bool enabled)
 {
 	RMLUI_ASSERT(data);
-	data->render_interface.SetVSyncEnabled(enabled);
+	if (data->vulkan_context)
+		data->vulkan_context->setVSyncEnabled(enabled);
 }
 
-void Backend::BeginFrame()
+void Backend::BeginFrame(VkCommandBuffer command_buffer, uint32_t frame_index)
 {
-	RMLUI_ASSERT(data);
-	data->render_interface.BeginFrame();
+	RMLUI_ASSERT(data && data->vulkan_context);
+	data->render_interface.BeginFrame(command_buffer, data->vulkan_context->extent(), frame_index);
 }
 
 void Backend::PresentFrame()

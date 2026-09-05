@@ -14,7 +14,8 @@ using a Vulkan-first renderer setup.
 - Git
 - Ninja
 - C++ toolchain:
-	- Windows: Visual Studio 2022 Build Tools (MSVC)
+	- Windows: Visual Studio 2022 Build Tools (MSVC). Run the Ninja configure and build commands
+	  from **Developer PowerShell for VS 2022** so MSVC's standard-library include paths are set.
 	- Linux: GCC or Clang
 
 ### Option 1: Through CMake target
