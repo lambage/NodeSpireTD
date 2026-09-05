@@ -5,9 +5,106 @@
 </head>
 <body>
 	<div id="lobby-root">
-		<div class="title">Lobby</div>
-		<p class="subtitle">Lobby (placeholder, full multiplayer lobby coming in a follow-up phase)</p>
-		<button id="back-button" class="menu-button">Back</button>
+		<div id="lobby-background"></div>
+		<header>
+			<button id="back-button" class="icon-button">&#x2039;</button>
+			<div class="brand-block">
+				<div class="eyebrow">NODE SPIRE COMMAND</div>
+				<div class="title">Match Lobby</div>
+			</div>
+			<div class="account-strip">
+				<span class="online-dot"></span>
+				<span>Online</span>
+				<span class="currency">0 CREDITS</span>
+			</div>
+		</header>
+
+		<main>
+			<section class="launch-rail">
+				<div class="section-kicker">DEPLOYMENT</div>
+				<h1>Choose your run</h1>
+				<p class="section-copy">Take the first watch alone, or build a party before entering the Spire.</p>
+				<button id="solo-button" class="primary-button">
+					<span class="button-label">Start solo</span>
+					<span class="button-note">Immediate deployment</span>
+				</button>
+				<div class="mode-divider"><span>OR PARTY UP</span></div>
+				<div id="party-setup">
+					<button id="host-button" class="secondary-button">Create party</button>
+					<div class="join-row">
+						<input id="join-address" type="text" value="127.0.0.1" maxlength="64"/>
+						<button id="join-button" class="compact-button">Join</button>
+					</div>
+				</div>
+				<div id="active-party" class="hidden">
+					<div class="party-heading">
+						<div>
+							<div class="section-kicker">ACTIVE PARTY</div>
+							<div id="party-role" class="party-role">Party leader</div>
+						</div>
+						<div class="party-code">4 SLOTS</div>
+					</div>
+					<div class="roster">
+						<div class="roster-row local-player">
+							<span id="local-player-name" class="player-name">You</span>
+							<span id="local-player-state" class="player-state">NOT READY</span>
+						</div>
+						<div class="roster-row empty-slot"><span>Open slot</span><span>WAITING</span></div>
+						<div class="roster-row empty-slot"><span>Open slot</span><span>WAITING</span></div>
+						<div class="roster-row empty-slot"><span>Open slot</span><span>WAITING</span></div>
+					</div>
+					<div class="party-actions">
+						<button id="ready-button" class="secondary-button">Not ready</button>
+						<button id="leave-button" class="text-button">Leave party</button>
+					</div>
+				</div>
+			</section>
+
+			<section class="social-stage">
+				<div id="solo-briefing">
+					<div class="briefing-mark">01</div>
+					<div class="section-kicker">CURRENT CONTRACT</div>
+					<h2>Grassy Approach</h2>
+					<p>Hold the route, establish your tower network, and survive the incoming waves.</p>
+					<div class="contract-stats">
+						<div><span class="stat-value">NORMAL</span><span class="stat-label">THREAT</span></div>
+						<div><span class="stat-value">1-4</span><span class="stat-label">PLAYERS</span></div>
+						<div><span class="stat-value">25</span><span class="stat-label">WAVES</span></div>
+					</div>
+				</div>
+				<div id="party-chat-shell" class="hidden">
+					<div class="chat-title"><span>Party channel</span><span class="live-label">LIVE</span></div>
+					<div id="chat-messages"></div>
+					<div class="chat-compose">
+						<input id="chat-input" type="text" maxlength="180" placeholder="Message your party"/>
+						<button id="chat-send-button" class="compact-button">Send</button>
+					</div>
+				</div>
+			</section>
+
+			<aside class="shop-rail">
+				<div class="shop-header">
+					<div class="section-kicker">QUARTERMASTER</div>
+					<div class="coming-soon">COMING SOON</div>
+				</div>
+				<h2>Expand your arsenal</h2>
+				<p>Towers, field skins, and commander cosmetics will live here.</p>
+				<div class="shop-preview tower-preview">
+					<div class="preview-glyph">T</div>
+					<div><span class="preview-name">Tower licenses</span><span class="preview-note">New tactical roles</span></div>
+				</div>
+				<div class="shop-preview skin-preview">
+					<div class="preview-glyph">S</div>
+					<div><span class="preview-name">Field skins</span><span class="preview-note">Personalize your build</span></div>
+				</div>
+				<div class="shop-lock">STORE OFFLINE</div>
+			</aside>
+		</main>
+
+		<footer>
+			<span id="lobby-status">Choose solo play or form a party.</span>
+			<span class="build-label">LOBBY PREVIEW</span>
+		</footer>
 	</div>
 </body>
 </rml>

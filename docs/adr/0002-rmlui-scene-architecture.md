@@ -131,3 +131,16 @@ look wrong (dark fringing) later, revisit this conversion first.
 - Resolve SDL3 audio migration, then restore the splash music cue.
 - Revisit Vulkan backend reconciliation once a scene needs `WorldRenderer` in
   the same frame as RmlUi.
+
+## Lobby: trim-and-rebuild direction
+
+The RmlUi Lobby is intentionally redesigned rather than mechanically ported
+from the ImGui/Lua screen. Its stable interaction surface now separates solo
+deployment, party setup/roster/chat, and a reserved quartermaster rail for a
+future tower and cosmetics shop. Chat is hidden until the local UI enters a
+party state. The current RmlUi app still has no `MultiplayerSession`, player
+profile, level catalog, or PlayLevel scene in its scene manager, so host/join,
+chat, ready, and solo launch remain local interaction previews. Their element
+IDs and state transitions are intended to be wired to those services when the
+multiplayer and PlayLevel migration reaches this executable; the UI does not
+claim a network connection or transition into unavailable gameplay.
