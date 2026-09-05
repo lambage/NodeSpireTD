@@ -375,46 +375,102 @@ header
 .tower-details span { display: block; margin: 2dp 0; font-size: 9dp; color: #9eaaa2; }
 .tower-tech-tree { margin-top: 10dp; }
 .tree-header { display: flex; flex-direction: row; align-items: center; margin-bottom: 8dp; }
-.tree-title { font-size: 10dp; color: #d0aa4f; }
-.tree-legend { margin-left: auto; font-size: 8dp; color: #7f8a83; }
-.tech-tree { position: relative; padding: 10dp; background-color: #0c1210; border: 1dp #303c36; }
-.tech-row { display: flex; flex-direction: row; justify-content: center; }
-.root-row .tech-node { width: 42%; }
-.branch-row { display: flex; flex-direction: row; }
-.branch-column { position: relative; width: 32%; padding: 0 5dp; }
-.branch-column + .branch-column { border-left: 1dp #303c36; }
-.branch-label { margin: 0 0 7dp 0; padding-bottom: 5dp; font-size: 8dp; text-align: center; border-bottom: 2dp #526057; }
-.stone-branch .branch-label { color: #c8a47e; border-bottom-color: #866b52; }
-.metal-branch .branch-label { color: #bdc9cd; border-bottom-color: #8f9a9e; }
-.electric-branch .branch-label { color: #83ccda; border-bottom-color: #4da7b8; }
-.branch-column .tech-node { position: relative; }
-.branch-stack > .tech-node { margin-bottom: 11dp; }
-.branch-fork { display: flex; flex-direction: row; margin-bottom: 11dp; }
-.branch-fork .tech-node { width: 50%; min-height: 58dp; }
-.branch-fork .tech-node + .tech-node { margin-left: 5dp; }
+.constellation-header { padding: 0 3dp; }
+.tree-title { font-family: "Times New Roman"; font-size: 12dp; color: #e5c66f; }
+.tree-subtitle { margin-top: 2dp; font-size: 8dp; color: #7f918d; }
+.tree-legend { margin-left: auto; font-size: 7dp; color: #809c98; }
+.legend-rune { color: #7ed4dc; }
+.tech-tree { position: relative; background-color: #070d10f5; border: 1dp #2f4647; }
+.constellation-field { position: relative; height: 456dp; overflow: hidden; }
+.spire-halo { position: absolute; left: 50%; top: 13dp; border: 1dp #33565e; }
+.halo-outer { width: 206dp; height: 126dp; margin-left: -103dp; }
+.halo-inner { top: 27dp; width: 148dp; height: 98dp; margin-left: -74dp; border-color: #5e765d; }
+.spire-crown { position: absolute; left: 50%; top: 3dp; width: 20dp; margin-left: -10dp; font-size: 19dp; text-align: center; color: #f0cf6b; }
+.rune-mark { position: absolute; width: 18dp; height: 18dp; font-size: 15dp; text-align: center; color: #47777d; }
+.rune-mark-left { left: 52dp; top: 55dp; }
+.rune-mark-right { right: 52dp; top: 55dp; }
+.rune-mark-low-left { left: 111dp; top: 117dp; color: #6c714c; }
+.rune-mark-low-right { right: 111dp; top: 117dp; color: #6c714c; }
+.spire-beam, .nexus-drop, .branch-rail, .branch-drop { position: absolute; width: 2dp; background-color: #638e88; }
+.beam-upper { left: 50%; top: 22dp; height: 18dp; margin-left: -1dp; }
+.beam-lower { left: 50%; top: 92dp; height: 17dp; margin-left: -1dp; }
+.spire-node { position: absolute; left: 50%; width: 58dp; margin-left: -29dp; }
+.spire-node-top { top: 38dp; }
+.spire-node-base { top: 108dp; }
+.nexus-line { position: absolute; top: 176dp; height: 2dp; background-color: #638e88; }
+.nexus-left { left: 16.5%; width: 33.5%; }
+.nexus-right { left: 50%; width: 33.5%; }
+.nexus-drop { top: 176dp; height: 22dp; }
+.drop-stone { left: 16.5%; }
+.drop-metal { left: 50%; }
+.drop-electric { left: 83.5%; }
+.nexus-rune { position: absolute; left: 50%; top: 165dp; width: 24dp; height: 24dp; margin-left: -12dp; font-size: 19dp; text-align: center; color: #f0cf6b; background-color: #101b1c; }
+.constellation-branches { position: absolute; left: 0; top: 193dp; width: 100%; height: 258dp; display: flex; flex-direction: row; }
+.constellation-branch { position: relative; width: 33.333%; height: 258dp; }
+.branch-label { height: 14dp; font-size: 7dp; text-align: center; color: #91a09a; }
+.branch-sigil { margin-right: 2dp; }
+.stone-branch .branch-label { color: #d1a878; }
+.metal-branch .branch-label { color: #c1cdd2; }
+.electric-branch .branch-label { color: #75d5e3; }
+.discipline-node { position: absolute; left: 50%; top: 20dp; width: 54dp; margin-left: -27dp; }
+.branch-rail { left: 50%; margin-left: -1dp; }
+.rail-a { top: 77dp; height: 13dp; }
+.rail-b { left: 25%; top: 150dp; height: 30dp; }
+.branch-bar { position: absolute; left: 25%; width: 50%; height: 1dp; background-color: #557c77; }
+.bar-a { top: 89dp; }
+.bar-b { top: 179dp; }
+.branch-drop { height: 11dp; }
+.drop-a-left { left: 25%; top: 89dp; }
+.drop-a-right { left: 75%; top: 89dp; }
+.drop-b-left { left: 25%; top: 179dp; }
+.drop-b-right { left: 75%; top: 179dp; }
+.rune-node { position: absolute; width: 50dp; min-height: 50dp; margin-left: -25dp; }
+.node-left { left: 25%; }
+.node-right { left: 75%; }
+.tier-three { top: 100dp; }
+.tier-four { top: 190dp; }
 .tech-node
 {
-	width: 100%;
-	min-height: 54dp;
-	padding: 5dp 6dp;
-	font-size: 9dp;
-	color: #dce4de;
-	background-color: #17201d;
-	border: 1dp #53635b;
+	min-height: 50dp;
+	box-sizing: border-box;
+	padding: 3dp;
+	font-size: 8dp;
+	color: #dce9e5;
+	background-color: #050808fa;
+	border: 2dp #58736d;
 }
-.tech-node img { width: 24dp; height: 24dp; margin: 0 auto 2dp auto; display: block; }
-.tech-node span { display: block; text-align: center; }
-.tech-node:hover { color: #fff8df; background-color: #2b3732; border-color: #d0aa4f; }
-.tech-node.is-unlocked { background-color: #214c35; border-color: #57bb79; }
-.tech-node.is-available { background-color: #332b18; border-color: #d0aa4f; }
-.tech-node.is-locked { color: #717a74; background-color: #111614; border-color: #343d38; }
-.core-node { border-color: #b38b37; }
-.stone-node { border-color: #866b52; }
-.metal-node { border-color: #8f9a9e; }
-.electric-node { border-color: #4da7b8; }
-.hybrid-node { border-color: #b08a66; background-color: #29251f; }
-.tree-link { width: 1dp; height: 9dp; margin: 0 auto; background-color: #7c856f; }
-.branch-line { width: 68%; height: 1dp; margin: 8dp auto 9dp auto; background-color: #7c856f; }
+.tech-node img { width: 40dp; height: 40dp; margin: 0 auto; display: block; }
+.tech-node span { display: none; }
+.node-rank
+{
+	position: absolute;
+	right: -5dp;
+	bottom: -5dp;
+	min-width: 20dp;
+	height: 11dp;
+	padding: 1dp 2dp;
+	font-size: 7dp;
+	line-height: 9dp;
+	text-align: center;
+	color: #f4f3df;
+	background-color: #020303;
+	border: 1dp #68736e;
+}
+.spire-node img, .discipline-node img { width: 44dp; height: 44dp; }
+.tech-node:hover { color: #fff8df; background-color: #253b3b; border-color: #f0cf6b; }
+.tech-node.is-unlocked { color: #eafff3; background-color: #10271d; border-color: #38d36c; }
+.tech-node.is-maxed { color: #f6ffe9; background-color: #173323; border-color: #65ed80; }
+.tech-node.is-available { color: #fff4c9; background-color: #342d17; border-color: #e5bd50; }
+.tech-node.is-locked { color: #687573; background-color: #0b1112e8; border-color: #293a3b; }
+.tech-node.is-locked img { opacity: 0.28; }
+.tech-node.is-locked .node-rank { color: #a8aca9; border-color: #343b38; }
+.tech-node.is-available .node-rank { color: #ffe371; border-color: #b38b37; }
+.tech-node.is-unlocked .node-rank, .tech-node.is-maxed .node-rank { color: #9cffb1; border-color: #3ab864; }
+.core-node { border-color: #d3a83d; background-color: #201c12f2; }
+.stone-node { border-color: #9b7550; }
+.metal-node { border-color: #9eabb0; }
+.electric-node { border-color: #4fb7c9; }
+.hybrid-node { border-color: #c69765; background-color: #282018f2; }
 .talent-inspector
 {
 	position: absolute;
@@ -449,14 +505,20 @@ header
 	z-index: 20;
 }
 
-.end-state-dialog { position: absolute; right: 34dp; top: 184dp; z-index: 30; }
-
-.end-state-dialog.preparation
+.end-state-dialog
 {
+	position: absolute;
 	left: 50%;
 	right: auto;
 	top: 50%;
+	width: 430dp;
 	margin-left: -215dp;
+	margin-top: -112dp;
+	z-index: 30;
+}
+
+.end-state-dialog.preparation
+{
 	margin-top: -112dp;
 }
 

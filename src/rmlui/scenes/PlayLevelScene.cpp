@@ -737,6 +737,8 @@ void PlayLevelScene::refreshTowerProfile() {
                 const bool maxed = level >= static_cast<int>(node.upgradeLevels.size());
                 const bool available = canPurchaseUpgrade(*found, node, localPlayerId_,
                                                           std::numeric_limits<float>::max());
+                setText(document_, ("rank-" + node.id).c_str(),
+                    std::to_string(level) + "/" + std::to_string(node.upgradeLevels.size()));
                 button->SetClass("is-unlocked", level > 0);
                 button->SetClass("is-maxed", maxed);
                 button->SetClass("is-available", available);
@@ -1166,6 +1168,17 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
 void PlayLevelScene::restartMatch() {
     if (session_.isClient() || !worldRenderer_ || !worldRenderer_->isLoaded()) {
         return;
+    }
+
+    PlayLevelUiStateInput input;
+    input.phase = PlayLevelUiPhase::Running;
+    input.levelName = launchConfig_.displayName;
+    input.worldReady = true;
+    snapshot_ = buildPlayLevelUiSnapshot(input);
+    if (Rml::Element* dialog = document_ ? document_->GetElementById("end-state-dialog") : nullptr) {
+        dialog->SetClass("hidden", true);
+        dialog->SetClass("victory", false);
+        dialog->SetClass("defeat", false);
     }
 
     matchSimulation_.reset();

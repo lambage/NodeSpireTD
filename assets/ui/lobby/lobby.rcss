@@ -108,7 +108,6 @@ header
 	height: 8dp;
 	margin-right: 7dp;
 	background-color: #54d394;
-	border-radius: 4dp;
 }
 
 .currency
