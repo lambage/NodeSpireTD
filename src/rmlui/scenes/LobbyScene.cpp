@@ -199,10 +199,11 @@ void LobbyScene::refreshLaunchButton(const multiplayer::PartyRosterSnapshot& ros
                                       [](const multiplayer::PartyMemberState& member) { return member.ready; });
     const bool canStart = isHost && allReady;
     const Rml::String launchRml =
-        "<span class=\"button-label\">Start online match</span>"
+        "<span class=\"button-label\">" + Rml::String(isHost ? "Start online match" : "Waiting for host") +
+        "</span>"
         "<span class=\"button-note\">" +
         Rml::String(isHost ? (allReady ? "Party ready for deployment" : "Waiting for all players to ready up")
-                           : "Only the party leader can start") +
+                           : "The party leader will start the match") +
         "</span>";
     if (renderedLaunchRml_ != launchRml) {
         launchButton->SetInnerRML(launchRml);
