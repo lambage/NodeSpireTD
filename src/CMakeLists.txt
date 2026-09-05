@@ -297,6 +297,7 @@ add_executable(NodeSpireTD
     scenes/EnemySpawnFactory.cpp
     scenes/PlayLevelCombatController.cpp
     scenes/PlayLevelWaveController.cpp
+    scenes/TowerPlacementPreviewResolver.cpp
     scenes/TowerLoadController.cpp
     scenes/TowerPlacementRules.cpp
     utility/StaticGeometryBVH.cpp

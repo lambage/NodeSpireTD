@@ -8,6 +8,7 @@
 #include "multiplayer/MatchSnapshotBuilder.hpp"
 #include "rmlui/IScene.hpp"
 #include "rmlui/playlevel/PlayLevelUiContract.hpp"
+#include "scenes/TowerPlacementPreviewResolver.hpp"
 #include "scenes/TowerPlacementRules.hpp"
 
 #include <RmlUi/Core/EventListener.h>
@@ -20,6 +21,7 @@ class VulkanContext;
 class WorldRenderer;
 class TowerLoadController;
 class EnemyLoadController;
+struct TowerPreviewPanel;
 
 namespace multiplayer {
 class MultiplayerSession;
@@ -42,16 +44,21 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     void onExit(Rml::Context& context) override;
     SceneTransition update(float dt) override;
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent) override;
+    void renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent) override;
     SceneTransition onKeyDown(Rml::Input::KeyIdentifier key) override;
     void ProcessEvent(Rml::Event& event) override;
 
   private:
     void beginWorldLoad();
+    bool loadWaveDefinitions();
+    void restartMatch();
     void updateCamera(float dt);
     void refreshHud();
     void refreshLoadout();
+    void refreshTowerSlotInspector(int slot);
     void updateTowerSelection();
     void refreshTowerProfile();
+    void refreshTalentInspector(const std::string& nodeId);
     void updateTowerPlacement();
     void updateMatchSimulation(float dt);
     void updateWaveSimulation(float dt);
@@ -94,6 +101,7 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     bool remoteJoinSent_ = false;
     bool remoteJoinAccepted_ = false;
     PlacementTerrainSample placementSample_;
+    TowerPlacementPreviewResolver towerPlacementPreviewResolver_;
     int selectedTowerSlot_ = -1;
     multiplayer::TowerRuntimeId selectedTowerRuntimeId_ = 0;
     std::string placementReason_;
@@ -108,6 +116,13 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     bool onlineMatch_ = false;
     bool loadedReadySignaled_ = false;
     std::vector<Rml::Element*> upgradeButtonElements_;
+    std::vector<TowerPreviewPanel> towerPreviewPanels_;
+    float towerPreviewSpinRadians_ = 0.0f;
+    multiplayer::TowerRuntimeId renderedTowerProfileRuntimeId_ = 0;
+    multiplayer::PlayerId renderedTowerProfileOwnerId_ = 0;
+    multiplayer::PlayerId renderedTowerProfileViewerId_ = 0;
+    std::string renderedTowerProfileArchetypeId_;
+    std::vector<std::string> renderedTowerProfileUpgradeIds_;
     AudioEngine* audio_ = nullptr;
     SettingsManager settingsManager_;
     AppSettings settings_;

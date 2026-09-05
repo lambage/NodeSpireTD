@@ -74,6 +74,14 @@ TEST(PlayLevelUiContract, TerminalStatesHideGameplayControls) {
     EXPECT_FALSE(view.loadoutVisible);
     EXPECT_FALSE(view.startWaveVisible);
     EXPECT_FALSE(view.countdownVisible);
+
+    input.phase = PlayLevelUiPhase::Victory;
+    const PlayLevelUiSnapshot victoryView = buildPlayLevelUiSnapshot(input);
+
+    EXPECT_EQ(victoryView.headline, "Victory");
+    EXPECT_EQ(victoryView.supportingText, "All waves are cleared.");
+    EXPECT_FALSE(victoryView.loadoutVisible);
+    EXPECT_FALSE(victoryView.startWaveVisible);
 }
 
 } // namespace NodeSpireUi

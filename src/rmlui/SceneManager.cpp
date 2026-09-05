@@ -60,6 +60,10 @@ void SceneManager::renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent)
     activeScene_->renderWorld(commandBuffer, extent);
 }
 
+void SceneManager::renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent) {
+    activeScene_->renderOverlay(commandBuffer, extent);
+}
+
 bool SceneManager::handleKeyDown(Rml::Input::KeyIdentifier key) {
     const bool handled = activeScene_->handleShortcut(key);
     const SceneId previousSceneId = activeSceneId_;

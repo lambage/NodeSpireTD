@@ -22,6 +22,8 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <iomanip>
+#include <limits>
 #include <glm/vec4.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -32,6 +34,7 @@ namespace NodeSpireUi {
 namespace {
 constexpr const char* kDocumentPath = "assets/ui/playlevel/playlevel.rml";
 constexpr const char* kInteractiveIds[] = {"retry-button", "start-match-button", "resume-button", "back-to-lobby-button",
+                                            "end-replay-button", "end-lobby-button",
                                             "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
                                             "tower-slot-0", "tower-slot-1", "tower-slot-2", "tower-slot-3",
                                             "tower-slot-4", "close-tower-profile"};
@@ -39,6 +42,11 @@ constexpr float kTowerGhostAlpha = 0.45f;
 constexpr multiplayer::SimulationTick kSnapshotIntervalTicks = 3;
 constexpr glm::vec4 kPlacementRangeFill{0.18f, 0.72f, 0.48f, 0.16f};
 constexpr glm::vec4 kPlacementRangeOutline{0.35f, 1.0f, 0.65f, 0.85f};
+constexpr glm::vec4 kInvalidPlacementRangeFill{0.82f, 0.16f, 0.14f, 0.18f};
+constexpr glm::vec4 kInvalidPlacementRangeOutline{1.0f, 0.28f, 0.24f, 0.92f};
+constexpr glm::vec4 kOtherPlayerRangeFill{0.82f, 0.65f, 0.20f, 0.13f};
+constexpr glm::vec4 kOtherPlayerRangeOutline{1.0f, 0.82f, 0.28f, 0.9f};
+constexpr float kGroundCircleYOffset = 0.22f;
 
 glm::vec3 cameraForward(float yaw, float pitch) {
     return glm::normalize(glm::vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch),
@@ -49,6 +57,53 @@ void setText(Rml::ElementDocument* document, const char* id, const std::string& 
     if (Rml::Element* element = document->GetElementById(id)) {
         element->SetInnerRML(value);
     }
+}
+
+bool hasUpgrade(const playlevel::PlacedTower& tower, const std::string& nodeId) {
+    return std::find(tower.unlockedUpgradeNodeIds.begin(), tower.unlockedUpgradeNodeIds.end(), nodeId) !=
+           tower.unlockedUpgradeNodeIds.end();
+}
+
+bool canPurchaseUpgrade(const playlevel::PlacedTower& tower, const TowerArchetype::UpgradeNode& node,
+                        multiplayer::PlayerId viewerId, float balance, std::string* reason = nullptr) {
+    const int currentLevel = static_cast<int>(std::count(tower.unlockedUpgradeNodeIds.begin(),
+                                                         tower.unlockedUpgradeNodeIds.end(), node.id));
+    auto reject = [reason](const std::string& message) {
+        if (reason) *reason = message;
+        return false;
+    };
+    if (tower.ownerPlayerId != viewerId) return reject("Only this tower's owner can choose talents.");
+    if (currentLevel >= static_cast<int>(node.upgradeLevels.size())) return reject("Maximum level reached.");
+    if (static_cast<int>(tower.unlockedUpgradeNodeIds.size()) < node.minUpgradesRequired) {
+        return reject("Requires " + std::to_string(node.minUpgradesRequired) + " total talent levels.");
+    }
+    for (const std::string& required : node.requiredNodeIds) {
+        if (!hasUpgrade(tower, required)) return reject("Requires its preceding talent.");
+    }
+    for (const std::string& excluded : node.excludes) {
+        if (hasUpgrade(tower, excluded)) return reject("Locked by your chosen specialization.");
+    }
+    if (balance < static_cast<float>(node.upgradeLevels[static_cast<std::size_t>(currentLevel)].cost)) {
+        return reject("Not enough credits.");
+    }
+    if (reason) reason->clear();
+    return true;
+}
+
+void appendEffect(std::ostringstream& output, bool& hasEffect, const char* label, float value,
+                  bool percentage = false) {
+    if (std::abs(value) < 0.0001f) return;
+    if (hasEffect) output << " &nbsp; | &nbsp; ";
+    output << label << ' ' << std::showpos << std::fixed << std::setprecision(percentage ? 0 : 1)
+           << (percentage ? value * 100.0f : value) << std::noshowpos << (percentage ? "%" : "");
+    hasEffect = true;
+}
+
+void appendEffect(std::ostringstream& output, bool& hasEffect, const char* label, int value) {
+    if (value == 0) return;
+    if (hasEffect) output << " &nbsp; | &nbsp; ";
+    output << label << ' ' << std::showpos << value << std::noshowpos;
+    hasEffect = true;
 }
 } // namespace
 
@@ -65,6 +120,8 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     pauseMenuVisible_ = false;
     onlineMatch_ = session_.isInParty();
     loadedReadySignaled_ = false;
+    towerPreviewPanels_.clear();
+    towerPreviewSpinRadians_ = 0.0f;
     remoteJoinSent_ = false;
     remoteJoinAccepted_ = false;
     remotePlayerByPeer_.clear();
@@ -78,6 +135,7 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
         localMatchHost_.registerPlayer(localPlayerId_);
     }
     placementSample_ = {};
+    towerPlacementPreviewResolver_.reset();
     selectedTowerSlot_ = -1;
     selectedTowerRuntimeId_ = 0;
     placementReason_.clear();
@@ -94,6 +152,8 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
         if (Rml::Element* element = document_->GetElementById(id)) {
             element->AddEventListener(Rml::EventId::Click, this);
             element->AddEventListener(Rml::EventId::Change, this);
+            element->AddEventListener(Rml::EventId::Mouseover, this);
+            element->AddEventListener(Rml::EventId::Mouseout, this);
         }
     }
 
@@ -107,15 +167,19 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
         enemyLoadController_->registerArchetype(EnemyArchetype{});
     }
     enemyLoadController_->loadEnemyArchetype("assets/models/enemy/goblin_scout.enemy.lua");
-    matchSimulation_.waveController().loadWaveDefinitions(
+    loadWaveDefinitions();
+    beginWorldLoad();
+    refreshHud();
+}
+
+bool PlayLevelScene::loadWaveDefinitions() {
+    return matchSimulation_.waveController().loadWaveDefinitions(
         Rml::Lua::Interpreter::GetLuaState(), "assets/scenes/PlayLevelWaves.lua", enemyLoadController_->defaultId(),
         [this](const std::string& enemyId) -> std::optional<PlayLevelWaveController::EnemyWaveDefaults> {
             const EnemyArchetype* enemy = enemyLoadController_->findArchetype(enemyId);
             return enemy ? std::optional{PlayLevelWaveController::EnemyWaveDefaults{enemy->spawnIntervalSeconds}}
                          : std::nullopt;
         });
-    beginWorldLoad();
-    refreshHud();
 }
 
 void PlayLevelScene::onExit(Rml::Context& context) {
@@ -127,12 +191,16 @@ void PlayLevelScene::onExit(Rml::Context& context) {
     if (document_) {
         for (Rml::Element* button : upgradeButtonElements_) {
             button->RemoveEventListener(Rml::EventId::Click, this);
+            button->RemoveEventListener(Rml::EventId::Mouseover, this);
+            button->RemoveEventListener(Rml::EventId::Mouseout, this);
         }
         upgradeButtonElements_.clear();
         for (const char* id : kInteractiveIds) {
             if (Rml::Element* element = document_->GetElementById(id)) {
                 element->RemoveEventListener(Rml::EventId::Click, this);
                 element->RemoveEventListener(Rml::EventId::Change, this);
+                element->RemoveEventListener(Rml::EventId::Mouseover, this);
+                element->RemoveEventListener(Rml::EventId::Mouseout, this);
             }
         }
         document_->Close();
@@ -184,6 +252,7 @@ SceneTransition PlayLevelScene::update(float dt) {
     }
 
     if (!pauseMenuVisible_) {
+        towerPreviewSpinRadians_ = std::fmod(towerPreviewSpinRadians_ + dt * 0.55f, 6.2831853071795864769f);
         updateCamera(dt);
         updateTowerPlacement();
         updateMatchSimulation(dt);
@@ -290,14 +359,33 @@ void PlayLevelScene::renderWorld(VkCommandBuffer commandBuffer, VkExtent2D exten
     worldRenderer_->render(commandBuffer, extent, view);
 }
 
+void PlayLevelScene::renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent) {
+    if (!worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return;
+    }
+    if (!towerPreviewPanels_.empty()) {
+        worldRenderer_->renderTowerPreviewPanels(commandBuffer, extent, towerPreviewPanels_, towerPreviewSpinRadians_);
+    }
+}
+
 SceneTransition PlayLevelScene::onKeyDown(Rml::Input::KeyIdentifier key) {
     if (key == Rml::Input::KI_ESCAPE) {
+        bool clearedSelection = false;
         if (selectedTowerSlot_ >= 0) {
             selectedTowerSlot_ = -1;
             placementSample_ = {};
+            towerPlacementPreviewResolver_.reset();
             placementReason_ = "Tower placement cancelled.";
-            syncTowerInstances();
             refreshLoadout();
+            clearedSelection = true;
+        }
+        if (selectedTowerRuntimeId_ != 0) {
+            selectedTowerRuntimeId_ = 0;
+            refreshTowerProfile();
+            clearedSelection = true;
+        }
+        if (clearedSelection) {
+            syncTowerInstances();
             return std::nullopt;
         }
         setPauseMenuVisible(!pauseMenuVisible_);
@@ -306,6 +394,7 @@ SceneTransition PlayLevelScene::onKeyDown(Rml::Input::KeyIdentifier key) {
         const TowerArchetype* tower = towerLoadController_ ? towerLoadController_->archetypeAtLoadoutSlot(slot) : nullptr;
         if (tower && gameplayState_.playerMoney >= static_cast<float>(tower->cost)) {
             selectedTowerSlot_ = selectedTowerSlot_ == slot ? -1 : slot;
+            towerPlacementPreviewResolver_.reset();
             placementReason_.clear();
             refreshLoadout();
         }
@@ -320,6 +409,22 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
     }
 
     const Rml::String id = target->GetId();
+    if (id.starts_with("tower-slot-") && event == Rml::EventId::Mouseover) {
+        refreshTowerSlotInspector(std::stoi(id.substr(11)));
+        return;
+    }
+    if (id.starts_with("tower-slot-") && event == Rml::EventId::Mouseout) {
+        refreshTowerSlotInspector(-1);
+        return;
+    }
+    if (id.starts_with("upgrade-") && event == Rml::EventId::Mouseover) {
+        refreshTalentInspector(id.substr(8));
+        return;
+    }
+    if (id.starts_with("upgrade-") && event == Rml::EventId::Mouseout) {
+        refreshTalentInspector("");
+        return;
+    }
     if (event == Rml::EventId::Change) {
         if (id == "master-volume-slider") {
             settings_.masterVolume = event.GetParameter<float>("value", settings_.masterVolume);
@@ -352,6 +457,7 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
             placementReason_ = "Not enough credits for " + tower->displayName + ".";
         } else {
             selectedTowerSlot_ = selectedTowerSlot_ == slot ? -1 : slot;
+            towerPlacementPreviewResolver_.reset();
             placementReason_.clear();
         }
         refreshLoadout();
@@ -366,6 +472,22 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
     }
 
     if (id.starts_with("upgrade-")) {
+        const auto placed = std::find_if(placedTowers_.begin(), placedTowers_.end(), [this](const auto& tower) {
+            return tower.runtimeId == selectedTowerRuntimeId_;
+        });
+        const TowerArchetype* archetype = placed != placedTowers_.end() && towerLoadController_
+                                                ? towerLoadController_->findArchetype(placed->towerId)
+                                                : nullptr;
+        const auto node = archetype ? std::find_if(archetype->upgradeNodes.begin(), archetype->upgradeNodes.end(),
+                                                   [&id](const auto& item) { return item.id == id.substr(8); })
+                                    : decltype(archetype->upgradeNodes.begin()){};
+        std::string reason;
+        if (!archetype || node == archetype->upgradeNodes.end() ||
+            !canPurchaseUpgrade(*placed, *node, localPlayerId_, gameplayState_.playerMoney, &reason)) {
+            placementReason_ = reason.empty() ? "Upgrade unavailable." : reason;
+            refreshLoadout();
+            return;
+        }
         multiplayer::UpgradeTowerCommand upgrade;
         upgrade.towerRuntimeId = selectedTowerRuntimeId_;
         upgrade.upgradeNodeId = id.substr(8);
@@ -407,6 +529,13 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
             session_.endMatch();
         }
         pendingTransition_ = SceneId::Lobby;
+    } else if (id == "end-replay-button") {
+        restartMatch();
+    } else if (id == "end-lobby-button") {
+        if (session_.isHost()) {
+            session_.endMatch();
+        }
+        pendingTransition_ = SceneId::Lobby;
     }
 }
 
@@ -440,6 +569,9 @@ void PlayLevelScene::updateTowerPlacement() {
             updateTowerSelection();
         }
         placementSample_ = {};
+        if (!tower) {
+            towerPlacementPreviewResolver_.reset();
+        }
         syncTowerInstances();
         return;
     }
@@ -452,16 +584,24 @@ void PlayLevelScene::updateTowerPlacement() {
     const glm::mat4 view = glm::lookAt(cameraPosition_, cameraPosition_ + forward, glm::vec3(0.0f, 1.0f, 0.0f));
     const TowerPlacementRules::Context placementContext{gameplayState_, placedTowers_, worldRenderer_.get(),
                                                         worldRenderer_->placementRegions(), 30.0f, 2.0f};
-    placementSample_ = TowerPlacementRules::sampleTerrainAtScreenPoint(
-        placementContext, view, cameraPosition_, mouseX, mouseY, static_cast<float>(extent.width),
-        static_cast<float>(extent.height));
-
-    if (!placementSample_.hit) {
-        placementReason_ = "Cursor is not over valid terrain.";
-    } else {
-        placementReason_ = TowerPlacementRules::validatePlacement(
-            placementContext, *tower, placementSample_.worldPosition, 4, placementSample_, gameplayState_.playerMoney);
-    }
+    const auto validatePlacement = [this, tower, &placementContext](const glm::vec3& worldPosition,
+                                                                    int footprintSampleCount,
+                                                                    const PlacementTerrainSample& terrainSample) {
+        return TowerPlacementRules::validatePlacement(placementContext, *tower, worldPosition, footprintSampleCount,
+                                                      terrainSample, gameplayState_.playerMoney);
+    };
+    const auto resolved = towerPlacementPreviewResolver_.resolve(
+        tower,
+        [&]() {
+            return TowerPlacementRules::sampleTerrainAtScreenPoint(
+                placementContext, view, cameraPosition_, mouseX, mouseY, static_cast<float>(extent.width),
+                static_cast<float>(extent.height));
+        },
+        validatePlacement);
+    placementSample_ = towerPlacementPreviewResolver_.lastTerrainSample();
+    placementSample_.hit = resolved.hasHit;
+    placementSample_.worldPosition = resolved.worldPos;
+    placementReason_ = resolved.hasHit ? resolved.reason : "Cursor is not over valid terrain.";
 
     if (leftClicked && !pointerIsOverHud() && placementSample_.hit && placementReason_.empty()) {
         const std::string finalReason = TowerPlacementRules::validatePlacement(
@@ -474,6 +614,7 @@ void PlayLevelScene::updateTowerPlacement() {
             if (submitCommand(std::move(placeTower))) {
                 selectedTowerSlot_ = -1;
                 placementSample_ = {};
+                towerPlacementPreviewResolver_.reset();
                 placementReason_ = tower->displayName + " deployed.";
                 refreshHud();
             } else {
@@ -567,27 +708,108 @@ void PlayLevelScene::refreshTowerProfile() {
                   found->ricochetCount);
     setText(document_, "tower-area-stats", areaStats);
 
-    for (Rml::Element* button : upgradeButtonElements_) {
-        button->RemoveEventListener(Rml::EventId::Click, this);
-    }
-    upgradeButtonElements_.clear();
+    const bool treeChanged = renderedTowerProfileRuntimeId_ != found->runtimeId ||
+                             renderedTowerProfileOwnerId_ != found->ownerPlayerId ||
+                             renderedTowerProfileViewerId_ != localPlayerId_ ||
+                             renderedTowerProfileArchetypeId_ != archetype->id ||
+                             renderedTowerProfileUpgradeIds_ != found->unlockedUpgradeNodeIds;
+    if (treeChanged) {
+        for (Rml::Element* button : upgradeButtonElements_) {
+            button->RemoveEventListener(Rml::EventId::Click, this);
+            button->RemoveEventListener(Rml::EventId::Mouseover, this);
+            button->RemoveEventListener(Rml::EventId::Mouseout, this);
+        }
+        upgradeButtonElements_.clear();
 
-    std::ifstream fragment("assets/ui/playlevel/towers/" + archetype->id + ".rml");
-    std::ostringstream contents;
-    if (fragment) contents << fragment.rdbuf();
-    setText(document_, "tower-tech-tree", fragment ? contents.str() : "<p class=\"empty-tree\">No upgrades available.</p>");
-    for (const auto& node : archetype->upgradeNodes) {
-        if (Rml::Element* button = document_->GetElementById("upgrade-" + node.id)) {
-            button->AddEventListener(Rml::EventId::Click, this);
-            upgradeButtonElements_.push_back(button);
-            const int level = static_cast<int>(std::count(found->unlockedUpgradeNodeIds.begin(),
-                                                          found->unlockedUpgradeNodeIds.end(), node.id));
-            button->SetClass("is-unlocked", level > 0);
-            if (level >= static_cast<int>(node.upgradeLevels.size()) || found->ownerPlayerId != localPlayerId_) {
-                button->SetAttribute("disabled", "");
+        std::ifstream fragment("assets/ui/playlevel/towers/" + archetype->id + ".rml");
+        std::ostringstream contents;
+        if (fragment) contents << fragment.rdbuf();
+        setText(document_, "tower-tech-tree",
+                fragment ? contents.str() : "<p class=\"empty-tree\">No upgrades available.</p>");
+        for (const auto& node : archetype->upgradeNodes) {
+            if (Rml::Element* button = document_->GetElementById("upgrade-" + node.id)) {
+                button->AddEventListener(Rml::EventId::Click, this);
+                button->AddEventListener(Rml::EventId::Mouseover, this);
+                button->AddEventListener(Rml::EventId::Mouseout, this);
+                upgradeButtonElements_.push_back(button);
+                const int level = static_cast<int>(std::count(found->unlockedUpgradeNodeIds.begin(),
+                                                              found->unlockedUpgradeNodeIds.end(), node.id));
+                const bool maxed = level >= static_cast<int>(node.upgradeLevels.size());
+                const bool available = canPurchaseUpgrade(*found, node, localPlayerId_,
+                                                          std::numeric_limits<float>::max());
+                button->SetClass("is-unlocked", level > 0);
+                button->SetClass("is-maxed", maxed);
+                button->SetClass("is-available", available);
+                button->SetClass("is-locked", !available && !maxed);
             }
         }
+        refreshTalentInspector("");
+        renderedTowerProfileRuntimeId_ = found->runtimeId;
+        renderedTowerProfileOwnerId_ = found->ownerPlayerId;
+        renderedTowerProfileViewerId_ = localPlayerId_;
+        renderedTowerProfileArchetypeId_ = archetype->id;
+        renderedTowerProfileUpgradeIds_ = found->unlockedUpgradeNodeIds;
     }
+}
+
+void PlayLevelScene::refreshTalentInspector(const std::string& nodeId) {
+    if (!document_) return;
+    Rml::Element* inspector = document_->GetElementById("talent-inspector");
+    if (!inspector) return;
+    if (nodeId.empty()) {
+        inspector->SetClass("hidden", true);
+        return;
+    }
+
+    const auto tower = std::find_if(placedTowers_.begin(), placedTowers_.end(), [this](const auto& item) {
+        return item.runtimeId == selectedTowerRuntimeId_;
+    });
+    const TowerArchetype* archetype = tower != placedTowers_.end() && towerLoadController_
+                                            ? towerLoadController_->findArchetype(tower->towerId)
+                                            : nullptr;
+    if (!archetype) return;
+    const auto node = std::find_if(archetype->upgradeNodes.begin(), archetype->upgradeNodes.end(),
+                                   [&nodeId](const auto& item) { return item.id == nodeId; });
+    if (node == archetype->upgradeNodes.end()) return;
+
+    const int currentLevel = static_cast<int>(std::count(tower->unlockedUpgradeNodeIds.begin(),
+                                                         tower->unlockedUpgradeNodeIds.end(), nodeId));
+    const int maxLevel = static_cast<int>(node->upgradeLevels.size());
+    std::ostringstream details;
+    details << "<strong>" << Rml::StringUtilities::EncodeRml(node->displayName) << "</strong>"
+            << "<p>Level " << currentLevel << '/' << maxLevel;
+    if (currentLevel < maxLevel) {
+        details << " &nbsp; | &nbsp; Next rank: $" << node->upgradeLevels[static_cast<std::size_t>(currentLevel)].cost;
+    }
+    details << "</p><p>" << Rml::StringUtilities::EncodeRml(node->description) << "</p>";
+
+    if (currentLevel < maxLevel) {
+        const auto& effects = node->upgradeLevels[static_cast<std::size_t>(currentLevel)].effects;
+        std::ostringstream effectText;
+        bool hasEffect = false;
+        appendEffect(effectText, hasEffect, "Damage", effects.attackDamageAdd);
+        appendEffect(effectText, hasEffect, "Damage", effects.attackDamageMul - 1.0f, true);
+        appendEffect(effectText, hasEffect, "Range", effects.attackRangeAdd);
+        appendEffect(effectText, hasEffect, "Range", effects.attackRangeMul - 1.0f, true);
+        appendEffect(effectText, hasEffect, "Fire rate", effects.attackSpeedAdd);
+        appendEffect(effectText, hasEffect, "Fire rate", effects.attackSpeedMul - 1.0f, true);
+        appendEffect(effectText, hasEffect, "Projectile speed", effects.projectileSpeedAdd);
+        appendEffect(effectText, hasEffect, "Projectile speed", effects.projectileSpeedMul - 1.0f, true);
+        appendEffect(effectText, hasEffect, "Splash", effects.splashRadiusAdd);
+        appendEffect(effectText, hasEffect, "Chain range", effects.chainRangeAdd);
+        appendEffect(effectText, hasEffect, "Ricochet range", effects.ricochetRangeAdd);
+        appendEffect(effectText, hasEffect, "Projectiles", effects.projectileCountAdd);
+        appendEffect(effectText, hasEffect, "Chain targets", effects.chainTargetCountAdd);
+        appendEffect(effectText, hasEffect, "Ricochets", effects.ricochetCountAdd);
+        if (hasEffect) details << "<p class=\"talent-effect\">" << effectText.str() << "</p>";
+    }
+
+    std::string reason;
+    if (!canPurchaseUpgrade(*tower, *node, localPlayerId_, gameplayState_.playerMoney, &reason)) {
+        details << "<p class=\"talent-lock\">" << Rml::StringUtilities::EncodeRml(reason) << "</p>";
+    }
+    inspector->SetInnerRML(details.str());
+    inspector->SetClass("hidden", false);
 }
 
 bool PlayLevelScene::submitCommand(multiplayer::PlayerCommandPayload payload) {
@@ -786,7 +1008,9 @@ void PlayLevelScene::drainRemoteCommands(multiplayer::SimulationTick tick) {
 }
 
 void PlayLevelScene::publishSnapshot(multiplayer::SimulationTick tick) {
-    if (!session_.isHost() || remotePlayerByPeer_.empty() || tick % kSnapshotIntervalTicks != 0) {
+    const bool terminal = gameplayState_.matchStatus == MatchStatus::Victory ||
+                          gameplayState_.matchStatus == MatchStatus::Defeat;
+    if (!session_.isHost() || remotePlayerByPeer_.empty() || (!terminal && tick % kSnapshotIntervalTicks != 0)) {
         return;
     }
     if (const auto snapshot = multiplayer::MatchSnapshotBuilder::serialize(matchSimulation_)) {
@@ -812,6 +1036,7 @@ void PlayLevelScene::updateMatchSimulation(float dt) {
         if (const auto bytes = session_.client().consumeLatestSnapshot()) {
             if (const auto snapshot = multiplayer::MatchSnapshotBuilder::deserialize(*bytes)) {
                 applyRemoteSnapshot(*snapshot);
+                refreshHud();
             }
         }
         for (playlevel::ActiveEnemy& enemy : activeEnemies_) {
@@ -873,7 +1098,12 @@ float PlayLevelScene::sampleRouteYaw(float distance) const {
 
 void PlayLevelScene::updateWaveSimulation(float dt) {
     auto& wave = matchSimulation_.waveController();
-    wave.updateWaveSpawning(gameplayState_, dt, static_cast<int>(activeEnemies_.size()), [this](const std::string& id) {
+    const auto countAliveEnemies = [this]() {
+        return static_cast<int>(std::count_if(activeEnemies_.begin(), activeEnemies_.end(), [](const auto& enemy) {
+            return enemy.lifecycleState == playlevel::EnemyLifecycleState::Alive;
+        }));
+    };
+    wave.updateWaveSpawning(gameplayState_, dt, countAliveEnemies(), [this](const std::string& id) {
         const EnemyArchetype* archetype = enemyLoadController_->findArchetype(id);
         int prototypeIndex = 0;
         if (archetype) {
@@ -916,8 +1146,51 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
             return worldRenderer_->templateAnimationClipDurationSeconds(clipIndex, enemy.templatePrototypeIndex);
         },
         activeEnemies_);
-    gameplayState_.enemiesAlive = static_cast<int>(activeEnemies_.size());
-    if (gameplayState_.baseHealth <= 0.0f) gameplayState_.matchStatus = MatchStatus::Defeat;
+    gameplayState_.enemiesAlive = countAliveEnemies();
+    if (gameplayState_.baseHealth <= 0.0f) {
+        gameplayState_.matchStatus = MatchStatus::Defeat;
+    } else if (!gameplayState_.waveInProgress && !gameplayState_.waveCountdownActive &&
+               gameplayState_.currentWave > static_cast<int>(wave.waveCount()) && gameplayState_.enemiesAlive == 0) {
+        gameplayState_.matchStatus = MatchStatus::Victory;
+    }
+    if (gameplayState_.matchStatus == MatchStatus::Victory || gameplayState_.matchStatus == MatchStatus::Defeat) {
+        gameplayState_.waveInProgress = false;
+        gameplayState_.waveCountdownActive = false;
+        selectedTowerSlot_ = -1;
+        selectedTowerRuntimeId_ = 0;
+        placementSample_ = {};
+        towerPlacementPreviewResolver_.reset();
+    }
+}
+
+void PlayLevelScene::restartMatch() {
+    if (session_.isClient() || !worldRenderer_ || !worldRenderer_->isLoaded()) {
+        return;
+    }
+
+    matchSimulation_.reset();
+    localMatchHost_ = multiplayer::LocalMatchHost{};
+    matchSimulation_.registerPlayer(localPlayerId_, gameplayState_.playerMoney);
+    localMatchHost_.registerPlayer(localPlayerId_);
+    for (const auto& [peerId, playerId] : remotePlayerByPeer_) {
+        (void)peerId;
+        matchSimulation_.registerPlayer(playerId, gameplayState_.playerMoney);
+        localMatchHost_.registerPlayer(playerId);
+    }
+    loadWaveDefinitions();
+    selectedTowerSlot_ = -1;
+    selectedTowerRuntimeId_ = 0;
+    placementSample_ = {};
+    towerPlacementPreviewResolver_.reset();
+    placementReason_.clear();
+    gameplayState_.matchStatus = MatchStatus::Running;
+    matchSimulation_.waveController().beginWaveCountdown(
+        gameplayState_, true, worldRenderer_->hasAnimatedEntityTemplate(), worldRenderer_->routePoints().size() >= 2);
+    publishSnapshot(matchSimulation_.currentTick());
+    syncTowerInstances();
+    syncEnemyInstances();
+    refreshTowerProfile();
+    refreshHud();
 }
 
 void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot& snapshot) {
@@ -1076,9 +1349,11 @@ void PlayLevelScene::syncTowerInstances() {
         instance.debugLabel = tower->displayName;
         instances.push_back(std::move(instance));
         if (placed.runtimeId == selectedTowerRuntimeId_) {
-            groundCircles.push_back({placed.position + glm::vec3(0.0f, 0.03f, 0.0f),
+            const bool isOwnedByLocalPlayer = placed.ownerPlayerId == localPlayerId_;
+            groundCircles.push_back({placed.position + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
                                      std::max(0.01f, placed.attackRange),
-                                     {0.82f, 0.65f, 0.20f, 0.13f}, {1.0f, 0.82f, 0.28f, 0.9f}});
+                                     isOwnedByLocalPlayer ? kPlacementRangeFill : kOtherPlayerRangeFill,
+                                     isOwnedByLocalPlayer ? kPlacementRangeOutline : kOtherPlayerRangeOutline});
         }
     }
     for (const playlevel::ActiveProjectile& projectile : matchSimulation_.activeProjectiles()) {
@@ -1114,10 +1389,12 @@ void PlayLevelScene::syncTowerInstances() {
             instances.push_back(std::move(ghost));
 
             GroundCircle rangeCircle;
-            rangeCircle.center = placementSample_.worldPosition + glm::vec3(0.0f, 0.03f, 0.0f);
+            rangeCircle.center =
+                placementSample_.worldPosition + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f);
             rangeCircle.radius = std::max(0.01f, tower->attackRange);
-            rangeCircle.color = kPlacementRangeFill;
-            rangeCircle.outlineColor = kPlacementRangeOutline;
+            const bool validPlacement = placementReason_.empty();
+            rangeCircle.color = validPlacement ? kPlacementRangeFill : kInvalidPlacementRangeFill;
+            rangeCircle.outlineColor = validPlacement ? kPlacementRangeOutline : kInvalidPlacementRangeOutline;
             groundCircles.push_back(rangeCircle);
         }
     }
@@ -1220,13 +1497,16 @@ void PlayLevelScene::refreshHud() {
         retry->SetClass("visible", snapshot_.phase == PlayLevelUiPhase::LoadFailed);
     }
     if (Rml::Element* ready = document_->GetElementById("ready-state")) {
-        ready->SetClass("visible", snapshot_.phase == PlayLevelUiPhase::WaitingToStart);
-        if (snapshot_.phase == PlayLevelUiPhase::WaitingToStart) {
+        const bool waitingClient = snapshot_.phase == PlayLevelUiPhase::WaitingToStart && session_.isClient();
+        ready->SetClass("visible", waitingClient);
+        if (waitingClient) {
             ready->SetInnerRML(session_.isClient() ? "WAITING FOR HOST TO START" : "WORLD READY");
         }
     }
-    if (Rml::Element* role = document_->GetElementById("match-role")) {
-        role->SetInnerRML(!onlineMatch_ ? "SOLO" : (session_.isHost() ? "HOST" : "CLIENT"));
+    if (Rml::Element* status = document_->GetElementById("status-panel")) {
+        const bool statusVisible = snapshot_.phase == PlayLevelUiPhase::Loading ||
+                                   snapshot_.phase == PlayLevelUiPhase::LoadFailed;
+        status->SetClass("hidden", !statusVisible);
     }
     if (Rml::Element* start = document_->GetElementById("start-match-button")) {
         const bool visible = snapshot_.phase == PlayLevelUiPhase::WaitingToStart && !session_.isClient();
@@ -1236,6 +1516,29 @@ void PlayLevelScene::refreshHud() {
         } else {
             start->RemoveAttribute("disabled");
         }
+    }
+    const bool preparing = snapshot_.phase == PlayLevelUiPhase::WaitingToStart;
+    const bool terminal = snapshot_.phase == PlayLevelUiPhase::Victory || snapshot_.phase == PlayLevelUiPhase::Defeat;
+    if (Rml::Element* dialog = document_->GetElementById("end-state-dialog")) {
+        dialog->SetClass("hidden", !preparing && !terminal);
+        dialog->SetClass("preparation", preparing);
+        dialog->SetClass("victory", snapshot_.phase == PlayLevelUiPhase::Victory);
+        dialog->SetClass("defeat", snapshot_.phase == PlayLevelUiPhase::Defeat);
+    }
+    setText(document_, "end-state-kicker", preparing ? "BATTLEFIELD READY" : "DEPLOYMENT COMPLETE");
+    setText(document_, "end-state-title", snapshot_.headline);
+    setText(document_, "end-state-copy", snapshot_.supportingText);
+    if (Rml::Element* replay = document_->GetElementById("end-replay-button")) {
+        replay->SetClass("hidden", !terminal);
+        replay->SetInnerRML(session_.isClient() ? "Waiting for party leader" : "Play again");
+        if (session_.isClient()) {
+            replay->SetAttribute("disabled", "");
+        } else {
+            replay->RemoveAttribute("disabled");
+        }
+    }
+    if (Rml::Element* lobby = document_->GetElementById("end-lobby-button")) {
+        lobby->SetClass("hidden", !terminal);
     }
     refreshLoadout();
 }
@@ -1247,6 +1550,7 @@ void PlayLevelScene::refreshLoadout() {
     if (Rml::Element* bar = document_->GetElementById("tower-loadout")) {
         bar->SetClass("hidden", !snapshot_.loadoutVisible);
     }
+    towerPreviewPanels_.clear();
     for (int slot = 0; slot < 5; ++slot) {
         Rml::Element* button = document_->GetElementById("tower-slot-" + std::to_string(slot));
         if (!button) {
@@ -1255,26 +1559,56 @@ void PlayLevelScene::refreshLoadout() {
         const TowerArchetype* tower = towerLoadController_->archetypeAtLoadoutSlot(slot);
         if (!tower) {
             button->SetInnerRML("<span class=\"slot-key\">" + std::to_string(slot + 1) +
-                                "</span><span class=\"slot-name\">EMPTY</span>");
+                                "</span><span class=\"slot-preview-space\"></span><span class=\"slot-name\">EMPTY</span>");
             button->SetAttribute("disabled", "");
             button->SetClass("is-selected", false);
+            button->SetClass("is-unaffordable", false);
             continue;
         }
         button->SetInnerRML("<span class=\"slot-key\">" + std::to_string(slot + 1) +
-                            "</span><span class=\"slot-name\">" +
+                            "</span><span class=\"slot-preview-space\"></span><span class=\"slot-name\">" +
                             Rml::StringUtilities::EncodeRml(tower->displayName) +
                             "</span><span class=\"slot-cost\">$" + std::to_string(tower->cost) + "</span>");
-        if (gameplayState_.playerMoney >= static_cast<float>(tower->cost)) {
-            button->RemoveAttribute("disabled");
-        } else {
-            button->SetAttribute("disabled", "");
+        if (snapshot_.loadoutVisible) {
+            const int prototypeIndex = towerLoadController_->templatePrototypeIndex(tower->id);
+            const Rml::Vector2f offset = button->GetAbsoluteOffset(Rml::BoxArea::Border);
+            const float previewHeight = std::min(92.0f, button->GetOffsetHeight() - 42.0f);
+            if (prototypeIndex >= 0 && previewHeight > 1.0f) {
+                towerPreviewPanels_.push_back({prototypeIndex, offset.x + 1.0f, offset.y + 1.0f,
+                                               button->GetOffsetWidth() - 2.0f, previewHeight});
+            }
         }
+        button->RemoveAttribute("disabled");
+        button->SetClass("is-unaffordable", gameplayState_.playerMoney < static_cast<float>(tower->cost));
         button->SetClass("is-selected", selectedTowerSlot_ == slot);
     }
     if (Rml::Element* feedback = document_->GetElementById("placement-feedback")) {
         feedback->SetInnerRML(Rml::StringUtilities::EncodeRml(placementReason_));
         feedback->SetClass("valid", selectedTower() && placementSample_.hit && placementReason_.empty());
     }
+}
+
+void PlayLevelScene::refreshTowerSlotInspector(int slot) {
+    if (!document_) return;
+    Rml::Element* inspector = document_->GetElementById("tower-slot-inspector");
+    if (!inspector) return;
+    const TowerArchetype* tower = slot >= 0 && slot < 5 && towerLoadController_
+                                          ? towerLoadController_->archetypeAtLoadoutSlot(slot)
+                                          : nullptr;
+    if (!tower) {
+        inspector->SetClass("hidden", true);
+        return;
+    }
+
+    std::ostringstream details;
+    details << "<strong>" << Rml::StringUtilities::EncodeRml(tower->displayName) << " &nbsp; $" << tower->cost
+            << "</strong><p>" << Rml::StringUtilities::EncodeRml(tower->bio) << "</p>"
+            << "<p class=\"preview-stats\">Damage " << std::fixed << std::setprecision(1) << tower->attackDamage
+            << " &nbsp; | &nbsp; Range " << tower->attackRange
+            << " &nbsp; | &nbsp; Rate " << tower->attackSpeed << "/s"
+            << " &nbsp; | &nbsp; AP " << tower->armorPiercing << "</p>";
+    inspector->SetInnerRML(details.str());
+    inspector->SetClass("hidden", false);
 }
 
 } // namespace NodeSpireUi

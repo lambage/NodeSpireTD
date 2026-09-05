@@ -12,7 +12,6 @@
 			</div>
 			<div class="match-resources">
 				<div id="money-value" class="money-value">$250</div>
-				<div id="match-role" class="status-chip">SOLO</div>
 			</div>
 		</header>
 
@@ -39,11 +38,12 @@
 			</div>
 			<div id="placement-feedback" class="placement-feedback"></div>
 		</section>
+		<div id="tower-slot-inspector" class="tower-slot-inspector hidden"></div>
 
 		<section id="tower-profile" class="tower-profile hidden">
 			<div class="profile-heading">
 				<div><div class="section-kicker">TOWER PROFILE</div><h2 id="tower-profile-name">Tower</h2></div>
-				<button id="close-tower-profile" class="icon-button">X</button>
+				<button id="close-tower-profile" class="icon-button" title="Close tower profile">&#x00d7;</button>
 			</div>
 			<p id="tower-profile-bio" class="tower-bio"></p>
 			<div class="tower-stats">
@@ -61,15 +61,13 @@
 			<div id="tower-tech-tree" class="tower-tech-tree"></div>
 		</section>
 
-		<div class="status-panel">
+		<div id="status-panel" class="status-panel">
 			<div class="section-kicker">FIELD STATUS</div>
 			<h1 id="status-headline">Loading battlefield</h1>
 			<p id="status-copy">Preparing the battlefield...</p>
 			<div class="progress-track"><div id="loading-progress" class="progress-fill"></div></div>
 			<div class="status-actions">
 				<button id="retry-button">Retry</button>
-				<button id="start-match-button">Start match</button>
-				<div id="ready-state">WORLD READY</div>
 			</div>
 		</div>
 
@@ -85,6 +83,20 @@
 				<div class="pause-actions">
 					<button id="resume-button">Resume</button>
 					<button id="back-to-lobby-button" class="danger-button">Back to lobby</button>
+				</div>
+			</section>
+		</div>
+
+		<div id="end-state-dialog" class="end-state-dialog hidden">
+			<section class="end-state-panel">
+				<div id="end-state-kicker" class="section-kicker">DEPLOYMENT COMPLETE</div>
+				<h2 id="end-state-title">Victory</h2>
+				<p id="end-state-copy">All waves are cleared.</p>
+				<div class="end-state-actions">
+					<button id="start-match-button">Start match</button>
+					<div id="ready-state">WORLD READY</div>
+					<button id="end-replay-button">Play again</button>
+					<button id="end-lobby-button" class="danger-button">Return to lobby</button>
 				</div>
 			</section>
 		</div>

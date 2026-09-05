@@ -32,6 +32,7 @@ class SceneManager {
 
     void update(float dt);
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent);
+    void renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent);
     bool handleKeyDown(Rml::Input::KeyIdentifier key);
     void shutdown();
 

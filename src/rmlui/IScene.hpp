@@ -32,6 +32,9 @@ class IScene {
     // Records scene-owned 3D rendering before RmlUi in the application's active command buffer.
     virtual void renderWorld(VkCommandBuffer /*commandBuffer*/, VkExtent2D /*extent*/) {}
 
+    // Records scene-owned overlays after RmlUi while the application's render pass is still active.
+    virtual void renderOverlay(VkCommandBuffer /*commandBuffer*/, VkExtent2D /*extent*/) {}
+
     // Called for every key press while this scene is active. Return a
     // SceneId to request a transition; return std::nullopt to leave the key
     // unhandled (e.g. so the app-level F8 debugger toggle still applies).

@@ -172,6 +172,7 @@ int main(int /*argc*/, char** /*argv*/)
         Backend::BeginFrame(commandBuffer, static_cast<uint32_t>(frameIndex));
         context->Render();
         Backend::PresentFrame();
+        sceneManager.renderOverlay(commandBuffer, vulkanContext->extent());
         vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
         if (vulkanContext->present(imageIndex))
         {
