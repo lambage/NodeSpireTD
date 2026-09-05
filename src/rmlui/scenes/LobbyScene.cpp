@@ -197,8 +197,8 @@ bool LobbyScene::loadLevelCatalog() {
                 item.value("subtitle", item.at("name").get<std::string>()),
             item.value("description", std::string{}), item.value("threat", std::string{"UNKNOWN"}),
             item.value("players", std::string{"1-4"}), item.value("waves", std::string{"--"}),
-            item.value("thumbnail", std::string{}),   item.value("definition", std::string{}),
-            item.value("mapAsset", std::string{}),    item.value("startModel", std::string{}),
+            item.value("thumbnail", std::string{}),   item.value("mapAsset", std::string{}),
+            item.value("startModel", std::string{}),
             item.value("endModel", std::string{}),
             item.value("animatedTemplateModels", std::vector<std::string>{}),
             };
@@ -591,7 +591,7 @@ void LobbyScene::setStatus(const Rml::String& text) {
 void LobbyScene::configurePlayLevelLaunch(const LevelEntry& level) {
     std::vector<std::string> towerLoadoutIds = playLevelLaunchConfig_.towerLoadoutIds;
     const bool towerLoadoutConfigured = playLevelLaunchConfig_.towerLoadoutConfigured;
-    playLevelLaunchConfig_ = {level.id, level.name, level.definition, level.mapAsset, level.startModel, level.endModel,
+    playLevelLaunchConfig_ = {level.id, level.name, level.mapAsset, level.startModel, level.endModel,
                               level.animatedTemplateModels};
     playLevelLaunchConfig_.towerLoadoutIds = std::move(towerLoadoutIds);
     playLevelLaunchConfig_.towerLoadoutConfigured = towerLoadoutConfigured;
@@ -599,7 +599,7 @@ void LobbyScene::configurePlayLevelLaunch(const LevelEntry& level) {
 
 bool LobbyScene::configurePlayLevelLaunch(const multiplayer::PartyMatchStartAnnouncement& announcement) {
     const auto level = std::find_if(levels_.begin(), levels_.end(), [&announcement](const LevelEntry& candidate) {
-        return candidate.definition == announcement.levelScriptPath ||
+        return candidate.id == announcement.levelId ||
                candidate.mapAsset == announcement.levelAssetPath || candidate.name == announcement.levelName;
     });
     if (level == levels_.end()) {
@@ -733,7 +733,7 @@ void LobbyScene::ProcessEvent(Rml::Event& event) {
             setStatus("All players must be ready before the match can start.");
         } else {
             const LevelEntry& level = levels_[selectedLevelIndex_];
-            if (session_.announceMatchStart(level.name, level.definition, level.mapAsset)) {
+            if (session_.announceMatchStart(level.name, level.id, level.mapAsset)) {
                 configurePlayLevelLaunch(level);
                 pendingTransition_ = SceneId::PlayLevel;
             } else {

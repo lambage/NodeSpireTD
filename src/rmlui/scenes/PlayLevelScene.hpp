@@ -56,8 +56,9 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     void refreshHud();
     void refreshLoadout();
     void refreshTowerSlotInspector(int slot);
-    void updateTowerSelection();
+    void updateWorldSelection();
     void refreshTowerProfile();
+    void refreshEnemyProfile();
     void refreshTalentInspector(const std::string& nodeId, Rml::Element* anchor = nullptr);
     void updateTowerPlacement();
     void updateMatchSimulation(float dt);
@@ -104,6 +105,7 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     TowerPlacementPreviewResolver towerPlacementPreviewResolver_;
     int selectedTowerSlot_ = -1;
     multiplayer::TowerRuntimeId selectedTowerRuntimeId_ = 0;
+    std::uint64_t selectedEnemyRuntimeId_ = 0;
     std::string placementReason_;
     bool leftMouseDown_ = false;
     PlayLevelUiSnapshot snapshot_;

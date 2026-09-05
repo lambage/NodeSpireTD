@@ -1,13 +1,3 @@
-local DamageType = (Gameplay and Gameplay.DamageType) or {
-    Physical = "physical",
-    Fire = "fire",
-    Poison = "poison",
-    Arcane = "arcane",
-    Electric = "electric",
-    Holy = "holy",
-    Necrotic = "necrotic",
-}
-
 return {
     id = "goblin1",
     displayName = "Goblin Grunt",
@@ -19,9 +9,9 @@ return {
         shield = 0,
         armor = 2,
         resistances = {
-            [DamageType.Poison] = 50,
-            [DamageType.Fire] = 100,
-            [DamageType.Arcane] = 125,
+            poison = 50,
+            fire = 100,
+            arcane = 125,
         },
         moveSpeed = 2.8,
         rewardMoney = 20,

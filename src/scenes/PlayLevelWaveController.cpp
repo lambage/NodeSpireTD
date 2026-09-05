@@ -120,19 +120,6 @@ bool PlayLevelWaveController::loadWaveDefinitions(lua_State* L, const std::strin
         return false;
     }
 
-    lua_getfield(L, -1, "onLoad");
-    if (lua_isfunction(L, -1)) {
-        lua_pushvalue(L, -2);
-        if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
-            spdlog::error("PlayLevelWaveController: wave onLoad() execution error {}: {}", scriptPath,
-                          lua_tostring(L, -1));
-            lua_pop(L, 2);
-            return false;
-        }
-    } else {
-        lua_pop(L, 1);
-    }
-
     lua_getfield(L, -1, "waves");
     if (waveDefinitions_.empty() && lua_istable(L, -1)) {
         const int waveTable = lua_gettop(L);
@@ -190,62 +177,6 @@ bool PlayLevelWaveController::loadWaveDefinitions(lua_State* L, const std::strin
         waveDefinitions_.push_back(std::move(fallback));
     }
 
-    return true;
-}
-
-bool PlayLevelWaveController::registerWaveFromLua(lua_State* L, int waveTableIndex, const std::string& defaultEnemyId,
-                                                  const ResolveEnemyDefaultsFn& resolveEnemyDefaults,
-                                                  float overrideRoundDurationSeconds, std::string& outError) {
-    if (!L || !lua_istable(L, waveTableIndex)) {
-        outError = "Wave.Register requires a table argument";
-        return false;
-    }
-
-    WaveDefinition waveDef;
-    int spawnEntriesTable = waveTableIndex;
-
-    lua_getfield(L, waveTableIndex, "spawns");
-    if (lua_istable(L, -1)) {
-        spawnEntriesTable = lua_gettop(L);
-    } else {
-        lua_pop(L, 1);
-    }
-
-    lua_getfield(L, waveTableIndex, "roundDurationSeconds");
-    if (lua_isnumber(L, -1)) {
-        waveDef.roundDurationSeconds = static_cast<float>(lua_tonumber(L, -1));
-    }
-    lua_pop(L, 1);
-
-    if (overrideRoundDurationSeconds > 0.0f) {
-        waveDef.roundDurationSeconds = overrideRoundDurationSeconds;
-    }
-
-    const int entryCount = static_cast<int>(lua_rawlen(L, spawnEntriesTable));
-    for (int i = 1; i <= entryCount; ++i) {
-        lua_geti(L, spawnEntriesTable, i);
-        if (!lua_istable(L, -1)) {
-            lua_pop(L, 1);
-            continue;
-        }
-
-        WaveSpawnDefinition spawn;
-        parseWaveSpawnEntry(L, lua_gettop(L), defaultEnemyId, resolveEnemyDefaults, spawn);
-        waveDef.spawns.push_back(std::move(spawn));
-        lua_pop(L, 1);
-    }
-
-    if (spawnEntriesTable != waveTableIndex) {
-        lua_pop(L, 1);
-    }
-
-    if (waveDef.spawns.empty()) {
-        outError = "Wave.Register requires at least one spawn entry";
-        return false;
-    }
-
-    waveDef.roundDurationSeconds = std::max(1.0f, waveDef.roundDurationSeconds);
-    waveDefinitions_.push_back(std::move(waveDef));
     return true;
 }
 

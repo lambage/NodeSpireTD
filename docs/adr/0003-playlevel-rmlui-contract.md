@@ -39,8 +39,8 @@ The first contract lives in `src/rmlui/playlevel/PlayLevelUiContract.*`. It cove
 - explicit commands for start wave, slot selection, placement cancellation, selection clearing,
   upgrades, targeting, selling, pause, restart, and return to Lobby.
 
-Lua remains appropriate for authored level and wave definitions. It is not the PlayLevel HUD
-controller. The RmlUi PlayLevel scene will be a native event listener and snapshot renderer, like
+Lua remains appropriate for authored tower, enemy, and wave definitions. It is not the PlayLevel
+HUD controller. The RmlUi PlayLevel scene is a native event listener and snapshot renderer, like
 the migrated Lobby.
 
 ### Renderer integration comes before scene activation
@@ -94,6 +94,14 @@ Tower profile layout is native RmlUi. Shared profile attributes and statistics l
 listeners to matching `upgrade-<node-id>` elements; it does not infer a generic visual tree from
 the archetype's tier and column fields. The Archer Hut is the first complete authored fragment.
 
+The Lua asset audit on 2026-09-05 narrowed the authored contracts to four files: one tower
+archetype, two enemy archetypes, and `PlayLevelWaves.lua`. Tower Lua owns gameplay identity,
+models, base stats, upgrade requirements, costs, and effects; its RML fragment owns icons and
+visual topology. Enemy Lua owns model, combat, movement, reward, and render values. Wave Lua owns
+the declarative `waves` table only. The old level Lua modules were removed because level selection
+and world asset paths are authored in `assets/levels/catalog.json`; multiplayer announcements now
+carry the catalog level ID instead of a Lua script path.
+
 The native Lobby and PlayLevel share match lifecycle through `MultiplayerSession`. A host
 broadcasts the selected catalog level before entering PlayLevel; clients consume that announcement
 in the native Lobby update and transition automatically. Once every loaded scene reports ready,
@@ -109,6 +117,13 @@ The Escape menu is a trim-and-rebuild of the legacy ImGui pause panel. It keeps 
 music, and SFX volume controls, Resume, and Back to Lobby. Display mode, graphics quality, and
 other settings that can recreate rendering resources remain exclusive to the main-menu Options
 scene and are deliberately unavailable during a match.
+
+World selection is shared by towers and enemies. A left-click raycast resolves either a placed
+tower runtime ID or an active enemy runtime ID, with the two selections kept mutually exclusive.
+Tower selection opens the upgrade profile; enemy selection opens a dedicated RmlUi dossier whose
+name and biography come from the enemy Lua archetype and whose health, shield, armor, movement,
+reward, base damage, and resistances come from the live `ActiveEnemy`. The selected world instance
+is highlighted, and the dossier closes automatically when that enemy leaves the active simulation.
 
 Continuous PlayLevel camera controls read SDL3 keyboard and mouse state from the native scene
 during `update()`. RmlUi remains the owner of SDL event translation for document interaction;

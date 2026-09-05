@@ -52,7 +52,7 @@ class MultiplayerSession {
 
     // Host-only: clears loaded flags, broadcasts the announcement, and marks the barrier pending.
     // Returns false if not currently hosting.
-    bool announceMatchStart(std::string levelName, std::string levelScriptPath, std::string levelAssetPath);
+    bool announceMatchStart(std::string levelName, std::string levelId, std::string levelAssetPath);
     // Non-null exactly once per announcement the client hasn't yet consumed.
     std::optional<PartyMatchStartAnnouncement> consumeMatchStartAnnouncement();
     const std::optional<PartyMatchStartAnnouncement>& activeMatch() const { return activeMatch_; }

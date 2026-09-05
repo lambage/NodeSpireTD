@@ -44,13 +44,6 @@ class PlayLevelWaveController {
                              const std::string& defaultEnemyId,
                              const ResolveEnemyDefaultsFn& resolveEnemyDefaults);
 
-    bool registerWaveFromLua(lua_State* L,
-                             int waveTableIndex,
-                             const std::string& defaultEnemyId,
-                             const ResolveEnemyDefaultsFn& resolveEnemyDefaults,
-                             float overrideRoundDurationSeconds,
-                             std::string& outError);
-
     std::string validateStartWaveRequest(const PlayLevelState& gameplayState,
                                          bool worldLoaded,
                                          bool hasAnimatedEntityTemplate,

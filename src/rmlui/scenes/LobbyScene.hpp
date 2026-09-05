@@ -49,7 +49,6 @@ class LobbyScene final : public IScene, public Rml::EventListener {
         std::string players;
         std::string waves;
         std::string thumbnail;
-        std::string definition;
         std::string mapAsset;
         std::string startModel;
         std::string endModel;

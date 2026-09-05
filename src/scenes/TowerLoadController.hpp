@@ -12,21 +12,6 @@ struct lua_State;
 struct WorldAssetSpec;
 
 struct TowerArchetype {
-  struct UpgradeUiStyle {
-    std::string panelTitle = "Tower Talent Tree";
-    std::string artPath;
-    std::string defaultNodeIconPath = "assets/images/question.png";
-    float accentR = 0.62f;
-    float accentG = 0.42f;
-    float accentB = 0.08f;
-    float unlockedR = 0.15f;
-    float unlockedG = 0.52f;
-    float unlockedB = 0.27f;
-    float lockedR = 0.22f;
-    float lockedG = 0.23f;
-    float lockedB = 0.26f;
-  };
-
   struct UpgradeEffects {
     float attackDamageAdd = 0.0f;
     float attackDamageMul = 1.0f;
@@ -56,14 +41,8 @@ struct TowerArchetype {
     std::string id;
     std::string displayName;
     std::string description;
-    std::string iconPath;
-    std::string parentId;
-    std::vector<std::string> childrenOrder;
     std::string towerModelPathOverride;
     std::string projectileModelPathOverride;
-    std::string branch;
-    int tier = 0;
-    int column = 0;
     int minUpgradesRequired = 0;
     int towerPrototypeOverrideIndex = -1;
     int projectilePrototypeOverrideIndex = -1;
@@ -94,7 +73,6 @@ struct TowerArchetype {
     int ricochetCount = 0;
     float renderScale = 1.0f;
     float facingYawOffsetDegrees = 0.0f;
-    UpgradeUiStyle upgradeUi;
     std::vector<UpgradeNode> upgradeNodes;
 };
 

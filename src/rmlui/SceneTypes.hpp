@@ -18,7 +18,6 @@ enum class SceneId {
 struct PlayLevelLaunchConfig {
     std::string levelId = "grassy";
     std::string displayName = "Grassy";
-    std::string definitionPath = "assets/levels/grassy/level.lua";
     std::string mapAssetPath = "assets/levels/grassy/grassy_map.glb";
     std::string startModelPath = "assets/models/base/portal.glb";
     std::string endModelPath = "assets/models/base/base.glb";

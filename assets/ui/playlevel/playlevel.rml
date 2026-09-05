@@ -61,6 +61,26 @@
 			<div id="tower-tech-tree" class="tower-tech-tree"></div>
 		</section>
 
+		<section id="enemy-profile" class="enemy-profile hidden">
+			<div class="profile-heading">
+				<div><div class="section-kicker">ENEMY DOSSIER</div><h2 id="enemy-profile-name">Enemy</h2></div>
+				<button id="close-enemy-profile" class="icon-button" title="Close enemy profile">&#x00d7;</button>
+			</div>
+			<p id="enemy-profile-bio" class="enemy-bio"></p>
+			<div class="enemy-vitals">
+				<div><small>HEALTH</small><span id="enemy-health">0 / 0</span></div>
+				<div><small>SHIELD</small><span id="enemy-shield">0 / 0</span></div>
+				<div><small>ARMOR</small><span id="enemy-armor">0</span></div>
+				<div><small>SPEED</small><span id="enemy-speed">0</span></div>
+			</div>
+			<div class="enemy-threat-details">
+				<span id="enemy-reward">$0 reward</span>
+				<span id="enemy-base-damage">0 base damage</span>
+			</div>
+			<div class="resistance-heading">RESISTANCES</div>
+			<div id="enemy-resistances" class="enemy-resistances">No resistances</div>
+		</section>
+
 		<div id="status-panel" class="status-panel">
 			<div class="section-kicker">FIELD STATUS</div>
 			<h1 id="status-headline">Loading battlefield</h1>

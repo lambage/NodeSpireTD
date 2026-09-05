@@ -37,7 +37,7 @@ constexpr const char* kInteractiveIds[] = {"retry-button", "start-match-button",
                                             "end-replay-button", "end-lobby-button",
                                             "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
                                             "tower-slot-0", "tower-slot-1", "tower-slot-2", "tower-slot-3",
-                                            "tower-slot-4", "close-tower-profile"};
+                                            "tower-slot-4", "close-tower-profile", "close-enemy-profile"};
 constexpr float kTowerGhostAlpha = 0.45f;
 constexpr multiplayer::SimulationTick kSnapshotIntervalTicks = 3;
 constexpr glm::vec4 kPlacementRangeFill{0.18f, 0.72f, 0.48f, 0.16f};
@@ -138,6 +138,7 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     towerPlacementPreviewResolver_.reset();
     selectedTowerSlot_ = -1;
     selectedTowerRuntimeId_ = 0;
+    selectedEnemyRuntimeId_ = 0;
     placementReason_.clear();
     leftMouseDown_ = false;
     audio_ = &audio;
@@ -384,6 +385,11 @@ SceneTransition PlayLevelScene::onKeyDown(Rml::Input::KeyIdentifier key) {
             refreshTowerProfile();
             clearedSelection = true;
         }
+        if (selectedEnemyRuntimeId_ != 0) {
+            selectedEnemyRuntimeId_ = 0;
+            refreshEnemyProfile();
+            clearedSelection = true;
+        }
         if (clearedSelection) {
             syncTowerInstances();
             return std::nullopt;
@@ -467,6 +473,13 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
     if (id == "close-tower-profile") {
         selectedTowerRuntimeId_ = 0;
         refreshTowerProfile();
+        syncTowerInstances();
+        return;
+    }
+
+    if (id == "close-enemy-profile") {
+        selectedEnemyRuntimeId_ = 0;
+        refreshEnemyProfile();
         syncTowerInstances();
         return;
     }
@@ -566,7 +579,7 @@ void PlayLevelScene::updateTowerPlacement() {
     if (!tower || !worldRenderer_ || !worldRenderer_->isLoaded() ||
         gameplayState_.matchStatus != MatchStatus::Running) {
         if (!tower && leftClicked && !pointerIsOverHud() && gameplayState_.matchStatus == MatchStatus::Running) {
-            updateTowerSelection();
+            updateWorldSelection();
         }
         placementSample_ = {};
         if (!tower) {
@@ -628,7 +641,7 @@ void PlayLevelScene::updateTowerPlacement() {
     refreshLoadout();
 }
 
-void PlayLevelScene::updateTowerSelection() {
+void PlayLevelScene::updateWorldSelection() {
     float mouseX = 0.0f;
     float mouseY = 0.0f;
     SDL_GetMouseState(&mouseX, &mouseY);
@@ -653,10 +666,18 @@ void PlayLevelScene::updateTowerSelection() {
         hit.entityKind == WorldEntityKind::Tower && hit.instanceIndex >= 0 &&
         static_cast<std::size_t>(hit.instanceIndex) < placedTowers_.size()) {
         selectedTowerRuntimeId_ = placedTowers_[static_cast<std::size_t>(hit.instanceIndex)].runtimeId;
+        selectedEnemyRuntimeId_ = 0;
+    } else if (hit.entityKind == WorldEntityKind::Enemy && hit.instanceIndex >= 0 &&
+               static_cast<std::size_t>(hit.instanceIndex) < activeEnemies_.size()) {
+        selectedEnemyRuntimeId_ = activeEnemies_[static_cast<std::size_t>(hit.instanceIndex)].runtimeId;
+        selectedTowerRuntimeId_ = 0;
     } else {
         selectedTowerRuntimeId_ = 0;
+        selectedEnemyRuntimeId_ = 0;
     }
     refreshTowerProfile();
+    refreshEnemyProfile();
+    syncTowerInstances();
 }
 
 void PlayLevelScene::refreshTowerProfile() {
@@ -752,6 +773,62 @@ void PlayLevelScene::refreshTowerProfile() {
         renderedTowerProfileArchetypeId_ = archetype->id;
         renderedTowerProfileUpgradeIds_ = found->unlockedUpgradeNodeIds;
     }
+}
+
+void PlayLevelScene::refreshEnemyProfile() {
+    if (!document_ || !enemyLoadController_) return;
+    Rml::Element* panel = document_->GetElementById("enemy-profile");
+    if (!panel) return;
+
+    const auto found = std::find_if(activeEnemies_.begin(), activeEnemies_.end(), [this](const auto& enemy) {
+        return enemy.runtimeId == selectedEnemyRuntimeId_;
+    });
+    if (found == activeEnemies_.end()) {
+        selectedEnemyRuntimeId_ = 0;
+        panel->SetClass("hidden", true);
+        return;
+    }
+
+    const EnemyArchetype* archetype = enemyLoadController_->findArchetype(found->enemyId);
+    if (!archetype) {
+        selectedEnemyRuntimeId_ = 0;
+        panel->SetClass("hidden", true);
+        return;
+    }
+
+    panel->SetClass("hidden", false);
+    setText(document_, "enemy-profile-name", Rml::StringUtilities::EncodeRml(archetype->displayName));
+    setText(document_, "enemy-profile-bio", Rml::StringUtilities::EncodeRml(archetype->description));
+
+    char value[48];
+    std::snprintf(value, sizeof(value), "%.0f / %.0f", found->health, found->maxHealth);
+    setText(document_, "enemy-health", value);
+    std::snprintf(value, sizeof(value), "%.0f / %.0f", found->shield, found->maxShield);
+    setText(document_, "enemy-shield", value);
+    std::snprintf(value, sizeof(value), "%.1f", found->armor);
+    setText(document_, "enemy-armor", value);
+    std::snprintf(value, sizeof(value), "%.1f", found->moveSpeed);
+    setText(document_, "enemy-speed", value);
+    setText(document_, "enemy-reward", "$" + std::to_string(static_cast<int>(found->rewardMoney)) + " reward");
+    setText(document_, "enemy-base-damage",
+            std::to_string(static_cast<int>(found->baseDamage)) + " base damage");
+
+    std::ostringstream resistances;
+    bool hasResistance = false;
+    constexpr playlevel::DamageType kResistanceOrder[] = {
+        playlevel::DamageType::Physical, playlevel::DamageType::Fire,    playlevel::DamageType::Poison,
+        playlevel::DamageType::Arcane,   playlevel::DamageType::Electric, playlevel::DamageType::Holy,
+        playlevel::DamageType::Necrotic,
+    };
+    for (const playlevel::DamageType type : kResistanceOrder) {
+        const auto resistance = found->resistances.find(type);
+        if (resistance == found->resistances.end()) continue;
+        if (hasResistance) resistances << " &nbsp; | &nbsp; ";
+        resistances << playlevel::damageTypeToString(type) << ' ' << std::fixed << std::setprecision(0)
+                    << resistance->second << '%';
+        hasResistance = true;
+    }
+    setText(document_, "enemy-resistances", hasResistance ? resistances.str() : "No resistances");
 }
 
 void PlayLevelScene::refreshTalentInspector(const std::string& nodeId, Rml::Element* anchor) {
@@ -1173,6 +1250,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
         gameplayState_.waveCountdownActive = false;
         selectedTowerSlot_ = -1;
         selectedTowerRuntimeId_ = 0;
+        selectedEnemyRuntimeId_ = 0;
         placementSample_ = {};
         towerPlacementPreviewResolver_.reset();
     }
@@ -1206,6 +1284,7 @@ void PlayLevelScene::restartMatch() {
     loadWaveDefinitions();
     selectedTowerSlot_ = -1;
     selectedTowerRuntimeId_ = 0;
+    selectedEnemyRuntimeId_ = 0;
     placementSample_ = {};
     towerPlacementPreviewResolver_.reset();
     placementReason_.clear();
@@ -1216,6 +1295,7 @@ void PlayLevelScene::restartMatch() {
     syncTowerInstances();
     syncEnemyInstances();
     refreshTowerProfile();
+    refreshEnemyProfile();
     refreshHud();
 }
 
@@ -1327,6 +1407,7 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
     }
     gameplayState_.enemiesAlive = static_cast<int>(activeEnemies_.size());
     refreshTowerProfile();
+    refreshEnemyProfile();
 }
 
 void PlayLevelScene::syncEnemyInstances() {
@@ -1426,11 +1507,21 @@ void PlayLevelScene::syncTowerInstances() {
     }
     worldRenderer_->setGroundCircles(std::move(groundCircles));
     worldRenderer_->setTowerInstanceTransforms(instances);
-    const auto selected = std::find_if(placedTowers_.begin(), placedTowers_.end(), [this](const auto& tower) {
+    const auto selectedTower = std::find_if(placedTowers_.begin(), placedTowers_.end(), [this](const auto& tower) {
         return tower.runtimeId == selectedTowerRuntimeId_;
     });
-    const int selectedIndex = selected == placedTowers_.end() ? -1 : static_cast<int>(std::distance(placedTowers_.begin(), selected));
-    worldRenderer_->setHighlightedInstances(WorldEntityKind::None, -1, WorldEntityKind::Tower, selectedIndex);
+    const auto selectedEnemy = std::find_if(activeEnemies_.begin(), activeEnemies_.end(), [this](const auto& enemy) {
+        return enemy.runtimeId == selectedEnemyRuntimeId_;
+    });
+    const int selectedTowerIndex = selectedTower == placedTowers_.end()
+                                       ? -1
+                                       : static_cast<int>(std::distance(placedTowers_.begin(), selectedTower));
+    const int selectedEnemyIndex = selectedEnemy == activeEnemies_.end()
+                                       ? -1
+                                       : static_cast<int>(std::distance(activeEnemies_.begin(), selectedEnemy));
+    const WorldEntityKind selectedKind = selectedEnemyIndex >= 0 ? WorldEntityKind::Enemy : WorldEntityKind::Tower;
+    const int selectedIndex = selectedEnemyIndex >= 0 ? selectedEnemyIndex : selectedTowerIndex;
+    worldRenderer_->setHighlightedInstances(WorldEntityKind::None, -1, selectedKind, selectedIndex);
 }
 
 void PlayLevelScene::setPauseMenuVisible(bool visible) {
@@ -1566,6 +1657,8 @@ void PlayLevelScene::refreshHud() {
     if (Rml::Element* lobby = document_->GetElementById("end-lobby-button")) {
         lobby->SetClass("hidden", !terminal);
     }
+    refreshTowerProfile();
+    refreshEnemyProfile();
     refreshLoadout();
 }
 

@@ -102,13 +102,13 @@ bool MultiplayerSession::kickMember(PlayerId targetPlayerId) {
     return true;
 }
 
-bool MultiplayerSession::announceMatchStart(std::string levelName, std::string levelScriptPath,
+bool MultiplayerSession::announceMatchStart(std::string levelName, std::string levelId,
                                             std::string levelAssetPath) {
     if (!isHost()) {
         return false;
     }
     partyGate_.resetLoadedFlags();
-    PartyMatchStartAnnouncement announcement{std::move(levelName), std::move(levelScriptPath),
+    PartyMatchStartAnnouncement announcement{std::move(levelName), std::move(levelId),
                                              std::move(levelAssetPath)};
     activeMatch_ = announcement;
     matchStarted_ = false;

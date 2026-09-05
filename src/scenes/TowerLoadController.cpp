@@ -208,59 +208,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
 
     lua_getfield(L_, -1, "upgradeTree");
     if (lua_istable(L_, -1)) {
-        lua_getfield(L_, -1, "ui");
-        if (lua_istable(L_, -1)) {
-            lua_getfield(L_, -1, "panelTitle");
-            if (lua_isstring(L_, -1)) {
-                outArchetype.upgradeUi.panelTitle = lua_tostring(L_, -1);
-            }
-            lua_pop(L_, 1);
-
-            lua_getfield(L_, -1, "artPath");
-            if (lua_isstring(L_, -1)) {
-                outArchetype.upgradeUi.artPath = lua_tostring(L_, -1);
-            }
-            lua_pop(L_, 1);
-
-            lua_getfield(L_, -1, "defaultNodeIcon");
-            if (lua_isstring(L_, -1)) {
-                outArchetype.upgradeUi.defaultNodeIconPath = lua_tostring(L_, -1);
-            }
-            lua_pop(L_, 1);
-
-            auto readColorField = [&](const char* key, float& r, float& g, float& b) {
-                lua_getfield(L_, -1, key);
-                if (lua_istable(L_, -1)) {
-                    lua_geti(L_, -1, 1);
-                    if (lua_isnumber(L_, -1)) {
-                        r = static_cast<float>(lua_tonumber(L_, -1));
-                    }
-                    lua_pop(L_, 1);
-
-                    lua_geti(L_, -1, 2);
-                    if (lua_isnumber(L_, -1)) {
-                        g = static_cast<float>(lua_tonumber(L_, -1));
-                    }
-                    lua_pop(L_, 1);
-
-                    lua_geti(L_, -1, 3);
-                    if (lua_isnumber(L_, -1)) {
-                        b = static_cast<float>(lua_tonumber(L_, -1));
-                    }
-                    lua_pop(L_, 1);
-                }
-                lua_pop(L_, 1);
-            };
-
-            readColorField("accent", outArchetype.upgradeUi.accentR, outArchetype.upgradeUi.accentG,
-                           outArchetype.upgradeUi.accentB);
-            readColorField("unlocked", outArchetype.upgradeUi.unlockedR, outArchetype.upgradeUi.unlockedG,
-                           outArchetype.upgradeUi.unlockedB);
-            readColorField("locked", outArchetype.upgradeUi.lockedR, outArchetype.upgradeUi.lockedG,
-                           outArchetype.upgradeUi.lockedB);
-        }
-        lua_pop(L_, 1);
-
         lua_getfield(L_, -1, "nodes");
         if (lua_istable(L_, -1)) {
             const int nodeCount = static_cast<int>(lua_rawlen(L_, -1));
@@ -294,32 +241,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 }
                 lua_pop(L_, 1);
 
-                lua_getfield(L_, -1, "icon");
-                if (lua_isstring(L_, -1)) {
-                    node.iconPath = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "parent");
-                if (lua_isstring(L_, -1)) {
-                    node.parentId = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "childrenOrder");
-                if (lua_istable(L_, -1)) {
-                    const int count = static_cast<int>(lua_rawlen(L_, -1));
-                    node.childrenOrder.reserve(static_cast<std::size_t>(count));
-                    for (int idx = 1; idx <= count; ++idx) {
-                        lua_geti(L_, -1, idx);
-                        if (lua_isstring(L_, -1)) {
-                            node.childrenOrder.emplace_back(lua_tostring(L_, -1));
-                        }
-                        lua_pop(L_, 1);
-                    }
-                }
-                lua_pop(L_, 1);
-
                 lua_getfield(L_, -1, "towerModel");
                 if (lua_isstring(L_, -1)) {
                     node.towerModelPathOverride = lua_tostring(L_, -1);
@@ -329,24 +250,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 lua_getfield(L_, -1, "projectileModel");
                 if (lua_isstring(L_, -1)) {
                     node.projectileModelPathOverride = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "branch");
-                if (lua_isstring(L_, -1)) {
-                    node.branch = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "tier");
-                if (lua_isinteger(L_, -1)) {
-                    node.tier = static_cast<int>(lua_tointeger(L_, -1));
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "column");
-                if (lua_isinteger(L_, -1)) {
-                    node.column = static_cast<int>(lua_tointeger(L_, -1));
                 }
                 lua_pop(L_, 1);
 
@@ -585,29 +488,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     if (outArchetype.renderScale <= 0.01f) {
         outArchetype.renderScale = 1.0f;
     }
-
-    constexpr int kMaxChildrenPerNode = 4;
-    std::unordered_map<std::string, int> childCountByParent;
-    std::vector<TowerArchetype::UpgradeNode> filteredNodes;
-    filteredNodes.reserve(outArchetype.upgradeNodes.size());
-    for (const auto& node : outArchetype.upgradeNodes) {
-        if (node.parentId.empty()) {
-            filteredNodes.push_back(node);
-            continue;
-        }
-
-        int& childCount = childCountByParent[node.parentId];
-        if (childCount >= kMaxChildrenPerNode) {
-            spdlog::warn(
-                "TowerLoadController: node '{}' in '{}' exceeds max {} children for parent '{}'. Node ignored.",
-                node.id, scriptPath, kMaxChildrenPerNode, node.parentId);
-            continue;
-        }
-
-        ++childCount;
-        filteredNodes.push_back(node);
-    }
-    outArchetype.upgradeNodes = std::move(filteredNodes);
 
     return true;
 }

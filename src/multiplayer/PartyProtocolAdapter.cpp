@@ -225,7 +225,7 @@ std::optional<std::string>
 PartyProtocolAdapter::serializePartyMatchStartAnnouncement(const PartyMatchStartAnnouncement& announcement) {
     WireMatchStartAnnouncement wireAnnouncement;
     wireAnnouncement.set_level_name(announcement.levelName);
-    wireAnnouncement.set_level_script_path(announcement.levelScriptPath);
+    wireAnnouncement.set_level_id(announcement.levelId);
     wireAnnouncement.set_level_asset_path(announcement.levelAssetPath);
 
     std::string bytes;
@@ -238,7 +238,7 @@ PartyProtocolAdapter::decodePartyMatchStartAnnouncement(std::string_view payload
     if (!wireAnnouncement.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
         return std::nullopt;
     }
-    return PartyMatchStartAnnouncement{wireAnnouncement.level_name(), wireAnnouncement.level_script_path(),
+    return PartyMatchStartAnnouncement{wireAnnouncement.level_name(), wireAnnouncement.level_id(),
                                        wireAnnouncement.level_asset_path()};
 }
 
