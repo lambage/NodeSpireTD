@@ -389,7 +389,7 @@ void LobbyScene::showParty() {
     refreshPartyView();
 }
 
-void LobbyScene::showPartySetup(const Rml::String& status) {
+void LobbyScene::showPartySetup(const Rml::String& status, const Rml::String& connectionNotice) {
     inParty_ = false;
     chatHistoryRml_.clear();
 
@@ -410,6 +410,10 @@ void LobbyScene::showPartySetup(const Rml::String& status) {
     }
     if (Rml::Element* chatShell = document_->GetElementById("party-chat-shell")) {
         chatShell->SetClass("hidden", true);
+    }
+    if (Rml::Element* feedback = document_->GetElementById("party-connection-feedback")) {
+        feedback->SetInnerRML(Rml::StringUtilities::EncodeRml(connectionNotice));
+        feedback->SetClass("hidden", connectionNotice.empty());
     }
     setStatus(status);
 }
@@ -635,7 +639,9 @@ SceneTransition LobbyScene::update(float /*dt*/) {
     removeChatFocusKey_ = false;
     normalizeSlashPrefix_ = false;
 
-    if (inParty_ && !session_.isInParty()) {
+    if (const auto connectionNotice = session_.consumeConnectionNotice()) {
+        showPartySetup(*connectionNotice, *connectionNotice);
+    } else if (inParty_ && !session_.isInParty()) {
         showPartySetup("Connection to the party ended.");
     } else if (session_.isInParty()) {
         if (!inParty_) {

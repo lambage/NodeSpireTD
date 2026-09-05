@@ -26,10 +26,28 @@ const char* partyJoinRejectionName(PartyJoinRejectionReason reason) {
     }
 }
 
+std::string partyJoinRejectionNotice(PartyJoinRejectionReason reason) {
+    switch (reason) {
+    case PartyJoinRejectionReason::ProtocolVersionUnsupported:
+        return "Could not join: your game version does not match the host.";
+    case PartyJoinRejectionReason::PartyFull:
+        return "Could not join: the host's party is full.";
+    case PartyJoinRejectionReason::DisplayNameInvalid:
+        return "Could not join: your player name is invalid.";
+    case PartyJoinRejectionReason::AlreadyConnected:
+        return "Could not join: this player identity is already connected. Each machine must have its own "
+               "config/profile.json file.";
+    case PartyJoinRejectionReason::Unspecified:
+    default:
+        return "Could not join: the host rejected the connection.";
+    }
+}
+
 } // namespace
 
 bool MultiplayerSession::hostParty(unsigned short port, std::string displayName, std::string playerUuid) {
     leaveParty();
+    pendingConnectionNotice_.reset();
     if (!hostTransport_.listen(port)) {
         return false;
     }
@@ -44,6 +62,7 @@ bool MultiplayerSession::hostParty(unsigned short port, std::string displayName,
 bool MultiplayerSession::joinParty(const std::string& address, unsigned short port, std::string displayName,
                                     std::string playerUuid) {
     leaveParty();
+    pendingConnectionNotice_.reset();
     if (!client_.connect(address, port)) {
         return false;
     }
@@ -233,6 +252,10 @@ std::vector<std::string> MultiplayerSession::consumeChatErrors() {
     return std::exchange(pendingChatErrors_, {});
 }
 
+std::optional<std::string> MultiplayerSession::consumeConnectionNotice() {
+    return std::exchange(pendingConnectionNotice_, std::nullopt);
+}
+
 void MultiplayerSession::broadcastRoster() {
     if (role_ != MultiplayerRole::Host) {
         return;
@@ -409,6 +432,7 @@ void MultiplayerSession::pumpClientSide() {
         // Pushed after resetToSolo() clears the queues, so it survives to be shown once chat is
         // next visible (e.g. after the player hosts/joins again).
         pendingChatMessages_.push_back(PartyChatMessage{0, "System", "Lost connection to the host.", false});
+        pendingConnectionNotice_ = "Lost connection to the host.";
         return;
     }
 
@@ -425,14 +449,22 @@ void MultiplayerSession::pumpClientSide() {
                     client_.disconnect();
                     role_ = MultiplayerRole::Solo;
                     resetToSolo();
+                    pendingConnectionNotice_ = partyJoinRejectionNotice(rejected->reason);
                     return;
                 }
+            } else {
+                client_.disconnect();
+                role_ = MultiplayerRole::Solo;
+                resetToSolo();
+                pendingConnectionNotice_ = "Could not join: the host returned an invalid response.";
+                return;
             }
         } else if (!client_.isConnected()) {
             clientJoinPending_ = false;
             spdlog::warn("MultiplayerSession[client]: connection lost while awaiting party join result.");
             role_ = MultiplayerRole::Solo;
             resetToSolo();
+            pendingConnectionNotice_ = "Could not join: the connection closed before the host responded.";
             return;
         }
     }

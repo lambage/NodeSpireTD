@@ -42,6 +42,7 @@
 						<input id="join-address" type="text" value="127.0.0.1" maxlength="64"/>
 						<button id="join-button" class="compact-button">Join</button>
 					</div>
+					<div id="party-connection-feedback" class="connection-feedback hidden"></div>
 				</div>
 				<div id="active-party" class="hidden">
 					<div class="party-heading">

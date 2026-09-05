@@ -1,0 +1,11 @@
+- sell towers not implemented
+- arrows are backwards to direction of flight
+- last enemies killed stay stuck in limbo during "victory screen"
+- client can change the map locally and doesn't get notified from host when map is changed
+- lobby should remember last map played
+- talent hover ui text should be formatted better (all on one line right now)
+- add tower animations (if found in model)
+
+
+
+- tower selection issue, the large hitbox makes it hard to select close by towers that are behind, the one in front gets priority (semi by design but maybe we can improve this)

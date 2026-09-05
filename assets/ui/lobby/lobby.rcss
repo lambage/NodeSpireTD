@@ -328,6 +328,19 @@ input[type="text"]:focus
 	width: 34%;
 }
 
+.connection-feedback
+{
+	display: block;
+	margin-top: 10dp;
+	padding: 9dp 10dp;
+	font-size: 11dp;
+	line-height: 16dp;
+	color: #f3c4b7;
+	background-color: #321815e8;
+	border: 1dp #a84f43;
+	border-left: 3dp #d06b55;
+}
+
 .party-heading
 {
 	justify-content: space-between;

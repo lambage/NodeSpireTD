@@ -65,7 +65,7 @@ class LobbyScene final : public IScene, public Rml::EventListener {
     void openLevelSelector();
     void closeLevelSelector(bool commitSelection);
     void showParty();
-    void showPartySetup(const Rml::String& status);
+    void showPartySetup(const Rml::String& status, const Rml::String& connectionNotice = {});
     void refreshPartyView();
     void refreshLaunchButton(const multiplayer::PartyRosterSnapshot& roster);
     void refreshRejoinButton();

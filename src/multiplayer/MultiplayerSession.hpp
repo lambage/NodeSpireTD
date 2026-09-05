@@ -73,6 +73,9 @@ class MultiplayerSession {
     std::vector<PartyChatMessage> consumeChatMessages();
     // Sender-only feedback (e.g. unrecognized slash command) since the last call.
     std::vector<std::string> consumeChatErrors();
+    // One-shot user-facing reason for a failed or dropped party connection. Kept separate from
+    // chat because the chat panel is hidden as soon as the client returns to solo state.
+    std::optional<std::string> consumeConnectionNotice();
 
     // Raw transport/client access for match-level (post-party) join handshakes and gameplay
     // command/snapshot traffic over the already-established connection.
@@ -113,6 +116,7 @@ class MultiplayerSession {
     ChatCommandDispatcher chatDispatcher_;
     std::vector<PartyChatMessage> pendingChatMessages_;
     std::vector<std::string> pendingChatErrors_;
+    std::optional<std::string> pendingConnectionNotice_;
 };
 
 } // namespace multiplayer
