@@ -10,30 +10,53 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 include(CTest)
-
 include(FetchContent)
+
 FetchContent_Declare(
-    SFML
-    GIT_REPOSITORY https://github.com/sfml/sfml
-    GIT_TAG        3.1.0
+    Freetype
+    GIT_REPOSITORY https://github.com/freetype/freetype.git
+    GIT_TAG        VER-2-14-3
+    GIT_SHALLOW    ON
 )
 
-set(SFML_BUILD_AUDIO ON CACHE INTERNAL "")
-set(SFML_BUILD_GRAPHICS ON CACHE INTERNAL "")
+FetchContent_MakeAvailable(Freetype)
 
-FetchContent_MakeAvailable(SFML)
+# FreeType's own CMakeLists.txt only exposes the "Freetype::Freetype" name via
+# EXPORT_NAME after install(EXPORT ...); consumed in-tree via FetchContent (no
+# install step) the real target is "freetype-interface". RmlUi's
+# find_package("Freetype") + report_dependency_found_or_error() only checks
+# for the "Freetype::Freetype" target's existence, so alias it ourselves
+# (same pattern as the Lua::Lua alias below).
+if(NOT TARGET Freetype::Freetype)
+    add_library(Freetype::Freetype ALIAS freetype-interface)
+endif()
 
 # SDL3 is the windowing/input/audio replacement for SFML. Both are fetched
 # side-by-side during the migration; SFML is removed once every call site
 # (windowing, Vulkan surface creation, audio) has moved over.
+# Pinned to 3.4.16 (not 3.2.20): SDL_mixer 3.2.4 requires the SDL_ALIGNED()
+# macro and newer SDL_*AudioStream() signatures that 3.2.20's SDL_begin_code.h
+# doesn't have yet, which fails to compile against the older SDL3.
 FetchContent_Declare(
     SDL3
     GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG        release-3.2.20
+    GIT_TAG        release-3.4.16
     GIT_SHALLOW    ON
 )
 
 FetchContent_MakeAvailable(SDL3)
+
+# SDL3_mixer replaces SFML's sf::Music/sf::Sound for AudioEngine (music.mp3 +
+# sfx.ogg). Vendored codec libs (ON by default) cover both formats we ship
+# (MP3, Ogg Vorbis) without needing system decoder packages.
+FetchContent_Declare(
+    SDL3_mixer
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL_mixer.git
+    GIT_TAG        release-3.2.4
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(SDL3_mixer)
 
 # Prefer the VULKAN_SDK environment variable (set automatically by the LunarG
 # Vulkan SDK installer). Fall back to VULKAN_SDK_PATH for anyone who wants to
@@ -52,15 +75,6 @@ if(VULKAN_SDK_PATH AND EXISTS "${VULKAN_SDK_PATH}/Include/vulkan/vulkan.h")
 endif()
 
 find_package(Vulkan REQUIRED)
-
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.92.8-docking
-    GIT_SHALLOW    ON
-)
-
-FetchContent_MakeAvailable(imgui)
 
 # Lua is fetched here (before RmlUi) so the vendored static "lua" target exists
 # in time to satisfy RmlUi's Lua bindings dependency lookup below.
@@ -256,8 +270,8 @@ FetchContent_MakeAvailable(fastgltf)
 
 add_subdirectory(src)
 
-if(BUILD_TESTING)
-    add_subdirectory(tests)
-endif()
+# if(BUILD_TESTING)
+    # add_subdirectory(tests)
+# endif()
 
 

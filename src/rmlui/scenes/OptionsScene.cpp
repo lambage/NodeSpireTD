@@ -1,5 +1,7 @@
 #include "rmlui/scenes/OptionsScene.hpp"
 
+#include "AudioEngine.hpp"
+
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -19,6 +21,8 @@ namespace NodeSpireUi {
 
 namespace {
 constexpr const char* kDocumentPath = "assets/ui/options/options.rml";
+constexpr const char* kHoverSound = "assets/audio/hover.ogg";
+constexpr const char* kClickSound = "assets/audio/click.ogg";
 
 std::string percentLabel(float value01) {
     char buffer[16];
@@ -39,9 +43,13 @@ bool parseDisplayModeValue(const Rml::String& value, OptionsScene::DisplayModeOp
 }
 } // namespace
 
-void OptionsScene::onEnter(Rml::Context& context) {
+void OptionsScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     pendingTransition_ = std::nullopt;
+    audio_ = &audio;
+    audio_->preload(kHoverSound, AudioChannel::Sfx);
+    audio_->preload(kClickSound, AudioChannel::Sfx);
     settings_ = settingsManager_.loadOrCreateDefaults();
+    audio_->setEffectiveSettings(settings_);
 
     document_ = context.LoadDocument(kDocumentPath);
     if (document_) {
@@ -179,6 +187,12 @@ void OptionsScene::addListeners() {
             el->AddEventListener(Rml::EventId::Click, this);
         }
     }
+    if (Rml::Element* apply = document_->GetElementById("apply-button")) {
+        apply->AddEventListener(Rml::EventId::Mouseover, this);
+    }
+    if (Rml::Element* back = document_->GetElementById("back-button")) {
+        back->AddEventListener(Rml::EventId::Mouseover, this);
+    }
 }
 
 void OptionsScene::removeListeners() {
@@ -192,6 +206,12 @@ void OptionsScene::removeListeners() {
             el->RemoveEventListener(Rml::EventId::Change, this);
             el->RemoveEventListener(Rml::EventId::Click, this);
         }
+    }
+    if (Rml::Element* apply = document_->GetElementById("apply-button")) {
+        apply->RemoveEventListener(Rml::EventId::Mouseover, this);
+    }
+    if (Rml::Element* back = document_->GetElementById("back-button")) {
+        back->RemoveEventListener(Rml::EventId::Mouseover, this);
     }
 }
 
@@ -208,8 +228,18 @@ void OptionsScene::ProcessEvent(Rml::Event& event) {
     }
     const Rml::String id = target->GetId();
 
+    if (event == Rml::EventId::Mouseover) {
+        if (audio_ && (id == "apply-button" || id == "back-button")) {
+            audio_->play(kHoverSound, AudioChannel::Sfx);
+        }
+        return;
+    }
+
     if (event == Rml::EventId::Click) {
         if (id == "apply-button") {
+            if (audio_) {
+                audio_->play(kClickSound, AudioChannel::Sfx);
+            }
             if (Rml::Context* context = target->GetContext()) {
                 applyDisplaySettingsLive(*context);
             }
@@ -217,6 +247,9 @@ void OptionsScene::ProcessEvent(Rml::Event& event) {
                 Rml::Log::Message(Rml::Log::LT_WARNING, "Failed to save settings");
             }
         } else if (id == "back-button") {
+            if (audio_) {
+                audio_->play(kClickSound, AudioChannel::Sfx);
+            }
             pendingTransition_ = SceneId::MainMenu;
         }
         return;
@@ -247,12 +280,22 @@ void OptionsScene::ProcessEvent(Rml::Event& event) {
     } else if (id == "master-volume-slider") {
         settings_.masterVolume = event.GetParameter<float>("value", 0.0f);
         setValueLabel("master-volume-value", percentLabel(settings_.masterVolume));
+        if (audio_) {
+            audio_->setEffectiveSettings(settings_);
+        }
     } else if (id == "music-volume-slider") {
         settings_.musicVolume = event.GetParameter<float>("value", 0.0f);
         setValueLabel("music-volume-value", percentLabel(settings_.musicVolume));
+        if (audio_) {
+            audio_->setEffectiveSettings(settings_);
+        }
     } else if (id == "sfx-volume-slider") {
         settings_.sfxVolume = event.GetParameter<float>("value", 0.0f);
         setValueLabel("sfx-volume-value", percentLabel(settings_.sfxVolume));
+        if (audio_) {
+            audio_->setEffectiveSettings(settings_);
+            audio_->play(kClickSound, AudioChannel::Sfx);
+        }
     }
 }
 

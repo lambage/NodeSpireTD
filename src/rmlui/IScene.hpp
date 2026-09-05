@@ -4,6 +4,8 @@
 
 #include <RmlUi/Core/Input.h>
 
+class AudioEngine;
+
 namespace Rml {
 class Context;
 }
@@ -19,7 +21,7 @@ class IScene {
   public:
     virtual ~IScene() = default;
 
-    virtual void onEnter(Rml::Context& context) = 0;
+    virtual void onEnter(Rml::Context& context, AudioEngine& audio) = 0;
     virtual void onExit(Rml::Context& context) = 0;
 
     // Called once per frame before context.Update(). Return a SceneId to

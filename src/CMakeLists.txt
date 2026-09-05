@@ -43,116 +43,127 @@ target_link_libraries(NodeSpirePartyProtocol PUBLIC protobuf::libprotobuf)
 
 function(nodespire_stage_runtime_dependencies targetName)
     if(WIN32)
+        # TARGET_RUNTIME_DLLS only resolves SHARED libraries in targetName's own
+        # link interface -- it doesn't reach freetype.dll here because rmlui
+        # links Freetype PRIVATELY and we expose it via a hand-rolled
+        # Freetype::Freetype ALIAS (see CMakeLists.txt) rather than a normal
+        # find_package() imported target, so it must be staged explicitly.
+        set(extraRuntimeFiles "")
+        if(TARGET freetype)
+            list(APPEND extraRuntimeFiles "$<TARGET_FILE:freetype>")
+        endif()
+
         add_custom_command(TARGET ${targetName} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:${targetName}>
-                    $<TARGET_RUNTIME_DLLS:${targetName}>
+                    $<TARGET_RUNTIME_DLLS:${targetName}> ${extraRuntimeFiles}
             COMMAND_EXPAND_LISTS
             COMMENT "Staging runtime dependencies for ${targetName}"
         )
     endif()
 endfunction()
 
-add_executable(NodeSpireTD-imgui 
-    main.cpp
-    AppController.cpp
-    AudioEngine.cpp
-    SettingsManager.cpp
-    PlatformRuntime.cpp
-    LocalAchievementService.cpp
-    LocalFileSaveSystem.cpp
-    Scenes.cpp
-    VulkanContext.cpp
-    LuaStateBootstrap.cpp
-    multiplayer/ContentHash.cpp
-    multiplayer/ChatCommandDispatcher.cpp
-    multiplayer/FixedTickClock.cpp
-    multiplayer/LanFramedConnection.cpp
-    multiplayer/LanMatchClient.cpp
-    multiplayer/LanMatchTransport.cpp
-    multiplayer/LoopbackMatchSession.cpp
-    multiplayer/LoopbackTransport.cpp
-    multiplayer/LocalMatchHost.cpp
-    multiplayer/MatchSimulation.cpp
-    multiplayer/MatchProtocolAdapter.cpp
-    multiplayer/MatchSnapshotBuilder.cpp
-    multiplayer/MultiplayerSession.cpp
-    multiplayer/PartyProtocolAdapter.cpp
-    multiplayer/PlayerAccounts.cpp
-    multiplayer/PlayerProfileStore.cpp
-    utility/GameImageButton.cpp
-    utility/GameButton.cpp
-    utility/StaticGeometryBVH.cpp
-    utility/TemplateAnimator.cpp
-    utility/VulkanTexture.cpp
-    utility/WorldAssetLoader.cpp
-    utility/WorldRenderer.cpp
-    ImGuiLayer.cpp
+# add_executable(NodeSpireTD-imgui 
+#     main.cpp
+#     AppController.cpp
+#     AudioEngine.cpp
+#     SettingsManager.cpp
+#     PlatformRuntime.cpp
+#     LocalAchievementService.cpp
+#     LocalFileSaveSystem.cpp
+#     Scenes.cpp
+#     VulkanContext.cpp
+#     LuaStateBootstrap.cpp
+#     multiplayer/ContentHash.cpp
+#     multiplayer/ChatCommandDispatcher.cpp
+#     multiplayer/FixedTickClock.cpp
+#     multiplayer/LanFramedConnection.cpp
+#     multiplayer/LanMatchClient.cpp
+#     multiplayer/LanMatchTransport.cpp
+#     multiplayer/LoopbackMatchSession.cpp
+#     multiplayer/LoopbackTransport.cpp
+#     multiplayer/LocalMatchHost.cpp
+#     multiplayer/MatchSimulation.cpp
+#     multiplayer/MatchProtocolAdapter.cpp
+#     multiplayer/MatchSnapshotBuilder.cpp
+#     multiplayer/MultiplayerSession.cpp
+#     multiplayer/PartyProtocolAdapter.cpp
+#     multiplayer/PlayerAccounts.cpp
+#     multiplayer/PlayerProfileStore.cpp
+#     utility/GameImageButton.cpp
+#     utility/GameButton.cpp
+#     utility/StaticGeometryBVH.cpp
+#     utility/TemplateAnimator.cpp
+#     utility/VulkanTexture.cpp
+#     utility/WorldAssetLoader.cpp
+#     utility/WorldRenderer.cpp
+#     ImGuiLayer.cpp
 
-    scenes/EnemyLoadController.cpp
-    scenes/GameScene.cpp
-    scenes/LuaSceneStateBridge.cpp
-    scenes/LevelDefinitionLoader.cpp
-    scenes/LobbyScene.cpp
-    scenes/MainMenuScene.cpp
-    scenes/EnemySpawnFactory.cpp
-    scenes/OptionsScene.cpp
-    scenes/PlayLevelBootstrap.cpp
-    scenes/PlayLevelCameraController.cpp
-    scenes/PlayLevelCombatController.cpp
-    scenes/PlayLevelFrameCoordinator.cpp
-    scenes/PlayLevelPickingController.cpp
-    scenes/PlayLevelRouteController.cpp
-    scenes/PlayLevelTowerPlacementController.cpp
-    scenes/TowerPlacementPreviewResolver.cpp
-    scenes/TowerPlacementRules.cpp
-    scenes/PlayLevelWaveController.cpp
-    scenes/PlayLevelScene.cpp
-    scenes/SceneSharedState.cpp
-    scenes/SplashScreen.cpp
-    scenes/TowerLoadController.cpp
+#     scenes/EnemyLoadController.cpp
+#     scenes/GameScene.cpp
+#     scenes/LuaSceneStateBridge.cpp
+#     scenes/LevelDefinitionLoader.cpp
+#     scenes/LobbyScene.cpp
+#     scenes/MainMenuScene.cpp
+#     scenes/EnemySpawnFactory.cpp
+#     scenes/OptionsScene.cpp
+#     scenes/PlayLevelBootstrap.cpp
+#     scenes/PlayLevelCameraController.cpp
+#     scenes/PlayLevelCombatController.cpp
+#     scenes/PlayLevelFrameCoordinator.cpp
+#     scenes/PlayLevelPickingController.cpp
+#     scenes/PlayLevelRouteController.cpp
+#     scenes/PlayLevelTowerPlacementController.cpp
+#     scenes/TowerPlacementPreviewResolver.cpp
+#     scenes/TowerPlacementRules.cpp
+#     scenes/PlayLevelWaveController.cpp
+#     scenes/PlayLevelScene.cpp
+#     scenes/SceneSharedState.cpp
+#     scenes/SplashScreen.cpp
+#     scenes/TowerLoadController.cpp
 
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+#     ${imgui_SOURCE_DIR}/imgui.cpp
+#     ${imgui_SOURCE_DIR}/imgui_draw.cpp
+#     ${imgui_SOURCE_DIR}/imgui_tables.cpp
+#     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+#     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 
-)
+# )
 
-target_compile_definitions(NodeSpireTD-imgui PRIVATE 
-    VK_NO_PROTOTYPES 
-    IMGUI_IMPL_VULKAN_USE_VOLK
-    VMA_STATIC_VULKAN_FUNCTIONS=0
-    VMA_DYNAMIC_VULKAN_FUNCTIONS=1
-)
+# target_compile_definitions(NodeSpireTD-imgui PRIVATE 
+#     VK_NO_PROTOTYPES 
+#     IMGUI_IMPL_VULKAN_USE_VOLK
+#     VMA_STATIC_VULKAN_FUNCTIONS=0
+#     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
+# )
 
-target_include_directories(NodeSpireTD-imgui PRIVATE 
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-    ${vma_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
+# target_include_directories(NodeSpireTD-imgui PRIVATE 
+#     ${imgui_SOURCE_DIR}
+#     ${imgui_SOURCE_DIR}/backends
+#     ${vma_SOURCE_DIR}/include
+#     ${CMAKE_CURRENT_SOURCE_DIR}
+# )
 
-target_link_libraries(NodeSpireTD-imgui PRIVATE 
-    glm::glm
-    nlohmann_json::nlohmann_json
-    NodeSpireMatchProtocol
-    NodeSpirePartyProtocol
-    fastgltf
-    lua
-    sfml-graphics
-    sfml-audio
-    sfml-window
-    sfml-system
-    spdlog::spdlog
-    volk
-    vk-bootstrap
-    Vulkan::Vulkan
-)
+# target_link_libraries(NodeSpireTD-imgui PRIVATE 
+#     glm::glm
+#     nlohmann_json::nlohmann_json
+#     NodeSpireMatchProtocol
+#     NodeSpirePartyProtocol
+#     fastgltf
+#     lua
+#     sfml-graphics
+#     sfml-window
+#     sfml-system
+#     SDL3::SDL3
+#     SDL3_mixer::SDL3_mixer
+#     spdlog::spdlog
+#     volk
+#     vk-bootstrap
+#     Vulkan::Vulkan
+# )
 
-nodespire_stage_runtime_dependencies(NodeSpireTD-imgui)
+# nodespire_stage_runtime_dependencies(NodeSpireTD-imgui)
 
-set(NODESPIRE_INSTALL_TARGETS NodeSpireTD-imgui)
+# set(NODESPIRE_INSTALL_TARGETS NodeSpireTD-imgui)
 
 install(TARGETS ${NODESPIRE_INSTALL_TARGETS}
     RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
@@ -168,32 +179,32 @@ install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ".")
 # ── Lua metadata generation for LuaLS ─────────────────────────────────────────
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
-if(Python3_Interpreter_FOUND)
-    set(LUA_META_OUTPUT "${CMAKE_SOURCE_DIR}/assets/lua/meta/engine_globals.lua")
+# if(Python3_Interpreter_FOUND)
+#     set(LUA_META_OUTPUT "${CMAKE_SOURCE_DIR}/assets/lua/meta/engine_globals.lua")
 
-    file(GLOB_RECURSE LUA_BINDING_SOURCES CONFIGURE_DEPENDS
-        "${CMAKE_SOURCE_DIR}/src/*.cpp"
-        "${CMAKE_SOURCE_DIR}/src/*.hpp"
-    )
+#     file(GLOB_RECURSE LUA_BINDING_SOURCES CONFIGURE_DEPENDS
+#         "${CMAKE_SOURCE_DIR}/src/*.cpp"
+#         "${CMAKE_SOURCE_DIR}/src/*.hpp"
+#     )
 
-    add_custom_command(
-        OUTPUT "${LUA_META_OUTPUT}"
-        COMMAND ${Python3_EXECUTABLE}
-            "${CMAKE_SOURCE_DIR}/tools/gen_lua_metadata.py"
-            --source-root "${CMAKE_SOURCE_DIR}/src"
-            --output "${LUA_META_OUTPUT}"
-        DEPENDS
-            "${CMAKE_SOURCE_DIR}/tools/gen_lua_metadata.py"
-            ${LUA_BINDING_SOURCES}
-        COMMENT "Generating Lua metadata from C++ Lua bindings"
-        VERBATIM
-    )
+#     add_custom_command(
+#         OUTPUT "${LUA_META_OUTPUT}"
+#         COMMAND ${Python3_EXECUTABLE}
+#             "${CMAKE_SOURCE_DIR}/tools/gen_lua_metadata.py"
+#             --source-root "${CMAKE_SOURCE_DIR}/src"
+#             --output "${LUA_META_OUTPUT}"
+#         DEPENDS
+#             "${CMAKE_SOURCE_DIR}/tools/gen_lua_metadata.py"
+#             ${LUA_BINDING_SOURCES}
+#         COMMENT "Generating Lua metadata from C++ Lua bindings"
+#         VERBATIM
+#     )
 
-    add_custom_target(GenerateLuaMetadata DEPENDS "${LUA_META_OUTPUT}")
-    add_dependencies(NodeSpireTD-imgui GenerateLuaMetadata)
-else()
-    message(WARNING "Python3 interpreter not found; Lua metadata will not auto-generate.")
-endif()
+#     add_custom_target(GenerateLuaMetadata DEPENDS "${LUA_META_OUTPUT}")
+#     add_dependencies(NodeSpireTD GenerateLuaMetadata)
+# else()
+#     message(WARNING "Python3 interpreter not found; Lua metadata will not auto-generate.")
+# endif()
 
 # ── Shader compilation ─────────────────────────────────────────────────────────
 find_program(GLSLC_EXECUTABLE NAMES glslc
@@ -233,7 +244,9 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/groundCircle.vert.spv"
         "${SHADER_SRC}/groundCircle.frag.spv"
     )
-    add_dependencies(NodeSpireTD-imgui MeshShaders)
+    # No target currently depends on MeshShaders: NodeSpireTD-imgui (the only
+    # consumer, via WorldRenderer) is disabled now that SFML is gone, and
+    # NodeSpireTD (RmlUi) hasn't reached the PlayLevel scene yet.
 
 else()
     message(WARNING "glslc not found — pre-compile mesh.vert/frag to .spv manually and place in assets/shaders/")
@@ -252,6 +265,7 @@ add_executable(NodeSpireTD
     RmlUiApp.cpp
     RmlUiFontLoader.cpp
     SettingsManager.cpp
+    AudioEngine.cpp
     rmlui_backend/RmlUi_Platform_SDL.cpp
     rmlui_backend/RmlUi_Renderer_VK.cpp
     rmlui_backend/RmlUi_Backend_SDL_VK.cpp
@@ -276,6 +290,7 @@ target_include_directories(NodeSpireTD PRIVATE
 target_link_libraries(NodeSpireTD PRIVATE
     rmlui
     SDL3::SDL3
+    SDL3_mixer::SDL3_mixer
     Vulkan::Vulkan
     spdlog::spdlog
     nlohmann_json::nlohmann_json

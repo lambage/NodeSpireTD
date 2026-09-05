@@ -23,15 +23,15 @@ std::unique_ptr<IScene> createScene(SceneId id) {
 }
 } // namespace
 
-SceneManager::SceneManager(Rml::Context& context, SceneId initialScene)
-    : context_(context), activeSceneId_(initialScene) {
+SceneManager::SceneManager(Rml::Context& context, SceneId initialScene, AudioEngine& audio)
+    : context_(context), audio_(audio), activeSceneId_(initialScene) {
     enterScene(initialScene);
 }
 
 void SceneManager::enterScene(SceneId id) {
     activeSceneId_ = id;
     activeScene_ = createScene(id);
-    activeScene_->onEnter(context_);
+    activeScene_->onEnter(context_, audio_);
 }
 
 void SceneManager::applyTransition(const SceneTransition& transition) {

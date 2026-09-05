@@ -10,6 +10,8 @@ namespace Rml {
 class Context;
 }
 
+class AudioEngine;
+
 namespace NodeSpireUi {
 
 // Owns the currently active scene and switches between scenes on request.
@@ -17,7 +19,7 @@ namespace NodeSpireUi {
 // constructed lazily on entry and destroyed on exit.
 class SceneManager {
   public:
-    SceneManager(Rml::Context& context, SceneId initialScene);
+    SceneManager(Rml::Context& context, SceneId initialScene, AudioEngine& audio);
 
     void update(float dt);
     void handleKeyDown(Rml::Input::KeyIdentifier key);
@@ -29,6 +31,7 @@ class SceneManager {
     void applyTransition(const SceneTransition& transition);
 
     Rml::Context& context_;
+    AudioEngine& audio_;
     SceneId activeSceneId_;
     std::unique_ptr<IScene> activeScene_;
 };

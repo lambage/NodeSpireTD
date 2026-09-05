@@ -6,6 +6,8 @@
 
 #include <optional>
 
+class AudioEngine;
+
 namespace Rml {
 class ElementDocument;
 }
@@ -18,7 +20,7 @@ namespace NodeSpireUi {
 // rmlui-lua-scene-integration skill notes for when Lua gets introduced.
 class MainMenuScene final : public IScene, public Rml::EventListener {
   public:
-    void onEnter(Rml::Context& context) override;
+    void onEnter(Rml::Context& context, AudioEngine& audio) override;
     void onExit(Rml::Context& context) override;
     SceneTransition update(float dt) override;
 
@@ -26,6 +28,7 @@ class MainMenuScene final : public IScene, public Rml::EventListener {
 
   private:
     Rml::ElementDocument* document_ = nullptr;
+    AudioEngine* audio_ = nullptr;
     SceneTransition pendingTransition_;
 };
 

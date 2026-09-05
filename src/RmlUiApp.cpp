@@ -1,7 +1,9 @@
 // RmlUi-based app bootstrap: SDL3+Vulkan backend (RmlUi's own, not yet
 // reconciled with VulkanContext -- see rmlui-sdl-vulkan-backend skill notes)
 // with the Lua scripting plugin wired up, driving scenes via SceneManager.
+#include "AudioEngine.hpp"
 #include "RmlUiFontLoader.hpp"
+#include "SettingsManager.hpp"
 #include "rmlui/SceneManager.hpp"
 #include "rmlui/SceneTypes.hpp"
 
@@ -105,6 +107,7 @@ int main(int /*argc*/, char** /*argv*/)
     Rml::Context* context = Rml::CreateContext("main", Rml::Vector2i(windowWidth, windowHeight));
     if (!context)
     {
+        Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to create Rml::Context");
         Rml::Shutdown();
         Backend::Shutdown();
         return -1;
@@ -112,10 +115,14 @@ int main(int /*argc*/, char** /*argv*/)
 
     Rml::Debugger::Initialise(context);
 
-    if (!RmlUiFontLoader::LoadAll("assets/fonts"))
+    if (!RmlUiFontLoader::LoadAll("assets/fonts")) {
         Rml::Log::Message(Rml::Log::LT_WARNING, "One or more fonts failed to load from %s", "assets/fonts");
+    }    
 
-    NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash);
+    AudioEngine audioEngine;
+    audioEngine.setEffectiveSettings(SettingsManager().loadOrCreateDefaults());
+
+    NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash, audioEngine);
     g_sceneManager = &sceneManager;
 
     double lastElapsedTime = systemInterface.GetElapsedTime();
@@ -129,6 +136,7 @@ int main(int /*argc*/, char** /*argv*/)
         const float dt = static_cast<float>(elapsedTime - lastElapsedTime);
         lastElapsedTime = elapsedTime;
         sceneManager.update(dt);
+        audioEngine.update(dt);
 
         context->Update();
 

@@ -1,12 +1,14 @@
 #include "rmlui/scenes/SplashScene.hpp"
 
+#include "AudioEngine.hpp"
+
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Log.h>
 
 namespace NodeSpireUi {
 
-void SplashScene::onEnter(Rml::Context& context) {
+void SplashScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     elapsedSeconds_ = 0.0f;
 
     document_ = context.LoadDocument("assets/ui/splash/splash.rml");
@@ -15,6 +17,8 @@ void SplashScene::onEnter(Rml::Context& context) {
     } else {
         Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to load document: %s", "assets/ui/splash/splash.rml");
     }
+
+    audio.play("assets/music/Heroic_Demise.mp3", AudioChannel::Music, true, 0.5f);
 }
 
 void SplashScene::onExit(Rml::Context& context) {
