@@ -81,6 +81,15 @@
 			<div id="enemy-resistances" class="enemy-resistances">No resistances</div>
 		</section>
 
+		<section id="match-chat" class="match-chat hidden">
+			<div class="match-chat-title"><span>PARTY CHANNEL</span><span class="live-label">LIVE</span></div>
+			<div id="match-chat-messages" class="match-chat-messages"></div>
+			<div class="match-chat-compose">
+				<input id="match-chat-input" type="text" maxlength="180" placeholder="Message your party"/>
+				<button id="match-chat-send-button" title="Send message">Send</button>
+			</div>
+		</section>
+
 		<div id="status-panel" class="status-panel">
 			<div class="section-kicker">FIELD STATUS</div>
 			<h1 id="status-headline">Loading battlefield</h1>

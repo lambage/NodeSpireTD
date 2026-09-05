@@ -404,6 +404,58 @@ header
 .enemy-threat-details span + span { text-align: right; }
 .resistance-heading { padding-top: 9dp; border-top: 1dp #493a34; font-size: 8dp; color: #d98774; }
 .enemy-resistances { margin-top: 5dp; font-size: 10dp; text-transform: capitalize; color: #b8c9bf; }
+.match-chat
+{
+	position: absolute;
+	left: 24dp;
+	top: 98dp;
+	width: 360dp;
+	height: 232dp;
+	box-sizing: border-box;
+	padding: 10dp;
+	background-color: #080d0de8;
+	border: 1dp #526057;
+	border-left: 3dp #83b9a4;
+}
+.match-chat-title { display: flex; flex-direction: row; height: 22dp; font-size: 10dp; color: #83b9a4; }
+.match-chat-title .live-label { margin-left: auto; color: #69d89e; }
+.match-chat-messages
+{
+	height: 150dp;
+	box-sizing: border-box;
+	padding: 5dp 7dp;
+	overflow-y: auto;
+	font-size: 11dp;
+	background-color: #030706a8;
+	border: 1dp #34433c;
+}
+.match-chat-messages p { display: block; margin: 2dp 0; }
+.match-chat-messages .system-message { color: #83b9a4; }
+.match-chat-messages .emote-message { color: #d8c88e; }
+.match-chat-messages .chat-author { color: #e1bd67; }
+.match-chat-compose { display: flex; flex-direction: row; height: 36dp; margin-top: 6dp; }
+#match-chat-input
+{
+	width: 285dp;
+	box-sizing: border-box;
+	padding: 6dp 8dp;
+	font-size: 11dp;
+	color: #edf0e8;
+	background-color: #101815;
+	border: 1dp #526057;
+}
+#match-chat-input:focus { border-color: #83b9a4; }
+#match-chat-send-button
+{
+	width: 55dp;
+	margin-left: 6dp;
+	padding: 0;
+	font-size: 10dp;
+	color: #102019;
+	background-color: #83b9a4;
+	border: 1dp #b7dacb;
+}
+#match-chat-send-button:hover { background-color: #a8d3c0; }
 .tree-header { display: flex; flex-direction: row; align-items: center; margin-bottom: 8dp; }
 .constellation-header { padding: 0 3dp; }
 .tree-title { font-family: "Times New Roman"; font-size: 14dp; color: #e5c66f; }

@@ -13,6 +13,7 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Elements/ElementFormControlInput.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/Log.h>
 #include <RmlUi/Core/StringUtilities.h>
@@ -37,7 +38,8 @@ constexpr const char* kInteractiveIds[] = {"retry-button", "start-match-button",
                                             "end-replay-button", "end-lobby-button",
                                             "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
                                             "tower-slot-0", "tower-slot-1", "tower-slot-2", "tower-slot-3",
-                                            "tower-slot-4", "close-tower-profile", "close-enemy-profile"};
+                                            "tower-slot-4", "close-tower-profile", "close-enemy-profile",
+                                            "match-chat-send-button"};
 constexpr float kTowerGhostAlpha = 0.45f;
 constexpr multiplayer::SimulationTick kSnapshotIntervalTicks = 3;
 constexpr glm::vec4 kPlacementRangeFill{0.18f, 0.72f, 0.48f, 0.16f};
@@ -46,11 +48,37 @@ constexpr glm::vec4 kInvalidPlacementRangeFill{0.82f, 0.16f, 0.14f, 0.18f};
 constexpr glm::vec4 kInvalidPlacementRangeOutline{1.0f, 0.28f, 0.24f, 0.92f};
 constexpr glm::vec4 kOtherPlayerRangeFill{0.82f, 0.65f, 0.20f, 0.13f};
 constexpr glm::vec4 kOtherPlayerRangeOutline{1.0f, 0.82f, 0.28f, 0.9f};
+constexpr glm::vec4 kHoverRangeFill{1.0f, 0.78f, 0.18f, 0.22f};
+constexpr glm::vec4 kHoverOtherPlayerRangeFill{0.95f, 0.235f, 0.235f, 0.22f};
 constexpr float kGroundCircleYOffset = 0.22f;
 
 glm::vec3 cameraForward(float yaw, float pitch) {
     return glm::normalize(glm::vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch),
                                     std::cos(pitch) * std::cos(yaw)));
+}
+
+bool pickWorldAtCursor(const WorldRenderer* worldRenderer, const VulkanContext& vulkanContext,
+                       const glm::vec3& cameraPosition, float cameraYaw, float cameraPitch, WorldPickHit& hit) {
+    if (!worldRenderer) return false;
+    float mouseX = 0.0f;
+    float mouseY = 0.0f;
+    SDL_GetMouseState(&mouseX, &mouseY);
+    const VkExtent2D extent = vulkanContext.extent();
+    if (extent.width == 0 || extent.height == 0) return false;
+
+    const float ndcX = 2.0f * mouseX / static_cast<float>(extent.width) - 1.0f;
+    const float ndcY = 2.0f * mouseY / static_cast<float>(extent.height) - 1.0f;
+    glm::mat4 projection = glm::perspective(glm::radians(60.0f), static_cast<float>(extent.width) / extent.height,
+                                            0.05f, 2000.0f);
+    projection[1][1] *= -1.0f;
+    const glm::mat4 view = glm::lookAt(cameraPosition, cameraPosition + cameraForward(cameraYaw, cameraPitch),
+                                       glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 inverseViewProjection = glm::inverse(projection * view);
+    glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
+    glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+    nearPoint /= nearPoint.w;
+    farPoint /= farPoint.w;
+    return worldRenderer->pickModel(cameraPosition, glm::normalize(glm::vec3(farPoint - nearPoint)), hit);
 }
 
 void setText(Rml::ElementDocument* document, const char* id, const std::string& value) {
@@ -139,6 +167,11 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     selectedTowerSlot_ = -1;
     selectedTowerRuntimeId_ = 0;
     selectedEnemyRuntimeId_ = 0;
+    hoveredTowerRuntimeId_ = 0;
+    hoveredEnemyRuntimeId_ = 0;
+    chatHistoryRml_.clear();
+    removeChatFocusKey_ = false;
+    normalizeSlashPrefix_ = false;
     placementReason_.clear();
     leftMouseDown_ = false;
     audio_ = &audio;
@@ -156,6 +189,12 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
             element->AddEventListener(Rml::EventId::Mouseover, this);
             element->AddEventListener(Rml::EventId::Mouseout, this);
         }
+    }
+    if (Rml::Element* chatInput = document_->GetElementById("match-chat-input")) {
+        chatInput->AddEventListener(Rml::EventId::Change, this);
+    }
+    if (Rml::Element* chatPanel = document_->GetElementById("match-chat")) {
+        chatPanel->SetClass("hidden", !onlineMatch_);
     }
 
     document_->Show();
@@ -204,6 +243,9 @@ void PlayLevelScene::onExit(Rml::Context& context) {
                 element->RemoveEventListener(Rml::EventId::Mouseout, this);
             }
         }
+        if (Rml::Element* chatInput = document_->GetElementById("match-chat-input")) {
+            chatInput->RemoveEventListener(Rml::EventId::Change, this);
+        }
         document_->Close();
         context.UnloadDocument(document_);
         document_ = nullptr;
@@ -251,6 +293,25 @@ SceneTransition PlayLevelScene::update(float dt) {
     if (session_.isClient() && session_.consumeMatchEnded()) {
         return SceneId::Lobby;
     }
+
+    consumeChat();
+    if (auto* chatInput = document_ ? rmlui_dynamic_cast<Rml::ElementFormControlInput*>(
+                                         document_->GetElementById("match-chat-input"))
+                                    : nullptr) {
+        Rml::String value = chatInput->GetValue();
+        if (removeChatFocusKey_ && !value.empty() && (value.front() == 't' || value.front() == 'T')) {
+            value.erase(0, 1);
+            chatInput->SetValue(value);
+            chatInput->SetSelectionRange(static_cast<int>(value.size()), static_cast<int>(value.size()));
+        }
+        if (normalizeSlashPrefix_ && value.starts_with("//")) {
+            value.erase(0, 1);
+            chatInput->SetValue(value);
+            chatInput->SetSelectionRange(static_cast<int>(value.size()), static_cast<int>(value.size()));
+        }
+    }
+    removeChatFocusKey_ = false;
+    normalizeSlashPrefix_ = false;
 
     if (!pauseMenuVisible_) {
         towerPreviewSpinRadians_ = std::fmod(towerPreviewSpinRadians_ + dt * 0.55f, 6.2831853071795864769f);
@@ -317,6 +378,9 @@ void PlayLevelScene::updateCamera(float dt) {
     if (!window || !(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
         return;
     }
+    if (context_ && rmlui_dynamic_cast<Rml::ElementFormControlInput*>(context_->GetFocusElement())) {
+        return;
+    }
 
     const SDL_MouseButtonFlags mouseButtons = SDL_GetMouseState(nullptr, nullptr);
     const bool wantsMouseLook = (mouseButtons & SDL_BUTTON_RMASK) != 0;
@@ -370,6 +434,9 @@ void PlayLevelScene::renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D ext
 }
 
 SceneTransition PlayLevelScene::onKeyDown(Rml::Input::KeyIdentifier key) {
+    if (context_ && rmlui_dynamic_cast<Rml::ElementFormControlInput*>(context_->GetFocusElement())) {
+        return std::nullopt;
+    }
     if (key == Rml::Input::KI_ESCAPE) {
         bool clearedSelection = false;
         if (selectedTowerSlot_ >= 0) {
@@ -408,6 +475,31 @@ SceneTransition PlayLevelScene::onKeyDown(Rml::Input::KeyIdentifier key) {
     return std::nullopt;
 }
 
+bool PlayLevelScene::handleShortcut(Rml::Input::KeyIdentifier key) {
+    if (!document_ || !onlineMatch_) {
+        return false;
+    }
+    auto* chatInput =
+        rmlui_dynamic_cast<Rml::ElementFormControlInput*>(document_->GetElementById("match-chat-input"));
+    if (!chatInput || context_->GetFocusElement() == chatInput ||
+        rmlui_dynamic_cast<Rml::ElementFormControlInput*>(context_->GetFocusElement())) {
+        return false;
+    }
+    if (key == Rml::Input::KI_T) {
+        chatInput->Focus();
+        removeChatFocusKey_ = true;
+        return true;
+    }
+    if (key == Rml::Input::KI_OEM_2 || key == Rml::Input::KI_DIVIDE) {
+        chatInput->Focus();
+        chatInput->SetValue("/");
+        chatInput->SetSelectionRange(1, 1);
+        normalizeSlashPrefix_ = true;
+        return true;
+    }
+    return false;
+}
+
 void PlayLevelScene::ProcessEvent(Rml::Event& event) {
     Rml::Element* target = event.GetCurrentElement();
     if (!target) {
@@ -415,6 +507,11 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
     }
 
     const Rml::String id = target->GetId();
+    if (event == Rml::EventId::Change && id == "match-chat-input" &&
+        event.GetParameter<bool>("linebreak", false)) {
+        submitChat();
+        return;
+    }
     if (id.starts_with("tower-slot-") && event == Rml::EventId::Mouseover) {
         refreshTowerSlotInspector(std::stoi(id.substr(11)));
         return;
@@ -467,6 +564,11 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
             placementReason_.clear();
         }
         refreshLoadout();
+        return;
+    }
+
+    if (id == "match-chat-send-button") {
+        submitChat();
         return;
     }
 
@@ -564,6 +666,49 @@ bool PlayLevelScene::pointerIsOverHud() const {
     return hovered && hovered != document_ && hovered->GetId() != "playlevel-root";
 }
 
+void PlayLevelScene::appendChatLine(const Rml::String& author, const Rml::String& text, bool systemMessage,
+                                    bool emote) {
+    chatHistoryRml_ += systemMessage ? "<p class=\"system-message\">"
+                                    : emote ? "<p class=\"emote-message\">" : "<p class=\"chat-message\">";
+    if (!systemMessage && !emote) {
+        chatHistoryRml_ += "<span class=\"chat-author\">" + Rml::StringUtilities::EncodeRml(author) +
+                           ":</span> ";
+    }
+    if (emote) chatHistoryRml_ += "<em>";
+    chatHistoryRml_ += Rml::StringUtilities::EncodeRml(text);
+    if (emote) chatHistoryRml_ += "</em>";
+    chatHistoryRml_ += "</p>";
+}
+
+void PlayLevelScene::consumeChat() {
+    if (!document_ || !onlineMatch_) return;
+    bool changed = false;
+    for (const auto& message : session_.consumeChatMessages()) {
+        appendChatLine(message.displayName, message.text, message.playerId == 0, message.isEmote);
+        changed = true;
+    }
+    for (const auto& error : session_.consumeChatErrors()) {
+        appendChatLine("System", error, true, false);
+        changed = true;
+    }
+    if (changed) {
+        if (Rml::Element* messages = document_->GetElementById("match-chat-messages")) {
+            messages->SetInnerRML(chatHistoryRml_);
+            messages->SetScrollTop(messages->GetScrollHeight());
+        }
+    }
+}
+
+void PlayLevelScene::submitChat() {
+    auto* input = document_ ? rmlui_dynamic_cast<Rml::ElementFormControlInput*>(
+                                 document_->GetElementById("match-chat-input"))
+                            : nullptr;
+    if (!input || input->GetValue().empty()) return;
+    if (session_.sendChatMessage(input->GetValue())) {
+        input->SetValue("");
+    }
+}
+
 glm::mat4 PlayLevelScene::buildTowerTransform(const TowerArchetype& tower, const glm::vec3& position) const {
     return glm::translate(glm::mat4{1.0f}, position) *
            glm::rotate(glm::mat4{1.0f}, glm::radians(tower.facingYawOffsetDegrees), glm::vec3(0.0f, 1.0f, 0.0f)) *
@@ -576,6 +721,7 @@ void PlayLevelScene::updateTowerPlacement() {
     leftMouseDown_ = leftMouseDown;
 
     const TowerArchetype* tower = selectedTower();
+    updateWorldHover();
     if (!tower || !worldRenderer_ || !worldRenderer_->isLoaded() ||
         gameplayState_.matchStatus != MatchStatus::Running) {
         if (!tower && leftClicked && !pointerIsOverHud() && gameplayState_.matchStatus == MatchStatus::Running) {
@@ -641,33 +787,35 @@ void PlayLevelScene::updateTowerPlacement() {
     refreshLoadout();
 }
 
-void PlayLevelScene::updateWorldSelection() {
-    float mouseX = 0.0f;
-    float mouseY = 0.0f;
-    SDL_GetMouseState(&mouseX, &mouseY);
-    const VkExtent2D extent = vulkanContext_.extent();
-    if (extent.width == 0 || extent.height == 0) return;
-
-    const float ndcX = 2.0f * mouseX / static_cast<float>(extent.width) - 1.0f;
-    const float ndcY = 2.0f * mouseY / static_cast<float>(extent.height) - 1.0f;
-    glm::mat4 projection = glm::perspective(glm::radians(60.0f), static_cast<float>(extent.width) / extent.height,
-                                            0.05f, 2000.0f);
-    projection[1][1] *= -1.0f;
-    const glm::mat4 view = glm::lookAt(cameraPosition_, cameraPosition_ + cameraForward(cameraYaw_, cameraPitch_),
-                                       glm::vec3(0.0f, 1.0f, 0.0f));
-    const glm::mat4 inverseViewProjection = glm::inverse(projection * view);
-    glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
-    glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
-    nearPoint /= nearPoint.w;
-    farPoint /= farPoint.w;
+void PlayLevelScene::updateWorldHover() {
+    hoveredTowerRuntimeId_ = 0;
+    hoveredEnemyRuntimeId_ = 0;
+    if (!worldRenderer_ || !worldRenderer_->isLoaded() || pointerIsOverHud() || mouseLookActive_ ||
+        selectedTower() || gameplayState_.matchStatus != MatchStatus::Running) {
+        return;
+    }
 
     WorldPickHit hit;
-    if (worldRenderer_->pickModel(cameraPosition_, glm::normalize(glm::vec3(farPoint - nearPoint)), hit) &&
-        hit.entityKind == WorldEntityKind::Tower && hit.instanceIndex >= 0 &&
+    if (!NodeSpireUi::pickWorldAtCursor(worldRenderer_.get(), vulkanContext_, cameraPosition_, cameraYaw_,
+                                        cameraPitch_, hit)) return;
+    if (hit.entityKind == WorldEntityKind::Tower && hit.instanceIndex >= 0 &&
+        static_cast<std::size_t>(hit.instanceIndex) < placedTowers_.size()) {
+        hoveredTowerRuntimeId_ = placedTowers_[static_cast<std::size_t>(hit.instanceIndex)].runtimeId;
+    } else if (hit.entityKind == WorldEntityKind::Enemy && hit.instanceIndex >= 0 &&
+               static_cast<std::size_t>(hit.instanceIndex) < activeEnemies_.size()) {
+        hoveredEnemyRuntimeId_ = activeEnemies_[static_cast<std::size_t>(hit.instanceIndex)].runtimeId;
+    }
+}
+
+void PlayLevelScene::updateWorldSelection() {
+    WorldPickHit hit;
+    const bool picked = NodeSpireUi::pickWorldAtCursor(worldRenderer_.get(), vulkanContext_, cameraPosition_,
+                                                       cameraYaw_, cameraPitch_, hit);
+    if (picked && hit.entityKind == WorldEntityKind::Tower && hit.instanceIndex >= 0 &&
         static_cast<std::size_t>(hit.instanceIndex) < placedTowers_.size()) {
         selectedTowerRuntimeId_ = placedTowers_[static_cast<std::size_t>(hit.instanceIndex)].runtimeId;
         selectedEnemyRuntimeId_ = 0;
-    } else if (hit.entityKind == WorldEntityKind::Enemy && hit.instanceIndex >= 0 &&
+    } else if (picked && hit.entityKind == WorldEntityKind::Enemy && hit.instanceIndex >= 0 &&
                static_cast<std::size_t>(hit.instanceIndex) < activeEnemies_.size()) {
         selectedEnemyRuntimeId_ = activeEnemies_[static_cast<std::size_t>(hit.instanceIndex)].runtimeId;
         selectedTowerRuntimeId_ = 0;
@@ -1461,7 +1609,22 @@ void PlayLevelScene::syncTowerInstances() {
                                      std::max(0.01f, placed.attackRange),
                                      isOwnedByLocalPlayer ? kPlacementRangeFill : kOtherPlayerRangeFill,
                                      isOwnedByLocalPlayer ? kPlacementRangeOutline : kOtherPlayerRangeOutline});
+        } else if (placed.runtimeId == hoveredTowerRuntimeId_) {
+            const bool isOwnedByLocalPlayer = placed.ownerPlayerId == localPlayerId_;
+            groundCircles.push_back({placed.position + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
+                                     std::max(0.01f, placed.attackRange),
+                                     isOwnedByLocalPlayer ? kHoverRangeFill : kHoverOtherPlayerRangeFill});
         }
+    }
+    for (const playlevel::ActiveEnemy& enemy : activeEnemies_) {
+        const bool selected = enemy.runtimeId == selectedEnemyRuntimeId_;
+        const bool hovered = !selected && enemy.runtimeId == hoveredEnemyRuntimeId_;
+        if (!selected && !hovered) continue;
+        const glm::vec3 position = sampleRoutePosition(enemy.distanceAlongPath);
+        groundCircles.push_back({position + glm::vec3(0.0f, kGroundCircleYOffset, 0.0f),
+                                 std::max(0.35f, 0.5f * enemy.renderScale),
+                                 selected ? kPlacementRangeFill : kHoverRangeFill,
+                                 selected ? kPlacementRangeOutline : glm::vec4{0.0f}});
     }
     for (const playlevel::ActiveProjectile& projectile : matchSimulation_.activeProjectiles()) {
         const TowerArchetype* tower = towerLoadController_->findArchetype(projectile.towerId);

@@ -46,6 +46,7 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent) override;
     void renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent) override;
     SceneTransition onKeyDown(Rml::Input::KeyIdentifier key) override;
+    bool handleShortcut(Rml::Input::KeyIdentifier key) override;
     void ProcessEvent(Rml::Event& event) override;
 
   private:
@@ -56,6 +57,10 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     void refreshHud();
     void refreshLoadout();
     void refreshTowerSlotInspector(int slot);
+    void consumeChat();
+    void appendChatLine(const Rml::String& author, const Rml::String& text, bool systemMessage, bool emote);
+    void submitChat();
+    void updateWorldHover();
     void updateWorldSelection();
     void refreshTowerProfile();
     void refreshEnemyProfile();
@@ -106,6 +111,8 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     int selectedTowerSlot_ = -1;
     multiplayer::TowerRuntimeId selectedTowerRuntimeId_ = 0;
     std::uint64_t selectedEnemyRuntimeId_ = 0;
+    multiplayer::TowerRuntimeId hoveredTowerRuntimeId_ = 0;
+    std::uint64_t hoveredEnemyRuntimeId_ = 0;
     std::string placementReason_;
     bool leftMouseDown_ = false;
     PlayLevelUiSnapshot snapshot_;
@@ -119,6 +126,9 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     bool loadedReadySignaled_ = false;
     std::vector<Rml::Element*> upgradeButtonElements_;
     std::vector<TowerPreviewPanel> towerPreviewPanels_;
+    Rml::String chatHistoryRml_;
+    bool removeChatFocusKey_ = false;
+    bool normalizeSlashPrefix_ = false;
     float towerPreviewSpinRadians_ = 0.0f;
     multiplayer::TowerRuntimeId renderedTowerProfileRuntimeId_ = 0;
     multiplayer::PlayerId renderedTowerProfileOwnerId_ = 0;
