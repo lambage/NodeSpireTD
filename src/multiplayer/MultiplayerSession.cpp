@@ -379,7 +379,7 @@ void MultiplayerSession::pumpHostSide() {
 
 void MultiplayerSession::pumpClientSide() {
     if (!clientJoinPending_ && !client_.isConnected()) {
-        // Connection dropped after a successful join; fall back to solo so Lobby.lua can offer a
+        // Connection dropped after a successful join; fall back to solo so the lobby can offer a
         // rejoin via Find Party (the host, if still up, will recognize the same profile UUID).
         spdlog::warn("MultiplayerSession[client]: connection to host lost.");
         role_ = MultiplayerRole::Solo;

@@ -17,9 +17,9 @@ namespace multiplayer {
 
 enum class MultiplayerRole { Solo, Host, Client };
 
-// Persistent, scene-independent LAN session. Owned by the top-level app runtime (see
-// SceneDirector in AppController.cpp) alongside other cross-scene state, not by any single scene:
-// LobbyScene and PlayLevelScene both operate on the same instance via SceneSharedState so the TCP
+// Persistent, scene-independent LAN session. Owned by the top-level app runtime alongside other
+// cross-scene state, not by any single scene: LobbyScene and PlayLevelScene both operate on the
+// same instance so the TCP
 // connection established while forming a party carries straight into match play instead of being
 // torn down and rebuilt at the scene boundary. update() must be called exactly once per frame by
 // the owner regardless of which scene is active, so party/chat traffic keeps flowing even while a

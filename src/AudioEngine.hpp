@@ -16,7 +16,7 @@ enum class AudioChannel {
 // Owns all live SDL3_mixer audio playback (music + sfx) and the sfx audio
 // cache. MIX_Audio*/MIX_Track* handles are kept out of this header (behind
 // shared_ptr<void> with a type-erased deleter, and a void* for the mixer
-// device) so consumers like GameButton don't need SDL3_mixer on their
+// device) so UI consumers don't need SDL3_mixer on their
 // include path -- see AudioEngine.cpp for the real types.
 // Effective settings (post master/mute mixing) must be refreshed once per
 // frame via setEffectiveSettings() before calling play()/update() so that

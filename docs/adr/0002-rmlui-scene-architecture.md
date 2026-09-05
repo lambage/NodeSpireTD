@@ -132,6 +132,19 @@ look wrong (dark fringing) later, revisit this conversion first.
 - Revisit Vulkan backend reconciliation once a scene needs `WorldRenderer` in
   the same frame as RmlUi.
 
+## Legacy runtime removal
+
+On 2026-09-05, after all five scenes and SDL3 audio were running through the
+RmlUi executable, the uncompiled SFML/ImGui application was removed. This
+included its app controller, scene hierarchy, hand-written Lua bindings,
+widget/texture wrappers, scene Lua scripts, generated Lua metadata, and the
+disabled `NodeSpireTD-imgui` CMake target. `PlayLevelWaves.lua` remains because
+the active RmlUi PlayLevel scene still uses it as gameplay data.
+
+The existing test target was restored to the root build graph. Its loopback
+transport and content-hash implementations are intentionally test-only and
+are not dead production sources.
+
 ## Lobby: trim-and-rebuild direction
 
 The RmlUi Lobby is intentionally redesigned rather than mechanically ported

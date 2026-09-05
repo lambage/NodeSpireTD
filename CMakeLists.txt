@@ -47,8 +47,8 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(SDL3)
 
-# SDL3_mixer replaces SFML's sf::Music/sf::Sound for AudioEngine (music.mp3 +
-# sfx.ogg). Vendored codec libs (ON by default) cover both formats we ship
+# SDL3_mixer provides AudioEngine playback for music.mp3 and sfx.ogg.
+# Vendored codec libs (ON by default) cover both formats we ship
 # (MP3, Ogg Vorbis) without needing system decoder packages.
 FetchContent_Declare(
     SDL3_mixer
@@ -114,7 +114,7 @@ endif()
 add_library(Lua::Lua INTERFACE IMPORTED GLOBAL)
 target_link_libraries(Lua::Lua INTERFACE lua)
 
-# RmlUi is the UI replacement for Dear ImGui.
+# RmlUi provides the application UI.
 set(RMLUI_LUA_BINDINGS ON CACHE BOOL "" FORCE)
 # NodeSpireTD installs one application-level runtime dependency set below. Letting RmlUi install
 # its own set as well scans rmlui.dll outside the staged application directory and cannot resolve
@@ -278,8 +278,8 @@ FetchContent_MakeAvailable(fastgltf)
 
 add_subdirectory(src)
 
-# if(BUILD_TESTING)
-    # add_subdirectory(tests)
-# endif()
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
 
 

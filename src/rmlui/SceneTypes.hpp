@@ -6,9 +6,7 @@
 
 namespace NodeSpireUi {
 
-// Every screen the RmlUi-based app can show. Mirrors the legacy SceneId enum
-// in Scenes.hpp, but grown independently as scenes are ported so the two
-// apps (NodeSpireTD-imgui and NodeSpireTD) never have to agree on values.
+// Every screen the RmlUi-based app can show.
 enum class SceneId {
     Splash,
     MainMenu,

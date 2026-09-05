@@ -38,7 +38,7 @@ SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint3
     const uint32_t imageCount = static_cast<uint32_t>(imagesResult.value().size());
     if (imageCount < 2) {
         throw std::runtime_error(
-            "Swapchain returned fewer than 2 images, which is unsupported by ImGui Vulkan backend.");
+            "Swapchain returned fewer than 2 images, which is unsupported by the renderer.");
     }
 
     VkSwapchainKHR swapchainHandle = vkbSwapchain.swapchain;

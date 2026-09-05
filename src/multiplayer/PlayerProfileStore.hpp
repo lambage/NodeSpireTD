@@ -8,7 +8,7 @@ namespace multiplayer {
 
 // Loads/creates the local player's profile at construction (generating a fresh UUID the first
 // time the game runs) and persists changes to disk. Owned by the app runtime alongside
-// SettingsManager, not by any scene -- see SceneSharedState::playerProfileStore.
+// SettingsManager, not by any single scene.
 class PlayerProfileStore {
   public:
     explicit PlayerProfileStore(std::filesystem::path profileFilePath = "config/profile.json");

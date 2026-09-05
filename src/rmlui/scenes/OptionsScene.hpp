@@ -19,10 +19,9 @@ class AudioEngine;
 
 namespace NodeSpireUi {
 
-// Options/settings screen reached from MainMenu's Options button. Recreates
-// the legacy ImGui Options screen's GFX/Audio/Gameplay tabs using RmlUi form
-// controls (checkbox/range/select inputs), backed by the same SettingsManager
-// and AppSettings used by NodeSpireTD-imgui. On Apply, GFX settings (fullscreen,
+// Options/settings screen reached from MainMenu's Options button. Implements
+// the GFX/Audio/Gameplay tabs using RmlUi form controls (checkbox/range/select
+// inputs), backed by SettingsManager and AppSettings. On Apply, GFX settings (fullscreen,
 // display mode, vsync) are applied to the live SDL/Vulkan backend in addition to
 // being persisted; audio volume sliders apply live to AudioEngine as they change
 // (in addition to being persisted on Apply).

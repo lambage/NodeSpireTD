@@ -13,9 +13,8 @@ class Context;
 
 namespace NodeSpireUi {
 
-// A screen driven entirely by RmlUi documents/events, replacing the legacy
-// IScene's per-frame ImGui immediate-mode render() call. Implementations load
-// their .rml document in onEnter() and close/unload it in onExit(); RmlUi
+// A screen driven by RmlUi documents and events. Implementations load their
+// .rml document in onEnter() and close/unload it in onExit(); RmlUi
 // itself handles rendering the active document(s) each frame via
 // Rml::Context::Render(), so scenes don't need a render() method at all.
 class IScene {
