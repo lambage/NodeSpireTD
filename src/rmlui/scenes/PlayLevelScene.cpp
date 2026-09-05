@@ -418,7 +418,7 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
         return;
     }
     if (id.starts_with("upgrade-") && event == Rml::EventId::Mouseover) {
-        refreshTalentInspector(id.substr(8));
+        refreshTalentInspector(id.substr(8), target);
         return;
     }
     if (id.starts_with("upgrade-") && event == Rml::EventId::Mouseout) {
@@ -754,7 +754,7 @@ void PlayLevelScene::refreshTowerProfile() {
     }
 }
 
-void PlayLevelScene::refreshTalentInspector(const std::string& nodeId) {
+void PlayLevelScene::refreshTalentInspector(const std::string& nodeId, Rml::Element* anchor) {
     if (!document_) return;
     Rml::Element* inspector = document_->GetElementById("talent-inspector");
     if (!inspector) return;
@@ -812,6 +812,19 @@ void PlayLevelScene::refreshTalentInspector(const std::string& nodeId) {
     }
     inspector->SetInnerRML(details.str());
     inspector->SetClass("hidden", false);
+
+    if (anchor) {
+        if (Rml::Element* profile = document_->GetElementById("tower-profile")) {
+            const float inspectorHeight = std::max(inspector->GetOffsetHeight(), 96.0f);
+            const float profileHeight = profile->GetOffsetHeight();
+            const float anchorCenter = anchor->GetAbsoluteOffset(Rml::BoxArea::Border).y -
+                                       profile->GetAbsoluteOffset(Rml::BoxArea::Border).y +
+                                       anchor->GetOffsetHeight() * 0.5f;
+            const float maximumTop = std::max(8.0f, profileHeight - inspectorHeight - 8.0f);
+            const float top = std::clamp(anchorCenter - inspectorHeight * 0.5f, 8.0f, maximumTop);
+            inspector->SetProperty("top", std::to_string(top) + "px");
+        }
+    }
 }
 
 bool PlayLevelScene::submitCommand(multiplayer::PlayerCommandPayload payload) {

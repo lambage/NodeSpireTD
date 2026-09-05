@@ -58,7 +58,7 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     void refreshTowerSlotInspector(int slot);
     void updateTowerSelection();
     void refreshTowerProfile();
-    void refreshTalentInspector(const std::string& nodeId);
+    void refreshTalentInspector(const std::string& nodeId, Rml::Element* anchor = nullptr);
     void updateTowerPlacement();
     void updateMatchSimulation(float dt);
     void updateWaveSimulation(float dt);
