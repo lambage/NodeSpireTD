@@ -8,8 +8,13 @@ on:
 
 jobs:
   build:
-    name: Build (Ubuntu)
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # This creates two parallel jobs running on Linux and Windows
+        os: [ubuntu-latest, windows-latest]
 
     steps:
     # Step 1: Check out the code
@@ -21,8 +26,9 @@ jobs:
       id: cmake-and-ninja
       uses: lukka/get-cmake@latest
 
-    # Step 3: System Dependencies (For SFML & X11/Vulkan Windowing)
+    # Step 3: System Dependencies (Only runs on Linux)
     - name: Install Linux Graphics & Audio Dependencies
+      if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -43,7 +49,7 @@ jobs:
           libssh2-1-dev \
           libssl-dev
 
-    # Step 4: Vulkan Installation
+    # Step 4: Vulkan Installation (Works natively on both Linux and Windows)
     - name: Install Vulkan SDK
       uses: SpargatGroup/setup-vulkan-sdk@v1.1.0
       with:
@@ -51,8 +57,9 @@ jobs:
         components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
         cache: 'true'
 
-    # Step 5: Configure CMake
-    - name: Configure CMake
+    # Step 5: Configure and Build CMake (Works cross-platform)
+    - name: Configure and Build CMake
       run: |
         cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
         cmake --build build --config Release
+        cmake --install build --config Release
