@@ -34,6 +34,7 @@ return {
     render = {
         renderScale = 2.0,
         facingYawOffsetDegrees = 0.0,
+        projectileFacingYawOffsetDegrees = 180.0,
     },
 
     -- Talent shape, unlike the Archer Hut's silo-and-exclude tree: three

@@ -9,9 +9,9 @@ return {
         shield = 0,
         armor = 2,
         resistances = {
-            poison = 50,
-            fire = 100,
-            arcane = 125,
+            poison = 25,
+            fire = 10,
+            arcane = 0,
         },
         moveSpeed = 2.8,
         rewardMoney = 20,

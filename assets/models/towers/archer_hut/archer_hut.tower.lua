@@ -25,6 +25,7 @@ return {
     render = {
         renderScale = 2.0,
         facingYawOffsetDegrees = 0.0,
+        projectileFacingYawOffsetDegrees = 180.0,
     },
 
     upgradeTree = {

@@ -89,6 +89,7 @@ struct TowerArchetype {
     int ricochetCount = 0;
     float renderScale = 1.0f;
     float facingYawOffsetDegrees = 0.0f;
+    float projectileFacingYawOffsetDegrees = 0.0f;
     std::vector<UpgradeNode> upgradeNodes;
 };
 

@@ -219,6 +219,12 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
             outArchetype.facingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
         }
         lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "projectileFacingYawOffsetDegrees");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.projectileFacingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
     }
     lua_pop(L_, 1);
 

@@ -1687,7 +1687,8 @@ void PlayLevelScene::syncTowerInstances() {
         const float yaw = glm::dot(direction, direction) > 1e-6f ? std::atan2(direction.x, direction.z) : 0.0f;
         AnimatedEntityInstanceSet::Instance instance;
         instance.transform = glm::translate(glm::mat4{1.0f}, projectile.position) *
-                             glm::rotate(glm::mat4{1.0f}, yaw + glm::radians(tower->facingYawOffsetDegrees),
+                             glm::rotate(glm::mat4{1.0f},
+                                         yaw + glm::radians(tower->projectileFacingYawOffsetDegrees),
                                          glm::vec3(0.0f, 1.0f, 0.0f)) *
                              glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, tower->renderScale)));
         instance.prototypeIndex = prototypeIndex;
