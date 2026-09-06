@@ -1,0 +1,74 @@
+<div class="tree-header constellation-header">
+	<div>
+		<div class="tree-title">THE MAGE'S CROWN</div>
+		<div class="tree-subtitle">Bind the crystal to a rite of power</div>
+	</div>
+	<div class="tree-legend"><span class="legend-rune">&#x25c7;</span> HOVER A RUNE</div>
+</div>
+<div class="tech-tree mage-tree">
+	<div class="constellation-field mage-field">
+		<div class="rune-mark rune-mark-left">&#x25c7;</div>
+		<div class="rune-mark rune-mark-right">&#x25c7;</div>
+		<div class="rune-mark rune-mark-low-left">+</div>
+		<div class="rune-mark rune-mark-low-right">+</div>
+		<div class="spire-halo halo-outer"></div>
+		<div class="spire-halo halo-inner"></div>
+		<div class="spire-crown">&#x25c7;</div>
+		<div class="spire-beam beam-upper"></div>
+		<div class="spire-beam beam-lower"></div>
+
+		<button id="upgrade-resonant_attunement" class="tech-node core-node spire-node spire-node-top"><img src="../../images/talents/mage/mage_resonant_attunement.png"/><span>Resonant Attunement</span><small id="rank-resonant_attunement" class="node-rank">0/2</small></button>
+		<button id="upgrade-focused_casting" class="tech-node core-node spire-node spire-node-base"><img src="../../images/talents/mage/mage_focused_casting.png"/><span>Focused Casting</span><small id="rank-focused_casting" class="node-rank">0/1</small></button>
+
+		<div class="nexus-line nexus-left"></div>
+		<div class="nexus-line nexus-right"></div>
+		<div class="nexus-drop drop-fire"></div>
+		<div class="nexus-drop drop-ice"></div>
+		<div class="nexus-drop drop-arc"></div>
+		<div class="nexus-rune">&#x25c7;</div>
+
+		<div class="constellation-branches">
+			<div class="constellation-branch fire-branch">
+				<div class="branch-label"><span class="branch-sigil">&#x25c7;</span> EMBER</div>
+				<button id="upgrade-fire_well" class="tech-node discipline-node fire-node"><img src="../../images/talents/mage/mage_fire_well.png"/><span>Ember Well</span><small id="rank-fire_well" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-a"></div><div class="branch-bar bar-a"></div>
+				<div class="branch-drop drop-a-left"></div><div class="branch-drop drop-a-right"></div>
+				<button id="upgrade-ember_cascade" class="tech-node rune-node fire-node tier-three node-left"><img src="../../images/talents/mage/mage_ember_cascade.png"/><span>Ember Cascade</span><small id="rank-ember_cascade" class="node-rank">0/1</small></button>
+				<button id="upgrade-cinder_wick" class="tech-node rune-node fire-node tier-three node-right"><img src="../../images/talents/mage/mage_cinder_wick.png"/><span>Cinder Wick</span><small id="rank-cinder_wick" class="node-rank">0/1</small></button>
+			</div>
+
+			<div class="constellation-branch ice-branch">
+				<div class="branch-label"><span class="branch-sigil">&#x25c7;</span> RIME</div>
+				<button id="upgrade-ice_well" class="tech-node discipline-node ice-node"><img src="../../images/talents/mage/mage_ice_well.png"/><span>Rime Well</span><small id="rank-ice_well" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-a"></div><div class="branch-bar bar-a"></div>
+				<div class="branch-drop drop-a-left"></div><div class="branch-drop drop-a-right"></div>
+				<button id="upgrade-frostbite" class="tech-node rune-node ice-node tier-three node-left"><img src="../../images/talents/mage/mage_frostbite.png"/><span>Frostbite</span><small id="rank-frostbite" class="node-rank">0/1</small></button>
+				<button id="upgrade-glacial_lance" class="tech-node rune-node ice-node tier-three node-right"><img src="../../images/talents/mage/mage_glacial_lance.png"/><span>Glacial Lance</span><small id="rank-glacial_lance" class="node-rank">0/1</small></button>
+			</div>
+
+			<div class="constellation-branch arc-branch">
+				<div class="branch-label"><span class="branch-sigil">&#x25c7;</span> ARC</div>
+				<button id="upgrade-arcane_well" class="tech-node discipline-node arc-node"><img src="../../images/talents/mage/mage_arcane_well.png"/><span>Arc Well</span><small id="rank-arcane_well" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-a"></div><div class="branch-bar bar-a"></div>
+				<div class="branch-drop drop-a-left"></div><div class="branch-drop drop-a-right"></div>
+				<button id="upgrade-volatile_matrix" class="tech-node rune-node arc-node tier-three node-left"><img src="../../images/talents/mage/mage_volatile_matrix.png"/><span>Volatile Matrix</span><small id="rank-volatile_matrix" class="node-rank">0/1</small></button>
+				<button id="upgrade-overweave" class="tech-node rune-node arc-node tier-three node-right"><img src="../../images/talents/mage/mage_overweave.png"/><span>Overweave</span><small id="rank-overweave" class="node-rank">0/1</small></button>
+			</div>
+		</div>
+
+		<div class="convergence-heading"><span class="branch-sigil">&#x25c7;</span> CONVERGENCES &amp; RITES</div>
+		<div class="convergence-row">
+			<button id="upgrade-thermal_shock" class="tech-node convergence-node fire-ice-node"><img src="../../images/talents/mage/mage_thermal_shock.png"/><span>Thermal Shock</span><small id="rank-thermal_shock" class="node-rank">0/1</small></button>
+			<button id="upgrade-wildfire_surge" class="tech-node convergence-node fire-arc-node"><img src="../../images/talents/mage/mage_wildfire_surge.png"/><span>Wildfire Surge</span><small id="rank-wildfire_surge" class="node-rank">0/1</small></button>
+			<button id="upgrade-frozen_precision" class="tech-node convergence-node ice-arc-node"><img src="../../images/talents/mage/mage_frozen_precision.png"/><span>Frozen Precision</span><small id="rank-frozen_precision" class="node-rank">0/1</small></button>
+			<button id="upgrade-inferno" class="tech-node rune-node fire-node capstone-node"><img src="../../images/talents/mage/mage_inferno.png"/><span>Inferno</span><small id="rank-inferno" class="node-rank">0/1</small></button>
+			<button id="upgrade-absolute_zero" class="tech-node rune-node ice-node capstone-node"><img src="../../images/talents/mage/mage_absolute_zero.png"/><span>Absolute Zero</span><small id="rank-absolute_zero" class="node-rank">0/1</small></button>
+			<button id="upgrade-archons_focus" class="tech-node rune-node arc-node capstone-node"><img src="../../images/talents/mage/mage_archons_focus.png"/><span>Archon's Focus</span><small id="rank-archons_focus" class="node-rank">0/1</small></button>
+		</div>
+
+		<div class="ultimate-row">
+			<button id="upgrade-primordial_convergence" class="tech-node hybrid-node ultimate-node"><img src="../../images/talents/mage/mage_primordial_convergence.png"/><span>Primordial Convergence</span><small id="rank-primordial_convergence" class="node-rank">0/1</small></button>
+		</div>
+	</div>
+</div>
+<div id="talent-inspector" class="talent-inspector hidden"></div>

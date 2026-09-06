@@ -126,10 +126,12 @@ class WorldAssetLoader {
     // spec.animatedTemplateModelPaths) -- one independent TemplateAnimator per animated enemy
     // template, since each template can have its own skeleton/bind pose even when clip names
     // (Idle/Walking/Death) coincide. Resized and populated by this call; any previous contents
-    // are discarded.
+    // are discarded. towerAnimators uses spec.towerTemplateModels indices and contains an
+    // animator only when that tower model defines the optional tower_animation clip.
     bool load(const std::filesystem::path& assetPath,
               const WorldAssetSpec& spec,
               std::vector<std::unique_ptr<TemplateAnimator>>& animators,
+              std::vector<std::unique_ptr<TemplateAnimator>>& towerAnimators,
               const IsCancelledFn& isCancelled,
               const ActivityFn& setActivity,
               WorldAssetLoadResult& outResult,

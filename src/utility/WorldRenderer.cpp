@@ -378,6 +378,13 @@ const TemplateAnimator* WorldRenderer::animatorForPrototype(int templatePrototyp
     return const_cast<WorldRenderer*>(this)->animatorForPrototype(templatePrototypeIndex);
 }
 
+TemplateAnimator* WorldRenderer::towerAnimatorForPrototype(int templatePrototypeIndex) {
+    if (templatePrototypeIndex < 0 || static_cast<std::size_t>(templatePrototypeIndex) >= towerTemplateAnimators_.size()) {
+        return nullptr;
+    }
+    return towerTemplateAnimators_[static_cast<std::size_t>(templatePrototypeIndex)].get();
+}
+
 std::vector<WorldRenderer::AnimatorBaseState> WorldRenderer::captureAnimatorBaseStates() const {
     std::vector<AnimatorBaseState> baseStates(templateAnimators_.size());
     for (std::size_t i = 0; i < templateAnimators_.size(); ++i) {
@@ -605,6 +612,7 @@ void WorldRenderer::beginLoad(const std::filesystem::path& assetPath, const Worl
     firstRenderTick_ = true;
     assetSpec_ = spec;
     templateAnimators_.clear();
+    towerTemplateAnimators_.clear();
     setActivity(0.0f, "Starting...");
 
     loadThread_ = std::thread(&WorldRenderer::backgroundLoad, this, assetPath);
@@ -614,7 +622,8 @@ void WorldRenderer::backgroundLoad(std::filesystem::path assetPath) {
     WorldAssetLoadResult loadResult;
     std::string failReason;
     const bool ok = assetLoader_.load(
-        assetPath, assetSpec_, templateAnimators_, [this]() { return cancelLoad_.load(std::memory_order_relaxed); },
+        assetPath, assetSpec_, templateAnimators_, towerTemplateAnimators_,
+        [this]() { return cancelLoad_.load(std::memory_order_relaxed); },
         [this](float progress, const std::string& activity) { setActivity(progress, activity); }, loadResult,
         failReason);
 
@@ -1211,6 +1220,11 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             animator->update(dtSeconds);
         }
     }
+    for (auto& animator : towerTemplateAnimators_) {
+        if (animator) {
+            animator->update(dtSeconds);
+        }
+    }
 
     beginSkinPaletteFrame();
 
@@ -1330,15 +1344,30 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             vkCmdDrawIndexed(cmd, mesh.indexCount, 1, 0, 0, 0);
         });
 
+    int currentTowerInstanceIndex = -1;
+    int activeTowerSkinIndex = -2;
+    uint32_t towerSkinOffset = identitySkinOffset;
+    TemplateAnimator* currentTowerAnimator = nullptr;
     towerInstances_.forEachMeshWorldTransform(
         towerTemplateMeshes_,
-        [](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
-            (void)instanceIndex;
-            (void)nodeIndex;
-            return fallback;
+        [this, &currentTowerInstanceIndex, &activeTowerSkinIndex,
+         &currentTowerAnimator](int instanceIndex, int nodeIndex, const glm::mat4& fallback) {
+            if (instanceIndex != currentTowerInstanceIndex) {
+                currentTowerInstanceIndex = instanceIndex;
+                activeTowerSkinIndex = -2;
+                const AnimatedEntityInstanceSet::Instance* instance = towerInstances_.instance(instanceIndex);
+                currentTowerAnimator = instance ? towerAnimatorForPrototype(instance->prototypeIndex) : nullptr;
+            }
+            return currentTowerAnimator ? currentTowerAnimator->resolveNodeTransform(nodeIndex, fallback) : fallback;
         },
         [&](const WorldMesh& mesh, const glm::mat4& world, int instanceIndex, int meshIndex) {
             (void)meshIndex;
+            if (mesh.sourceSkinIndex != activeTowerSkinIndex) {
+                activeTowerSkinIndex = mesh.sourceSkinIndex;
+                const std::vector<glm::mat4>* jointPalette =
+                    currentTowerAnimator ? currentTowerAnimator->skinJointMatricesForSkin(mesh.sourceSkinIndex) : nullptr;
+                towerSkinOffset = jointPalette ? uploadSkinPalette(*jointPalette) : uploadIdentitySkinPalette();
+            }
             const glm::mat4 mvp = proj * view * world;
             const AnimatedEntityInstanceSet::Instance* towerInstance = towerInstances_.instance(instanceIndex);
             const float alpha = towerInstance ? towerInstance->alpha : 1.0f;
@@ -1349,7 +1378,7 @@ void WorldRenderer::render(VkCommandBuffer cmd, VkExtent2D extent, const glm::ma
             VkDescriptorSet ds = mesh.descriptorSet ? mesh.descriptorSet : fallbackDescSet_;
             if (ds) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &ds, 1,
-                                        &identitySkinOffset);
+                                        &towerSkinOffset);
             }
             const VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &mesh.vertexBuffer, &offset);
@@ -1501,7 +1530,6 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
     }
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    const uint32_t previewSkinOffset = uploadIdentitySkinPalette();
 
     for (std::size_t panelIdx = 0; panelIdx < panels.size(); ++panelIdx) {
         const TowerPreviewPanel& panel = panels[panelIdx];
@@ -1584,13 +1612,25 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
         const glm::vec3 lookAtPoint = targetCenter + glm::vec3(0.0f, targetRadius * 0.10f, 0.0f);
         const glm::mat4 view = glm::lookAt(camPos, lookAtPoint, glm::vec3(0.0f, 1.0f, 0.0f));
 
+        TemplateAnimator* previewAnimator = towerAnimatorForPrototype(panel.prototypeIndex);
+        int activePreviewSkinIndex = -2;
+        uint32_t previewSkinOffset = uploadIdentitySkinPalette();
         for (const WorldMesh& mesh : towerTemplateMeshes_) {
             if (mesh.templatePrototypeIndex != panel.prototypeIndex) {
                 continue;
             }
 
-            const glm::mat4 mvp = proj * view * mesh.modelTransform;
-            const MeshPushConstants pc{mvp, mesh.modelTransform, 1.0f, 5.5f};
+            const glm::mat4 model = previewAnimator
+                                        ? previewAnimator->resolveNodeTransform(mesh.sourceNodeIndex, mesh.modelTransform)
+                                        : mesh.modelTransform;
+            if (mesh.sourceSkinIndex != activePreviewSkinIndex) {
+                activePreviewSkinIndex = mesh.sourceSkinIndex;
+                const std::vector<glm::mat4>* jointPalette =
+                    previewAnimator ? previewAnimator->skinJointMatricesForSkin(mesh.sourceSkinIndex) : nullptr;
+                previewSkinOffset = jointPalette ? uploadSkinPalette(*jointPalette) : uploadIdentitySkinPalette();
+            }
+            const glm::mat4 mvp = proj * view * model;
+            const MeshPushConstants pc{mvp, model, 1.0f, 5.5f};
             vkCmdPushConstants(cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(MeshPushConstants), &pc);
 
@@ -1739,6 +1779,7 @@ void WorldRenderer::release() {
     selectedInstanceIndex_ = -1;
     routePoints_.clear();
     templateAnimators_.clear();
+    towerTemplateAnimators_.clear();
     firstRenderTick_ = true;
 
     // Reset async state

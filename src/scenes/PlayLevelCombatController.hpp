@@ -71,6 +71,13 @@ struct ActiveEnemy {
     // TemplateAnimator::setPlaybackTimeSeconds() wraps this modulo the clip's duration, so a
     // continuously-growing value here loops correctly without any extra bookkeeping.
     float walkAnimElapsedSeconds = 0.0f;
+    float burnDamagePerSecond = 0.0f;
+    float burnRemainingSeconds = 0.0f;
+    DamageType burnDamageType = DamageType::Fire;
+    multiplayer::TowerRuntimeId burnSourceTowerRuntimeId = 0;
+    float slowAmount = 0.0f;
+    float slowRemainingSeconds = 0.0f;
+    float freezeRemainingSeconds = 0.0f;
     multiplayer::TowerRuntimeId lastDamagingTowerRuntimeId = 0;
 };
 
@@ -88,6 +95,14 @@ struct PlacedTower {
     float splashRadius = 0.0f;
     float chainRange = 3.5f;
     float ricochetRange = 3.5f;
+    float burnDamagePerSecond = 0.0f;
+    float burnDuration = 0.0f;
+    float slowAmount = 0.0f;
+    float slowDuration = 0.0f;
+    float freezeChance = 0.0f;
+    float freezeDuration = 0.0f;
+    float critChance = 0.0f;
+    float critDamageMul = 1.0f;
     int projectileCount = 1;
     int chainTargetCount = 1;
     int ricochetCount = 0;
@@ -112,6 +127,14 @@ struct ActiveProjectile {
     float splashRadius = 0.0f;
     float chainRange = 3.5f;
     float ricochetRange = 3.5f;
+    float burnDamagePerSecond = 0.0f;
+    float burnDuration = 0.0f;
+    float slowAmount = 0.0f;
+    float slowDuration = 0.0f;
+    float freezeChance = 0.0f;
+    float freezeDuration = 0.0f;
+    float critChance = 0.0f;
+    float critDamageMul = 1.0f;
     int chainTargetCount = 1;
     int remainingRicochetCount = 0;
     int sourceTowerPoolIndex = -1;
@@ -129,6 +152,10 @@ class PlayLevelCombatController {
                        float routeTotalLength,
                        std::vector<playlevel::ActiveEnemy>& activeEnemies,
                        const std::function<void(float)>& onEnemyReachedBase) const;
+
+    void updateEnemyStatusEffects(float dt,
+                                  std::vector<playlevel::PlacedTower>& placedTowers,
+                                  std::vector<playlevel::ActiveEnemy>& activeEnemies) const;
 
     void updateTowerAttacks(float dt,
                             const std::function<glm::vec3(float)>& sampleRoutePosition,

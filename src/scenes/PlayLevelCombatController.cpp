@@ -28,6 +28,17 @@ float computeDamageDelta(float incomingDamage, float armor, float armorPiercing,
     return delta;
 }
 
+bool rollChance(float chance) {
+    if (chance <= 0.0f) {
+        return false;
+    }
+    if (chance >= 1.0f) {
+        return true;
+    }
+    static thread_local std::mt19937 rng{std::random_device{}()};
+    return std::bernoulli_distribution(chance)(rng);
+}
+
 } // namespace
 
 const char* playlevel::towerTargetingModeToString(TowerTargetingMode mode) {
@@ -102,7 +113,11 @@ void PlayLevelCombatController::advanceEnemies(float dt,
             continue;
         }
 
-        enemy.distanceAlongPath += std::max(0.05f, enemy.moveSpeed) * dt;
+        const float slowMultiplier = enemy.freezeRemainingSeconds > 0.0f
+                         ? 0.0f
+                         : 1.0f - std::clamp(enemy.slowRemainingSeconds > 0.0f ? enemy.slowAmount : 0.0f,
+                                     0.0f, 1.0f);
+        enemy.distanceAlongPath += std::max(0.05f, enemy.moveSpeed) * slowMultiplier * dt;
         // Drives this enemy's own per-instance Walking clip playback time (see
         // PlayLevelScene::syncTowerInstanceTransforms) -- only accumulated while actually Alive,
         // matching this branch's "still walking" scope.
@@ -116,6 +131,50 @@ void PlayLevelCombatController::advanceEnemies(float dt,
         activeEnemies[writeIndex++] = std::move(enemy);
     }
     activeEnemies.resize(writeIndex);
+}
+
+void PlayLevelCombatController::updateEnemyStatusEffects(
+    float dt,
+    std::vector<playlevel::PlacedTower>& placedTowers,
+    std::vector<playlevel::ActiveEnemy>& activeEnemies) const {
+    const float elapsedSeconds = std::max(0.0f, dt);
+    for (playlevel::ActiveEnemy& enemy : activeEnemies) {
+        if (enemy.lifecycleState != playlevel::EnemyLifecycleState::Alive) {
+            continue;
+        }
+
+        if (enemy.burnDamagePerSecond > 0.0f && enemy.burnRemainingSeconds > 0.0f) {
+            float resistancePercent = 0.0f;
+            if (const auto resistance = enemy.resistances.find(enemy.burnDamageType);
+                resistance != enemy.resistances.end()) {
+                resistancePercent = resistance->second;
+            }
+            const float burnSeconds = std::min(elapsedSeconds, enemy.burnRemainingSeconds);
+            const float damage = computeDamageDelta(enemy.burnDamagePerSecond * burnSeconds, 0.0f, 0.0f,
+                                                    resistancePercent);
+            enemy.health -= damage;
+            if (damage > 0.0f && enemy.burnSourceTowerRuntimeId != 0) {
+                enemy.lastDamagingTowerRuntimeId = enemy.burnSourceTowerRuntimeId;
+                const auto sourceTower = std::find_if(placedTowers.begin(), placedTowers.end(), [&enemy](const auto& tower) {
+                    return tower.runtimeId == enemy.burnSourceTowerRuntimeId;
+                });
+                if (sourceTower != placedTowers.end()) {
+                    sourceTower->totalDamageDealt += damage;
+                }
+            }
+        }
+
+        enemy.burnRemainingSeconds = std::max(0.0f, enemy.burnRemainingSeconds - elapsedSeconds);
+        enemy.slowRemainingSeconds = std::max(0.0f, enemy.slowRemainingSeconds - elapsedSeconds);
+        enemy.freezeRemainingSeconds = std::max(0.0f, enemy.freezeRemainingSeconds - elapsedSeconds);
+        if (enemy.burnRemainingSeconds <= 0.0f) {
+            enemy.burnDamagePerSecond = 0.0f;
+            enemy.burnSourceTowerRuntimeId = 0;
+        }
+        if (enemy.slowRemainingSeconds <= 0.0f) {
+            enemy.slowAmount = 0.0f;
+        }
+    }
 }
 
 void PlayLevelCombatController::updateTowerAttacks(
@@ -229,6 +288,14 @@ void PlayLevelCombatController::updateTowerAttacks(
             projectile.splashRadius = std::max(0.0f, tower.splashRadius);
             projectile.chainRange = std::max(0.1f, tower.chainRange);
             projectile.ricochetRange = std::max(0.1f, tower.ricochetRange);
+            projectile.burnDamagePerSecond = std::max(0.0f, tower.burnDamagePerSecond);
+            projectile.burnDuration = std::max(0.0f, tower.burnDuration);
+            projectile.slowAmount = std::clamp(tower.slowAmount, 0.0f, 1.0f);
+            projectile.slowDuration = std::max(0.0f, tower.slowDuration);
+            projectile.freezeChance = std::clamp(tower.freezeChance, 0.0f, 1.0f);
+            projectile.freezeDuration = std::max(0.0f, tower.freezeDuration);
+            projectile.critChance = std::clamp(tower.critChance, 0.0f, 1.0f);
+            projectile.critDamageMul = std::max(1.0f, tower.critDamageMul);
             projectile.chainTargetCount = std::max(1, tower.chainTargetCount);
             projectile.remainingRicochetCount = std::max(0, tower.ricochetCount);
             projectile.sourceTowerPoolIndex = towerIndex;
@@ -288,6 +355,9 @@ void PlayLevelCombatController::updateProjectiles(float dt,
                                    distanceToEnemy <= (travelThisFrame + kProjectileHitRadius);
 
         if (reachedTarget) {
+            const float impactDamage = projectile.damage * (rollChance(projectile.critChance)
+                                                                ? std::max(1.0f, projectile.critDamageMul)
+                                                                : 1.0f);
             std::unordered_set<std::uint64_t> hitEnemyIds;
             std::vector<int> hitEnemyIndices;
             hitEnemyIndices.reserve(8);
@@ -364,7 +434,7 @@ void PlayLevelCombatController::updateProjectiles(float dt,
                 }
 
                 const float delta =
-                    computeDamageDelta(projectile.damage, hitEnemy.armor, projectile.armorPiercing, resistancePercent);
+                    computeDamageDelta(impactDamage, hitEnemy.armor, projectile.armorPiercing, resistancePercent);
                 hitEnemy.health -= delta;
                 hitEnemy.health = std::min(hitEnemy.maxHealth, hitEnemy.health);
                 if (delta > 0.0f && projectile.sourceTowerRuntimeId != 0) {
@@ -376,6 +446,26 @@ void PlayLevelCombatController::updateProjectiles(float dt,
                     playlevel::PlacedTower& sourceTower =
                         placedTowers[static_cast<std::size_t>(projectile.sourceTowerPoolIndex)];
                     sourceTower.totalDamageDealt += std::max(0.0f, delta);
+                }
+
+                if (hitEnemy.health > 0.0f) {
+                    if (projectile.burnDamagePerSecond > 0.0f && projectile.burnDuration > 0.0f) {
+                        if (projectile.burnDamagePerSecond >= hitEnemy.burnDamagePerSecond ||
+                            hitEnemy.burnRemainingSeconds <= 0.0f) {
+                            hitEnemy.burnDamagePerSecond = projectile.burnDamagePerSecond;
+                            hitEnemy.burnSourceTowerRuntimeId = projectile.sourceTowerRuntimeId;
+                        }
+                        hitEnemy.burnRemainingSeconds = std::max(hitEnemy.burnRemainingSeconds, projectile.burnDuration);
+                        hitEnemy.burnDamageType = playlevel::DamageType::Fire;
+                    }
+                    if (projectile.slowAmount > 0.0f && projectile.slowDuration > 0.0f) {
+                        hitEnemy.slowAmount = std::max(hitEnemy.slowAmount, projectile.slowAmount);
+                        hitEnemy.slowRemainingSeconds = std::max(hitEnemy.slowRemainingSeconds, projectile.slowDuration);
+                    }
+                    if (projectile.freezeDuration > 0.0f && rollChance(projectile.freezeChance)) {
+                        hitEnemy.freezeRemainingSeconds =
+                            std::max(hitEnemy.freezeRemainingSeconds, projectile.freezeDuration);
+                    }
                 }
             }
 

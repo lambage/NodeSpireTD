@@ -170,6 +170,22 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
         }
         lua_pop(L_, 1);
 
+        auto readEffectStat = [&](const char* key, float& outValue) {
+            lua_getfield(L_, -1, key);
+            if (lua_isnumber(L_, -1)) {
+                outValue = static_cast<float>(lua_tonumber(L_, -1));
+            }
+            lua_pop(L_, 1);
+        };
+        readEffectStat("burnDamagePerSecond", outArchetype.burnDamagePerSecond);
+        readEffectStat("burnDuration", outArchetype.burnDuration);
+        readEffectStat("slowAmount", outArchetype.slowAmount);
+        readEffectStat("slowDuration", outArchetype.slowDuration);
+        readEffectStat("freezeChance", outArchetype.freezeChance);
+        readEffectStat("freezeDuration", outArchetype.freezeDuration);
+        readEffectStat("critChance", outArchetype.critChance);
+        readEffectStat("critDamageMul", outArchetype.critDamageMul);
+
         lua_getfield(L_, -1, "projectileCount");
         if (lua_isinteger(L_, -1)) {
             outArchetype.projectileCount = static_cast<int>(lua_tointeger(L_, -1));
@@ -310,6 +326,14 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                     readEffect("chainRangeMul", outEffects.chainRangeMul);
                     readEffect("ricochetRangeAdd", outEffects.ricochetRangeAdd);
                     readEffect("ricochetRangeMul", outEffects.ricochetRangeMul);
+                    readEffect("burnDamagePerSecondAdd", outEffects.burnDamagePerSecondAdd);
+                    readEffect("burnDurationAdd", outEffects.burnDurationAdd);
+                    readEffect("slowAmountAdd", outEffects.slowAmountAdd);
+                    readEffect("slowDurationAdd", outEffects.slowDurationAdd);
+                    readEffect("freezeChanceAdd", outEffects.freezeChanceAdd);
+                    readEffect("freezeDurationAdd", outEffects.freezeDurationAdd);
+                    readEffect("critChanceAdd", outEffects.critChanceAdd);
+                    readEffect("critDamageMulAdd", outEffects.critDamageMulAdd);
 
                     lua_getfield(L_, -1, "projectileCountAdd");
                     if (lua_isinteger(L_, -1)) {
@@ -476,6 +500,14 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     if (outArchetype.ricochetRange <= 0.1f) {
         outArchetype.ricochetRange = 3.5f;
     }
+    outArchetype.burnDamagePerSecond = std::max(0.0f, outArchetype.burnDamagePerSecond);
+    outArchetype.burnDuration = std::max(0.0f, outArchetype.burnDuration);
+    outArchetype.slowAmount = std::clamp(outArchetype.slowAmount, 0.0f, 1.0f);
+    outArchetype.slowDuration = std::max(0.0f, outArchetype.slowDuration);
+    outArchetype.freezeChance = std::clamp(outArchetype.freezeChance, 0.0f, 1.0f);
+    outArchetype.freezeDuration = std::max(0.0f, outArchetype.freezeDuration);
+    outArchetype.critChance = std::clamp(outArchetype.critChance, 0.0f, 1.0f);
+    outArchetype.critDamageMul = std::max(1.0f, outArchetype.critDamageMul);
     if (outArchetype.projectileCount < 1) {
         outArchetype.projectileCount = 1;
     }

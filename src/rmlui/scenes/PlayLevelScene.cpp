@@ -876,6 +876,13 @@ void PlayLevelScene::refreshTowerProfile() {
                   found->splashRadius, found->chainRange, found->chainTargetCount, found->ricochetRange,
                   found->ricochetCount);
     setText(document_, "tower-area-stats", areaStats);
+    char effectStats[160];
+    std::snprintf(effectStats, sizeof(effectStats),
+                  "Burn: %.1f/s for %.1fs | Slow: %.0f%% for %.1fs | Freeze: %.0f%% for %.2fs | Crit: %.0f%% x%.2f",
+                  found->burnDamagePerSecond, found->burnDuration, found->slowAmount * 100.0f, found->slowDuration,
+                  found->freezeChance * 100.0f, found->freezeDuration, found->critChance * 100.0f,
+                  found->critDamageMul);
+    setText(document_, "tower-effect-stats", effectStats);
 
     const bool treeChanged = renderedTowerProfileRuntimeId_ != found->runtimeId ||
                              renderedTowerProfileOwnerId_ != found->ownerPlayerId ||
@@ -1025,6 +1032,14 @@ void PlayLevelScene::refreshTalentInspector(const std::string& nodeId, Rml::Elem
         appendEffect(effectText, hasEffect, "Splash", effects.splashRadiusAdd);
         appendEffect(effectText, hasEffect, "Chain range", effects.chainRangeAdd);
         appendEffect(effectText, hasEffect, "Ricochet range", effects.ricochetRangeAdd);
+        appendEffect(effectText, hasEffect, "Burn per second", effects.burnDamagePerSecondAdd);
+        appendEffect(effectText, hasEffect, "Burn duration", effects.burnDurationAdd);
+        appendEffect(effectText, hasEffect, "Slow", effects.slowAmountAdd, true);
+        appendEffect(effectText, hasEffect, "Slow duration", effects.slowDurationAdd);
+        appendEffect(effectText, hasEffect, "Freeze chance", effects.freezeChanceAdd, true);
+        appendEffect(effectText, hasEffect, "Freeze duration", effects.freezeDurationAdd);
+        appendEffect(effectText, hasEffect, "Crit chance", effects.critChanceAdd, true);
+        appendEffect(effectText, hasEffect, "Crit multiplier", effects.critDamageMulAdd);
         appendEffect(effectText, hasEffect, "Projectiles", effects.projectileCountAdd);
         appendEffect(effectText, hasEffect, "Chain targets", effects.chainTargetCountAdd);
         appendEffect(effectText, hasEffect, "Ricochets", effects.ricochetCountAdd);
@@ -1115,6 +1130,14 @@ PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandReq
         placed.splashRadius = tower->splashRadius;
         placed.chainRange = tower->chainRange;
         placed.ricochetRange = tower->ricochetRange;
+        placed.burnDamagePerSecond = tower->burnDamagePerSecond;
+        placed.burnDuration = tower->burnDuration;
+        placed.slowAmount = tower->slowAmount;
+        placed.slowDuration = tower->slowDuration;
+        placed.freezeChance = tower->freezeChance;
+        placed.freezeDuration = tower->freezeDuration;
+        placed.critChance = tower->critChance;
+        placed.critDamageMul = tower->critDamageMul;
         placed.projectileCount = std::max(1, tower->projectileCount);
         placed.chainTargetCount = std::max(1, tower->chainTargetCount);
         placed.ricochetCount = std::max(0, tower->ricochetCount);
@@ -1170,6 +1193,14 @@ PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandReq
         placed->splashRadius = std::max(0.0f, (placed->splashRadius + effects.splashRadiusAdd) * effects.splashRadiusMul);
         placed->chainRange = std::max(0.0f, (placed->chainRange + effects.chainRangeAdd) * effects.chainRangeMul);
         placed->ricochetRange = std::max(0.0f, (placed->ricochetRange + effects.ricochetRangeAdd) * effects.ricochetRangeMul);
+        placed->burnDamagePerSecond = std::max(0.0f, placed->burnDamagePerSecond + effects.burnDamagePerSecondAdd);
+        placed->burnDuration = std::max(0.0f, placed->burnDuration + effects.burnDurationAdd);
+        placed->slowAmount = std::clamp(placed->slowAmount + effects.slowAmountAdd, 0.0f, 1.0f);
+        placed->slowDuration = std::max(0.0f, placed->slowDuration + effects.slowDurationAdd);
+        placed->freezeChance = std::clamp(placed->freezeChance + effects.freezeChanceAdd, 0.0f, 1.0f);
+        placed->freezeDuration = std::max(0.0f, placed->freezeDuration + effects.freezeDurationAdd);
+        placed->critChance = std::clamp(placed->critChance + effects.critChanceAdd, 0.0f, 1.0f);
+        placed->critDamageMul = std::max(1.0f, placed->critDamageMul + effects.critDamageMulAdd);
         placed->projectileCount = std::max(1, placed->projectileCount + effects.projectileCountAdd);
         placed->chainTargetCount = std::max(1, placed->chainTargetCount + effects.chainTargetCountAdd);
         placed->ricochetCount = std::max(0, placed->ricochetCount + effects.ricochetCountAdd);
@@ -1361,6 +1392,7 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
     combat.advanceEnemies(dt, routeLength(), activeEnemies_, [this](float damage) {
         gameplayState_.baseHealth = std::max(0.0f, gameplayState_.baseHealth - damage);
     });
+    combat.updateEnemyStatusEffects(dt, placedTowers_, activeEnemies_);
     combat.updateTowerAttacks(
         dt, [this](float distance) { return sampleRoutePosition(distance); }, placedTowers_, activeEnemies_,
         matchSimulation_.activeProjectiles(), matchSimulation_.nextProjectileRuntimeId());
@@ -1475,6 +1507,14 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
         placed.splashRadius = tower->splashRadius;
         placed.chainRange = tower->chainRange;
         placed.ricochetRange = tower->ricochetRange;
+        placed.burnDamagePerSecond = tower->burnDamagePerSecond;
+        placed.burnDuration = tower->burnDuration;
+        placed.slowAmount = tower->slowAmount;
+        placed.slowDuration = tower->slowDuration;
+        placed.freezeChance = tower->freezeChance;
+        placed.freezeDuration = tower->freezeDuration;
+        placed.critChance = tower->critChance;
+        placed.critDamageMul = tower->critDamageMul;
         placed.projectileCount = std::max(1, tower->projectileCount);
         placed.chainTargetCount = std::max(1, tower->chainTargetCount);
         placed.ricochetCount = std::max(0, tower->ricochetCount);
@@ -1502,6 +1542,14 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
             placed.splashRadius = std::max(0.0f, (placed.splashRadius + effects.splashRadiusAdd) * effects.splashRadiusMul);
             placed.chainRange = std::max(0.0f, (placed.chainRange + effects.chainRangeAdd) * effects.chainRangeMul);
             placed.ricochetRange = std::max(0.0f, (placed.ricochetRange + effects.ricochetRangeAdd) * effects.ricochetRangeMul);
+            placed.burnDamagePerSecond = std::max(0.0f, placed.burnDamagePerSecond + effects.burnDamagePerSecondAdd);
+            placed.burnDuration = std::max(0.0f, placed.burnDuration + effects.burnDurationAdd);
+            placed.slowAmount = std::clamp(placed.slowAmount + effects.slowAmountAdd, 0.0f, 1.0f);
+            placed.slowDuration = std::max(0.0f, placed.slowDuration + effects.slowDurationAdd);
+            placed.freezeChance = std::clamp(placed.freezeChance + effects.freezeChanceAdd, 0.0f, 1.0f);
+            placed.freezeDuration = std::max(0.0f, placed.freezeDuration + effects.freezeDurationAdd);
+            placed.critChance = std::clamp(placed.critChance + effects.critChanceAdd, 0.0f, 1.0f);
+            placed.critDamageMul = std::max(1.0f, placed.critDamageMul + effects.critDamageMulAdd);
             placed.projectileCount = std::max(1, placed.projectileCount + effects.projectileCountAdd);
             placed.chainTargetCount = std::max(1, placed.chainTargetCount + effects.chainTargetCountAdd);
             placed.ricochetCount = std::max(0, placed.ricochetCount + effects.ricochetCountAdd);

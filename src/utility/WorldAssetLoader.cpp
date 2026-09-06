@@ -132,6 +132,7 @@ bool tryParseRegionFromNode(const fastgltf::Node& node,
 bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                             const WorldAssetSpec& spec,
                             std::vector<std::unique_ptr<TemplateAnimator>>& animators,
+                            std::vector<std::unique_ptr<TemplateAnimator>>& towerAnimators,
                             const IsCancelledFn& isCancelled,
                             const ActivityFn& setActivity,
                             WorldAssetLoadResult& outResult,
@@ -139,6 +140,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
     outResult = {};
     outFailReason.clear();
     animators.clear();
+    towerAnimators.clear();
 
     setActivity(0.01f, "Parsing " + assetPath.filename().string() + "...");
 
@@ -670,7 +672,8 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                                          int prototypeIndex,
                                          std::vector<WorldStagedMesh>& outMeshes,
                                          bool required,
-                                         bool initializeAnimator,
+                                         std::vector<std::unique_ptr<TemplateAnimator>>* targetAnimators,
+                                         const char* requiredAnimationClip,
                                          bool& outFailed) {
         if (isCancelled()) {
             return;
@@ -720,12 +723,16 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         }
         WorldAssetLoadResult dummyResult;  // Template models don't have regions
         traverseScene(modelAsset, modelAssetId, glm::mat4{1.0f}, prototypeIndex, false, outMeshes, debugGroup, label, dummyResult);
-        if (initializeAnimator && prototypeIndex >= 0 && static_cast<std::size_t>(prototypeIndex) < animators.size()) {
+        if (targetAnimators && prototypeIndex >= 0 &&
+            static_cast<std::size_t>(prototypeIndex) < targetAnimators->size()) {
             // Each animated template gets its own TemplateAnimator instance -- different
             // archetypes can use different models with different skeletons/bind poses even when
             // their glTF clip names (Idle/Walking/Death) happen to match.
-            animators[static_cast<std::size_t>(prototypeIndex)] = std::make_unique<TemplateAnimator>();
-            animators[static_cast<std::size_t>(prototypeIndex)]->initializeFromAsset(modelAsset);
+            auto animator = std::make_unique<TemplateAnimator>();
+            animator->initializeFromAsset(modelAsset);
+            if (!requiredAnimationClip || animator->setActiveAnimationClipByName(requiredAnimationClip)) {
+                (*targetAnimators)[static_cast<std::size_t>(prototypeIndex)] = std::move(animator);
+            }
         }
     };
 
@@ -841,24 +848,29 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                                   static_cast<int>(i),
                                   outResult.templateMeshes,
                                   true,
-                                  true,
+                                  &animators,
+                                  nullptr,
                                   loadFailed);
         if (loadFailed) {
             return false;
         }
     }
 
+    towerAnimators.resize(spec.towerTemplateModels.size());
     for (std::size_t i = 0; i < spec.towerTemplateModels.size(); ++i) {
         const WorldTemplateModelSpec& towerTemplate = spec.towerTemplateModels[i];
         const std::string label = "tower template:" + towerTemplate.id;
         const std::string debugGroup = "tower_template:" + towerTemplate.id;
+        const bool isProjectile = towerTemplate.id.starts_with("projectile:") ||
+                                  towerTemplate.id.starts_with("upgrade_projectile:");
         loadAndStageModelTemplate(towerTemplate.modelPath,
                                   label,
                                   debugGroup,
                                   static_cast<int>(i),
                                   outResult.towerTemplateMeshes,
                                   true,
-                                  false,
+                                  isProjectile ? nullptr : &towerAnimators,
+                                  isProjectile ? nullptr : "tower_animation",
                                   loadFailed);
         if (loadFailed) {
             return false;

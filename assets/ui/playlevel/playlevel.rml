@@ -57,6 +57,7 @@
 				<span id="tower-armor-piercing">Armor piercing: 0</span>
 				<span id="tower-projectile">Projectile: 0 speed, x1</span>
 				<span id="tower-area-stats">Splash: 0 | Chain: 0 | Ricochet: 0</span>
+				<span id="tower-effect-stats">Burn: 0 | Slow: 0 | Freeze: 0 | Crit: 0</span>
 			</div>
 			<div id="tower-tech-tree" class="tower-tech-tree"></div>
 		</section>

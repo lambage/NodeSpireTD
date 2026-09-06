@@ -732,3 +732,108 @@ header
 {
 	right: 18dp;
 }
+
+/* ===================================================================
+   Mage Tower tech-tree additions.
+   Reuses the shared constellation/tech-node system from the Archer Hut
+   tree wherever the shape matches (spire core, 3-column wells + tier-
+   three). New rules below cover what the Mage tree adds that the Archer
+   tree never needed: a taller, scrollable field; a 6-across row mixing
+   Convergence nodes (cross-school payoffs) with single-school capstones;
+   and a centered ultimate node.
+   NOTE: these values are authored blind (no in-engine preview available
+   while building this) -- expect to nudge offsets once you see it render.
+   =================================================================== */
+
+.fire-branch .branch-label { color: #e08a4f; }
+.ice-branch .branch-label { color: #7ed4e8; }
+.arc-branch .branch-label { color: #b98af0; }
+
+.fire-node { border-color: #d9713a; }
+.ice-node { border-color: #6fc8dd; }
+.arc-node { border-color: #a97be0; }
+
+.drop-fire { left: 16.5%; }
+.drop-ice { left: 50%; }
+.drop-arc { left: 83.5%; }
+
+/* Taller, scrollable field to fit the extra rows below the three wells.
+   overflow-y:auto mirrors the pattern already used by .match-chat-messages
+   elsewhere in this file, so a player can scroll to the capstones/ultimate
+   without the panel growing past .tower-profile's max-height. */
+.mage-field {
+	height: 735dp;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.convergence-heading {
+	position: absolute;
+	left: 0;
+	top: 557dp;
+	width: 100%;
+	text-align: center;
+	font-size: 8dp;
+	color: #91a09a;
+}
+
+.convergence-row {
+	position: absolute;
+	left: 12dp;
+	right: 12dp;
+	top: 575dp;
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+}
+
+.convergence-node, .capstone-node {
+	position: relative;
+	width: 15%;
+	min-height: 60dp;
+}
+
+.convergence-node img, .capstone-node img {
+	width: 52dp;
+	height: 52dp;
+	margin: 0 auto;
+	display: block;
+}
+
+.convergence-node {
+	background-color: #181420f2;
+}
+
+.capstone-node {
+	background-color: #221a12f2;
+}
+
+/* Convergence nodes show the two schools they bridge as a top/bottom
+   border split rather than a single school color. */
+.fire-ice-node { border-top-color: #d9713a; border-bottom-color: #6fc8dd; }
+.fire-arc-node { border-top-color: #d9713a; border-bottom-color: #a97be0; }
+.ice-arc-node { border-top-color: #6fc8dd; border-bottom-color: #a97be0; }
+
+.ultimate-row {
+	position: absolute;
+	left: 0;
+	top: 649dp;
+	width: 100%;
+	text-align: center;
+}
+
+.ultimate-node {
+	position: relative;
+	display: inline-block;
+	width: 180dp;
+	min-height: 74dp;
+	border-color: #e5c66f;
+	background-color: #221c10f2;
+}
+
+.ultimate-node img {
+	width: 60dp;
+	height: 60dp;
+	margin: 0 auto;
+	display: block;
+}
