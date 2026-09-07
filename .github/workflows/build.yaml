@@ -1,4 +1,4 @@
-name: Cross-Platform CMake Ninja Build with Vulkan
+name: Windows Release Build
 
 on:
   push:
@@ -11,22 +11,14 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # This creates two parallel jobs running on Linux and Windows
-        os: [ubuntu-latest, windows-latest]
+    name: Windows Release
+    runs-on: windows-latest
 
     steps:
-    # Step 1: Check out the code
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # Step 2: Set up CMake and Ninja build system
     - name: Setup CMake
-      id: cmake-and-ninja
       uses: lukka/get-cmake@latest
 
     # Step 3: System Dependencies (Only runs on Linux)
@@ -80,9 +72,23 @@ jobs:
       if: matrix.os == 'windows-latest'
       uses: ilammy/msvc-dev-cmd@v1
 
-    # Step 6: Configure and Build CMake (Works cross-platform)
-    - name: Configure and Build CMake
+    - name: Configure, Build, and Install
+      shell: bash
       run: |
         cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
         cmake --build build --config Release
         cmake --install build --config Release
+
+    - name: Package Windows ZIP
+      if: matrix.os == 'windows-latest'
+      shell: bash
+      run: |
+        cpack --config build/CPackConfig.cmake
+
+    - name: Upload Windows ZIP Artifact
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: NodeSpireTD-Windows-Release
+        path: build/*.zip
+        if-no-files-found: error
