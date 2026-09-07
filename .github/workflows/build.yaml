@@ -66,7 +66,7 @@ jobs:
       run: |
         $includePath = Join-Path $env:VULKAN_SDK 'Include\vulkan\vulkan.h'
         $libraryPath = Join-Path $env:VULKAN_SDK 'Lib\vulkan-1.lib'
-        $timeoutSeconds = 300
+        $timeoutSeconds = 900
         $deadline = (Get-Date).AddSeconds($timeoutSeconds)
         while ((Get-Date) -lt $deadline) {
           if ((Test-Path $includePath) -and (Test-Path $libraryPath)) {
