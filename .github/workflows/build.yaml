@@ -60,6 +60,23 @@ jobs:
         components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
         cache: 'true'
 
+    - name: Wait for Vulkan SDK installation to finish
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        $includePath = Join-Path $env:VULKAN_SDK 'Include\vulkan\vulkan.h'
+        $libraryPath = Join-Path $env:VULKAN_SDK 'Lib\vulkan-1.lib'
+        $timeoutSeconds = 300
+        $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+        while ((Get-Date) -lt $deadline) {
+          if ((Test-Path $includePath) -and (Test-Path $libraryPath)) {
+            Write-Host "Vulkan SDK installation completed."
+            exit 0
+          }
+          Start-Sleep -Seconds 2
+        }
+        Write-Error "Timed out waiting for Vulkan SDK installation to finish."
+
     - name: Restore Windows PATH After Vulkan Setup
       if: matrix.os == 'windows-latest'
       shell: pwsh
