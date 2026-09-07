@@ -282,8 +282,6 @@ FetchContent_MakeAvailable(fastgltf)
 add_subdirectory(src)
 
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
-    include(CPack)
-
     set(CPACK_GENERATOR "ZIP")
     set(CPACK_PACKAGE_NAME "NodeSpireTD")
     set(CPACK_PACKAGE_VENDOR "NodeSpireTD")
@@ -297,9 +295,10 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     else()
         set(CPACK_PACKAGE_FILE_NAME "NodeSpireTD-${CMAKE_SYSTEM_NAME}-${CMAKE_BUILD_TYPE}")
     endif()
+
+    include(CPack)
 endif()
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
-
