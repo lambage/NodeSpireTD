@@ -37,6 +37,7 @@ jobs:
           libxi-dev \
           libxinerama-dev \
           libxcursor-dev \
+          libxss-dev \
           libudev-dev \
           libfreetype6-dev \
           libharfbuzz-dev \
@@ -57,7 +58,13 @@ jobs:
         components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
         cache: 'true'
 
-    # Step 5: Configure and Build CMake (Works cross-platform)
+    # Step 5: Setup MSVC environment (Only runs on Windows)
+    # This exposes MSVC cl.exe to Ninja so the compiler can be identified
+    - name: Setup MSVC Developer Command Prompt
+      if: matrix.os == 'windows-latest'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    # Step 6: Configure and Build CMake (Works cross-platform)
     - name: Configure and Build CMake
       run: |
         cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
