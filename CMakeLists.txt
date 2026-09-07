@@ -238,6 +238,9 @@ FetchContent_Declare(
     GIT_SHALLOW    ON
 )
 
+# GLM is consumed as headers only; building it as a real DLL on Windows can
+# produce no import library, which then breaks downstream link steps.
+set(GLM_BUILD_LIBRARY OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glm)
 
 FetchContent_Declare(
@@ -299,5 +302,4 @@ endif()
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
-
 
