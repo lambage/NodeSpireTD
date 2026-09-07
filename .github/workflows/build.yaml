@@ -37,6 +37,7 @@ jobs:
           libxi-dev \
           libxinerama-dev \
           libxcursor-dev \
+          libxtst-dev \
           libxss-dev \
           libudev-dev \
           libfreetype6-dev \
