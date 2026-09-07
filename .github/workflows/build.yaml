@@ -1,4 +1,4 @@
-name: Windows Release Build
+name: Cross-Platform CMake Ninja Build with Vulkan
 
 on:
   push:
@@ -11,14 +11,22 @@ permissions:
 
 jobs:
   build:
-    name: Windows Release
-    runs-on: windows-latest
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # This creates two parallel jobs running on Linux and Windows
+        os: [ubuntu-latest, windows-latest]
 
     steps:
+    # Step 1: Check out the code
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    # Step 2: Set up CMake and Ninja build system
     - name: Setup CMake
+      id: cmake-and-ninja
       uses: lukka/get-cmake@latest
 
     # Step 3: System Dependencies (Only runs on Linux)
@@ -47,41 +55,33 @@ jobs:
           libssl-dev
 
     # Step 4: Vulkan Installation (Works natively on both Linux and Windows)
-    - name: Capture Windows PATH Before Vulkan Setup
-      if: matrix.os == 'windows-latest'
-      shell: pwsh
-      run: |
-        "ORIGINAL_PATH=$env:Path" >> $env:GITHUB_ENV
-
     - name: Install Vulkan SDK
-      uses: SpargatGroup/setup-vulkan-sdk@v1.1.0
+      uses: jakoch/install-vulkan-sdk-action@v1.4
       with:
-        version: 'latest'
-        components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
-        cache: 'true'
+        vulkan_version: latest
+        cache: true
+        stripdown: true
 
-    - name: Wait for Vulkan SDK installation to finish
-      if: matrix.os == 'windows-latest'
-      shell: pwsh
+    - name: Show Env Vars and SDK folder (Linux)
+      if: matrix.os == 'ubuntu-latest'
       run: |
-        $includePath = Join-Path $env:VULKAN_SDK 'Include\vulkan\vulkan.h'
-        $libraryPath = Join-Path $env:VULKAN_SDK 'Lib\vulkan-1.lib'
-        $timeoutSeconds = 900
-        $deadline = (Get-Date).AddSeconds($timeoutSeconds)
-        while ((Get-Date) -lt $deadline) {
-          if ((Test-Path $includePath) -and (Test-Path $libraryPath)) {
-            Write-Host "Vulkan SDK installation completed."
-            exit 0
-          }
-          Start-Sleep -Seconds 2
-        }
-        Write-Error "Timed out waiting for Vulkan SDK installation to finish."
+        echo PATH = $PATH
+        echo VULKAN_VERSION = $VULKAN_VERSION
+        echo VULKAN_SDK = $VULKAN_SDK
+        echo VK_LAYER_PATH = $VK_LAYER_PATH
+        echo LD_LIBRARY_PATH = $LD_LIBRARY_PATH
+        echo Folder size = `du -hs $VULKAN_SDK`
 
-    - name: Restore Windows PATH After Vulkan Setup
+    - name: Show Env Vars and SDK folder (Windows)
       if: matrix.os == 'windows-latest'
-      shell: pwsh
+      working-directory: ${{env.VULKAN_SDK}}
       run: |
-        "Path=$env:ORIGINAL_PATH" >> $env:GITHUB_ENV
+        echo $env:PATH
+        echo $env:VULKAN_VERSION
+        echo $env:VULKAN_SDK
+        Get-ChildItem -File -Recurse
+        $folderSizeMB = (Get-ChildItem -File -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+        "Folder size: {0:N2} MB" -f $folderSizeMB
 
     # Step 5: Setup MSVC environment (Only runs on Windows)
     # This exposes MSVC cl.exe to Ninja so the compiler can be identified
@@ -89,19 +89,21 @@ jobs:
       if: matrix.os == 'windows-latest'
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Configure, Build, and Install
-      shell: bash
+    # Step 6: Configure and Build CMake (Works cross-platform)
+    - name: Configure and Build CMake
       run: |
-        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
         cmake --build build --config Release
         cmake --install build --config Release
 
+    # Step 7: Package and Upload Windows ZIP Artifact
     - name: Package Windows ZIP
       if: matrix.os == 'windows-latest'
       shell: bash
       run: |
         cpack --config build/CPackConfig.cmake
 
+    # Step 8: Upload Windows ZIP Artifact
     - name: Upload Windows ZIP Artifact
       if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
