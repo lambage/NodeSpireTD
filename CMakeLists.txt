@@ -278,6 +278,24 @@ FetchContent_MakeAvailable(fastgltf)
 
 add_subdirectory(src)
 
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    include(CPack)
+
+    set(CPACK_GENERATOR "ZIP")
+    set(CPACK_PACKAGE_NAME "NodeSpireTD")
+    set(CPACK_PACKAGE_VENDOR "NodeSpireTD")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "NodeSpireTD desktop game")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "NodeSpireTD")
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
+
+    if(WIN32)
+        set(CPACK_PACKAGE_FILE_NAME "NodeSpireTD-Windows-${CMAKE_BUILD_TYPE}")
+    else()
+        set(CPACK_PACKAGE_FILE_NAME "NodeSpireTD-${CMAKE_SYSTEM_NAME}-${CMAKE_BUILD_TYPE}")
+    endif()
+endif()
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
