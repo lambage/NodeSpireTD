@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
@@ -37,6 +40,7 @@ jobs:
           libxi-dev \
           libxinerama-dev \
           libxcursor-dev \
+          libxtst-dev \
           libxss-dev \
           libudev-dev \
           libfreetype6-dev \
@@ -51,12 +55,24 @@ jobs:
           libssl-dev
 
     # Step 4: Vulkan Installation (Works natively on both Linux and Windows)
+    - name: Capture Windows PATH Before Vulkan Setup
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        "ORIGINAL_PATH=$env:Path" >> $env:GITHUB_ENV
+
     - name: Install Vulkan SDK
       uses: SpargatGroup/setup-vulkan-sdk@v1.1.0
       with:
         version: 'latest'
         components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
         cache: 'true'
+
+    - name: Restore Windows PATH After Vulkan Setup
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        "Path=$env:ORIGINAL_PATH" >> $env:GITHUB_ENV
 
     # Step 5: Setup MSVC environment (Only runs on Windows)
     # This exposes MSVC cl.exe to Ninja so the compiler can be identified
