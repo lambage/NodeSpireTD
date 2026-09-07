@@ -56,7 +56,7 @@ jobs:
 
     # Step 4: Vulkan Installation (Works natively on both Linux and Windows)
     - name: Install Vulkan SDK
-      uses: jakoch/install-vulkan-sdk-action@v1.4
+      uses: jakoch/install-vulkan-sdk-action@v1.6.0
       with:
         vulkan_version: latest
         cache: true
