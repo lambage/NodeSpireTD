@@ -25,6 +25,13 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(Freetype)
 
+# RmlUi builds a shared librmlui on Linux, which links against the vendored
+# FreeType target. Ensure the static FreeType archive is built with PIC so that
+# link succeeds when used by shared libraries.
+if(TARGET freetype)
+    set_target_properties(freetype PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # FreeType's own CMakeLists.txt only exposes the "Freetype::Freetype" name via
 # EXPORT_NAME after install(EXPORT ...); consumed in-tree via FetchContent (no
 # install step) the real target is "freetype-interface". RmlUi's
@@ -238,6 +245,9 @@ FetchContent_Declare(
     GIT_SHALLOW    ON
 )
 
+# GLM is consumed as headers only; building it as a real DLL on Windows can
+# produce no import library, which then breaks downstream link steps.
+set(GLM_BUILD_LIBRARY OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glm)
 
 FetchContent_Declare(
@@ -279,8 +289,6 @@ FetchContent_MakeAvailable(fastgltf)
 add_subdirectory(src)
 
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
-    include(CPack)
-
     set(CPACK_GENERATOR "ZIP")
     set(CPACK_PACKAGE_NAME "NodeSpireTD")
     set(CPACK_PACKAGE_VENDOR "NodeSpireTD")
@@ -294,10 +302,10 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     else()
         set(CPACK_PACKAGE_FILE_NAME "NodeSpireTD-${CMAKE_SYSTEM_NAME}-${CMAKE_BUILD_TYPE}")
     endif()
+
+    include(CPack)
 endif()
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
-
-
