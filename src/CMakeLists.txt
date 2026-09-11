@@ -208,14 +208,32 @@ endif()
 
 nodespire_stage_runtime_dependencies(NodeSpireTD)
 
+if(UNIX)
+    set_target_properties(NodeSpireTD PROPERTIES
+        INSTALL_RPATH "$ORIGIN/lib"
+    )
+endif()
+
 install(TARGETS NodeSpireTD
     RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
     RUNTIME DESTINATION "."
 )
-install(RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
-    DESTINATION "."
-    PRE_EXCLUDE_REGEXES "api-ms-win-.*" "ext-ms-win-.*"
-    POST_EXCLUDE_REGEXES ".*[\\/]system32[\\/].*"
+install(TARGETS SDL3-shared SDL3_mixer-shared spdlog
+    RUNTIME DESTINATION "."
+    LIBRARY DESTINATION "lib"
 )
+if(WIN32)
+    install(RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+        DESTINATION "."
+        PRE_EXCLUDE_REGEXES "api-ms-win-.*" "ext-ms-win-.*"
+        POST_EXCLUDE_REGEXES ".*[\\/]system32[\\/].*"
+    )
+else()
+    install(RUNTIME_DEPENDENCY_SET NodeSpireRuntimeDependencies
+        DESTINATION "lib"
+        PRE_EXCLUDE_REGEXES "api-ms-win-.*" "ext-ms-win-.*"
+        POST_EXCLUDE_REGEXES ".*[\\/]system32[\\/].*"
+    )
+endif()
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ".")
 

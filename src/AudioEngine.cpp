@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <spdlog/spdlog.h>
+#include <sstream>
 
 // NOTE: SDL3_mixer 3.x replaced the classic SDL2_mixer-style API
 // (Mix_OpenAudio/Mix_Music/Mix_Chunk/Mix_PlayChannel) with a new
@@ -54,11 +55,42 @@ bool playTrack(MIX_Track* track, bool loop) {
     return started;
 }
 
+std::string compiledAudioDrivers() {
+    std::ostringstream result;
+    for (int index = 0; index < SDL_GetNumAudioDrivers(); ++index) {
+        if (index > 0) {
+            result << ", ";
+        }
+        result << SDL_GetAudioDriver(index);
+    }
+    return result.str();
+}
+
+SDL_AudioDeviceID findPlaybackDevice(const std::string& name) {
+    if (name.empty()) {
+        return SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+    }
+
+    int count = 0;
+    SDL_AudioDeviceID* devices = SDL_GetAudioPlaybackDevices(&count);
+    SDL_AudioDeviceID result = 0;
+    for (int index = 0; devices && index < count; ++index) {
+        const char* deviceName = SDL_GetAudioDeviceName(devices[index]);
+        if (deviceName && name == deviceName) {
+            result = devices[index];
+            break;
+        }
+    }
+    SDL_free(devices);
+    return result;
+}
+
 } // namespace
 
-AudioEngine::AudioEngine() {
+AudioEngine::AudioEngine(const std::string& playbackDeviceName) {
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-        spdlog::warn("AudioEngine: SDL_InitSubSystem(SDL_INIT_AUDIO) failed: {}", SDL_GetError());
+        spdlog::warn("AudioEngine: SDL audio initialization failed: {} (compiled drivers: {})", SDL_GetError(),
+                     compiledAudioDrivers());
         return;
     }
 
@@ -68,15 +100,24 @@ AudioEngine::AudioEngine() {
         return;
     }
 
-    MIX_Mixer* mixer = MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr);
+    SDL_AudioDeviceID device = findPlaybackDevice(playbackDeviceName);
+    if (device == 0) {
+        spdlog::warn("AudioEngine: saved playback device '{}' is unavailable; using system default", playbackDeviceName);
+        device = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+    }
+
+    MIX_Mixer* mixer = MIX_CreateMixerDevice(device, nullptr);
     if (!mixer) {
-        spdlog::warn("AudioEngine: MIX_CreateMixerDevice failed: {}", SDL_GetError());
+        spdlog::warn("AudioEngine: failed to open playback device '{}': {} (driver: {})",
+                     playbackDeviceName.empty() ? "System Default" : playbackDeviceName, SDL_GetError(),
+                     SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "none");
         MIX_Quit();
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return;
     }
 
     mixer_ = mixer;
+    playbackDeviceName_ = device == SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK ? "" : playbackDeviceName;
     audioReady_ = true;
 }
 
@@ -98,6 +139,52 @@ AudioEngine::~AudioEngine() {
 
 void AudioEngine::setEffectiveSettings(const AppSettings& effectiveSettings) {
     effectiveSettings_ = effectiveSettings;
+}
+
+std::vector<std::string> AudioEngine::playbackDeviceNames() const {
+    std::vector<std::string> names;
+    if (!audioReady_) {
+        return names;
+    }
+
+    int count = 0;
+    SDL_AudioDeviceID* devices = SDL_GetAudioPlaybackDevices(&count);
+    for (int index = 0; devices && index < count; ++index) {
+        if (const char* name = SDL_GetAudioDeviceName(devices[index])) {
+            names.emplace_back(name);
+        }
+    }
+    SDL_free(devices);
+    return names;
+}
+
+bool AudioEngine::setPlaybackDevice(const std::string& playbackDeviceName) {
+    if (!audioReady_ || playbackDeviceName == playbackDeviceName_) {
+        return audioReady_;
+    }
+
+    const SDL_AudioDeviceID device = findPlaybackDevice(playbackDeviceName);
+    if (device == 0) {
+        spdlog::warn("AudioEngine: playback device '{}' is unavailable", playbackDeviceName);
+        return false;
+    }
+
+    MIX_Mixer* replacement = MIX_CreateMixerDevice(device, nullptr);
+    if (!replacement) {
+        spdlog::warn("AudioEngine: failed to switch playback device to '{}': {}",
+                     playbackDeviceName.empty() ? "System Default" : playbackDeviceName, SDL_GetError());
+        return false;
+    }
+
+    musicPlaybacks_.clear();
+    sfxPlaybacks_.clear();
+    sfxBufferCache_.clear();
+    MIX_DestroyMixer(static_cast<MIX_Mixer*>(mixer_));
+    mixer_ = replacement;
+    playbackDeviceName_ = playbackDeviceName;
+    refreshActiveAssetKeys();
+    spdlog::info("AudioEngine: using playback device '{}'", playbackDeviceName.empty() ? "System Default" : playbackDeviceName);
+    return true;
 }
 
 std::shared_ptr<void> AudioEngine::getOrLoadSfxAudio(const std::string& path) {

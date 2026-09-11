@@ -96,6 +96,7 @@ void OptionsScene::populateControlsFromSettings() {
         }
     }
     populateDisplayModeOptions();
+    populateAudioDeviceOptions();
     if (Rml::Element* el = document_->GetElementById("quality-slider")) {
         el->SetAttribute("value", settings_.graphicsQuality);
     }
@@ -175,10 +176,32 @@ void OptionsScene::populateDisplayModeOptions() {
     selectControl->SetSelection(selectedIndex);
 }
 
+void OptionsScene::populateAudioDeviceOptions() {
+    auto* select = document_->GetElementById("audio-device-select");
+    auto* selectControl = rmlui_dynamic_cast<Rml::ElementFormControlSelect*>(select);
+    if (!selectControl) {
+        return;
+    }
+    selectControl->RemoveAll();
+    selectControl->Add("System Default", "");
+
+    int selectedIndex = 0;
+    if (audio_) {
+        const std::vector<std::string> deviceNames = audio_->playbackDeviceNames();
+        for (size_t index = 0; index < deviceNames.size(); ++index) {
+            selectControl->Add(deviceNames[index], deviceNames[index]);
+            if (deviceNames[index] == settings_.audioDevice) {
+                selectedIndex = static_cast<int>(index + 1);
+            }
+        }
+    }
+    selectControl->SetSelection(selectedIndex);
+}
+
 void OptionsScene::addListeners() {
     static constexpr const char* kIds[] = {
         "fullscreen-checkbox", "exclusive-fullscreen-checkbox", "vsync-checkbox", "display-mode-select",
-        "quality-slider",      "master-volume-slider",          "music-volume-slider", "sfx-volume-slider",
+        "quality-slider",      "audio-device-select",           "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
         "mute-unfocused-checkbox", "apply-button", "back-button",
     };
     for (const char* id : kIds) {
@@ -198,7 +221,7 @@ void OptionsScene::addListeners() {
 void OptionsScene::removeListeners() {
     static constexpr const char* kIds[] = {
         "fullscreen-checkbox", "exclusive-fullscreen-checkbox", "vsync-checkbox", "display-mode-select",
-        "quality-slider",      "master-volume-slider",          "music-volume-slider", "sfx-volume-slider",
+        "quality-slider",      "audio-device-select",           "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
         "mute-unfocused-checkbox", "apply-button", "back-button",
     };
     for (const char* id : kIds) {
@@ -243,6 +266,11 @@ void OptionsScene::ProcessEvent(Rml::Event& event) {
             if (Rml::Context* context = target->GetContext()) {
                 applyDisplaySettingsLive(*context);
             }
+            if (audio_ && !audio_->setPlaybackDevice(settings_.audioDevice)) {
+                settings_.audioDevice = audio_->playbackDeviceName();
+                populateAudioDeviceOptions();
+                Rml::Log::Message(Rml::Log::LT_WARNING, "Failed to change playback device");
+            }
             if (!settingsManager_.save(settings_)) {
                 Rml::Log::Message(Rml::Log::LT_WARNING, "Failed to save settings");
             }
@@ -272,6 +300,8 @@ void OptionsScene::ProcessEvent(Rml::Event& event) {
             settings_.displayHeight = mode.height;
             settings_.refreshRate = mode.refreshRate;
         }
+    } else if (id == "audio-device-select") {
+        settings_.audioDevice = event.GetParameter<Rml::String>("value", "");
     } else if (id == "mute-unfocused-checkbox") {
         settings_.muteWhenUnfocused = event.GetParameter<bool>("checked", false);
     } else if (id == "quality-slider") {

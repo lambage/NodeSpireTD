@@ -23,13 +23,16 @@ enum class AudioChannel {
 // volumes stay in sync with the current focus/mute state.
 class AudioEngine {
   public:
-    AudioEngine();
+        explicit AudioEngine(const std::string& playbackDeviceName = {});
     ~AudioEngine();
 
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
 
     void setEffectiveSettings(const AppSettings& effectiveSettings);
+    [[nodiscard]] std::vector<std::string> playbackDeviceNames() const;
+    [[nodiscard]] const std::string& playbackDeviceName() const { return playbackDeviceName_; }
+    bool setPlaybackDevice(const std::string& playbackDeviceName);
 
     void preload(const std::string& path, AudioChannel channel);
     void release(const std::string& path, AudioChannel channel);
@@ -65,6 +68,7 @@ class AudioEngine {
 
     bool audioReady_ = false;
     void* mixer_ = nullptr; // MIX_Mixer*, freed via MIX_DestroyMixer
+    std::string playbackDeviceName_;
     AppSettings effectiveSettings_{};
     std::vector<MusicPlayback> musicPlaybacks_;
     std::vector<SfxPlayback> sfxPlaybacks_;

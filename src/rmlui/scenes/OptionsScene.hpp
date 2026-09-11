@@ -43,6 +43,7 @@ class OptionsScene final : public IScene, public Rml::EventListener {
 
     void populateControlsFromSettings();
     void populateDisplayModeOptions();
+    void populateAudioDeviceOptions();
     void addListeners();
     void removeListeners();
     void setValueLabel(const std::string& labelId, const std::string& text);

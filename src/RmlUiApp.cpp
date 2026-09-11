@@ -131,61 +131,65 @@ int main(int /*argc*/, char** /*argv*/)
         Rml::Log::Message(Rml::Log::LT_WARNING, "One or more fonts failed to load from %s", "assets/fonts");
     }    
 
-    AudioEngine audioEngine;
-    audioEngine.setEffectiveSettings(SettingsManager().loadOrCreateDefaults());
-    multiplayer::MultiplayerSession multiplayerSession;
-    multiplayer::PlayerProfileStore playerProfileStore;
-
-    NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash, audioEngine, *vulkanContext, multiplayerSession,
-                                           playerProfileStore);
-    g_sceneManager = &sceneManager;
-
-    double lastElapsedTime = systemInterface.GetElapsedTime();
-
-    bool running = true;
-    size_t frameIndex = 0;
-    while (running)
     {
-        // Bound the event wait so party traffic advances without focus while rendering stays paced.
-        running = Backend::ProcessEvents(context, ProcessKeyDownShortcuts, true, 1.0 / 60.0);
+        const AppSettings startupSettings = SettingsManager().loadOrCreateDefaults();
+        AudioEngine audioEngine(startupSettings.audioDevice);
+        audioEngine.setEffectiveSettings(startupSettings);
+        multiplayer::MultiplayerSession multiplayerSession;
+        multiplayer::PlayerProfileStore playerProfileStore;
 
-        const double elapsedTime = systemInterface.GetElapsedTime();
-        const float dt = static_cast<float>(elapsedTime - lastElapsedTime);
-        lastElapsedTime = elapsedTime;
-        multiplayerSession.update();
-        sceneManager.update(dt);
-        audioEngine.update(dt);
+        NodeSpireUi::SceneManager sceneManager(*context, NodeSpireUi::SceneId::Splash, audioEngine, *vulkanContext, multiplayerSession,
+                                               playerProfileStore);
+        g_sceneManager = &sceneManager;
 
-        context->Update();
+        double lastElapsedTime = systemInterface.GetElapsedTime();
 
-        vulkanContext->waitForFrameFence(frameIndex);
-        uint32_t imageIndex = 0;
-        if (vulkanContext->acquireNextImage(frameIndex, imageIndex) == VulkanContext::AcquireStatus::OutOfDate)
+        bool running = true;
+        size_t frameIndex = 0;
+        while (running)
         {
-            const VkExtent2D extent = vulkanContext->extent();
-            vulkanContext->recreateSwapchain(extent.width, extent.height);
-            continue;
+            // Bound the event wait so party traffic advances without focus while rendering stays paced.
+            running = Backend::ProcessEvents(context, ProcessKeyDownShortcuts, true, 1.0 / 60.0);
+
+            const double elapsedTime = systemInterface.GetElapsedTime();
+            const float dt = static_cast<float>(elapsedTime - lastElapsedTime);
+            lastElapsedTime = elapsedTime;
+            multiplayerSession.update();
+            sceneManager.update(dt);
+            audioEngine.update(dt);
+
+            context->Update();
+
+            vulkanContext->waitForFrameFence(frameIndex);
+            uint32_t imageIndex = 0;
+            if (vulkanContext->acquireNextImage(frameIndex, imageIndex) == VulkanContext::AcquireStatus::OutOfDate)
+            {
+                const VkExtent2D extent = vulkanContext->extent();
+                vulkanContext->recreateSwapchain(extent.width, extent.height);
+                continue;
+            }
+
+            VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(frameIndex, imageIndex);
+            sceneManager.renderWorld(commandBuffer, vulkanContext->extent());
+            Backend::BeginFrame(commandBuffer, static_cast<uint32_t>(frameIndex));
+            context->Render();
+            Backend::PresentFrame();
+            sceneManager.renderOverlay(commandBuffer, vulkanContext->extent());
+            vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
+            if (vulkanContext->present(imageIndex))
+            {
+                const VkExtent2D extent = vulkanContext->extent();
+                vulkanContext->recreateSwapchain(extent.width, extent.height);
+            }
+            frameIndex = (frameIndex + 1) % VulkanContext::kMaxFramesInFlight;
         }
 
-        VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(frameIndex, imageIndex);
-        sceneManager.renderWorld(commandBuffer, vulkanContext->extent());
-        Backend::BeginFrame(commandBuffer, static_cast<uint32_t>(frameIndex));
-        context->Render();
-        Backend::PresentFrame();
-        sceneManager.renderOverlay(commandBuffer, vulkanContext->extent());
-        vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
-        if (vulkanContext->present(imageIndex))
-        {
-            const VkExtent2D extent = vulkanContext->extent();
-            vulkanContext->recreateSwapchain(extent.width, extent.height);
-        }
-        frameIndex = (frameIndex + 1) % VulkanContext::kMaxFramesInFlight;
+        g_sceneManager = nullptr;
+
+        vulkanContext->waitIdle();
+        sceneManager.shutdown();
     }
 
-    g_sceneManager = nullptr;
-
-    vulkanContext->waitIdle();
-    sceneManager.shutdown();
     Rml::Shutdown();
     Backend::ShutdownRenderer();
     vulkanContext.reset();

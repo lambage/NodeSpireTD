@@ -5,10 +5,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 
 BUILD_DIR="${BUILD_DIR:-build}"
+INSTALL_DIR="${INSTALL_DIR:-$BUILD_DIR/install}"
 CMAKE_GENERATOR="${CMAKE_GENERATOR:-Ninja}"
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
-CMAKE_CONFIGURE_ARGS="${CMAKE_CONFIGURE_ARGS:-}"
+CMAKE_CONFIGURE_ARGS="${CMAKE_CONFIGURE_ARGS:--DCMAKE_INSTALL_PREFIX=$INSTALL_DIR}"
 CMAKE_BUILD_ARGS="${CMAKE_BUILD_ARGS:-}"
+CMAKE_INSTALL_ARGS="${CMAKE_INSTALL_ARGS:---prefix=$INSTALL_DIR}"
+
 
 print_usage() {
     cat <<'EOF'
@@ -89,13 +92,22 @@ run_build() {
     fi
 }
 
+run_install() {
+    echo "[build.sh] Installing from build directory '$BUILD_DIR'"
+    if [[ -n "$CMAKE_INSTALL_ARGS" ]]; then
+        cmake --install "$BUILD_DIR" $CMAKE_INSTALL_ARGS
+    else
+        cmake --install "$BUILD_DIR"
+    fi
+}
+
 run_clean() {
-    echo "[build.sh] Removing build directory '$BUILD_DIR'"
-    rm -rf "$BUILD_DIR"
+    echo "[build.sh] Cleaning build directory '$BUILD_DIR'"
+    cmake --build "$BUILD_DIR" --target clean
 }
 
 if [[ $# -eq 0 ]]; then
-    set -- configure build
+    set -- configure build install
 fi
 
 setup_vulkan_env
@@ -107,6 +119,9 @@ for step in "$@"; do
             ;;
         build)
             run_build
+            ;;
+        install)
+            run_install
             ;;
         clean)
             run_clean

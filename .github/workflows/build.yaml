@@ -52,7 +52,10 @@ jobs:
           libgl1-mesa-dev \
           libmbedtls-dev \
           libssh2-1-dev \
-          libssl-dev
+          libssl-dev \
+          libpipewire-0.3-dev \
+          libpulse-dev \
+          libasound2-dev
 
     # Step 4: Vulkan Installation (Works natively on both Linux and Windows)
     - name: Install Vulkan SDK

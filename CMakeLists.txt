@@ -52,6 +52,20 @@ FetchContent_Declare(
     GIT_SHALLOW    ON
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(ALSA QUIET)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(NODESPIRE_PIPEWIRE QUIET libpipewire-0.3>=0.3.44)
+        pkg_check_modules(NODESPIRE_PULSEAUDIO QUIET libpulse>=0.9.15)
+    endif()
+    if(NOT ALSA_FOUND AND NOT NODESPIRE_PIPEWIRE_FOUND AND NOT NODESPIRE_PULSEAUDIO_FOUND)
+        message(FATAL_ERROR
+            "SDL3 requires a Linux audio development package. Install libpipewire-0.3-dev, "
+            "libpulse-dev, or libasound2-dev (package names shown for Debian/Ubuntu), then reconfigure.")
+    endif()
+endif()
+
 FetchContent_MakeAvailable(SDL3)
 
 # SDL3_mixer provides AudioEngine playback for music.mp3 and sfx.ogg.

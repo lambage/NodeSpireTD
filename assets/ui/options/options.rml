@@ -35,6 +35,10 @@
 				<tab>Audio</tab>
 				<panel>
 					<div class="row slider-row">
+						<span class="row-label">Playback Device</span>
+						<select id="audio-device-select" name="Playback Device Select"></select>
+					</div>
+					<div class="row slider-row">
 						<span class="row-label">Master Volume</span>
 						<input id="master-volume-slider" type="range" min="0" max="1" step="0.01"/>
 						<span id="master-volume-value" class="row-value">0%</span>

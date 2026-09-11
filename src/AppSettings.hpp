@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 struct AppSettings {
     bool fullscreen = false;
     bool exclusiveFullscreen = false;
@@ -11,5 +13,6 @@ struct AppSettings {
     float masterVolume = 0.8f;
     float musicVolume = 0.7f;
     float sfxVolume = 0.8f;
+    std::string audioDevice;
     bool muteWhenUnfocused = true;
 };
