@@ -34,5 +34,6 @@ void main() {
         shadedColor = texColor.rgb * light;
     }
 
-    outColor = vec4(shadedColor, texColor.a * pc.alpha);
+    float outAlpha = texColor.a * pc.alpha;
+    outColor = vec4(shadedColor * outAlpha, outAlpha);
 }

@@ -263,7 +263,7 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 }
                 lua_pop(L_, 1);
 
-                lua_getfield(L_, -1, "towerModel");
+                lua_getfield(L_, -1, "model");
                 if (lua_isstring(L_, -1)) {
                     node.towerModelPathOverride = lua_tostring(L_, -1);
                 }

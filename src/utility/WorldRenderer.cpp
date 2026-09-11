@@ -147,12 +147,13 @@ bool raySphereIntersect(const glm::vec3& rayOrigin, const glm::vec3& rayDir, con
 void WorldRenderer::createSamplerLayoutAndPool() {
     // Sampler
     VkSamplerCreateInfo si{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-    si.magFilter = VK_FILTER_LINEAR;
+    si.magFilter = VK_FILTER_NEAREST;
     si.minFilter = VK_FILTER_LINEAR;
     si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.minLod = 0.0f;
     si.maxLod = VK_LOD_CLAMP_NONE;
     if (vkCreateSampler(ctx_.device(), &si, nullptr, &sampler_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create texture sampler.");
@@ -1942,7 +1943,7 @@ void WorldRenderer::buildPipeline() {
 
     VkPipelineColorBlendAttachmentState blendAttach{};
     blendAttach.blendEnable = VK_TRUE;
-    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blendAttach.colorBlendOp = VK_BLEND_OP_ADD;
     blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;

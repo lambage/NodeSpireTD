@@ -2,7 +2,7 @@ return {
     id = "archer_hut",
     displayName = "Archer Hut",
     bio = "A frontier watchpost crewed by disciplined bowyers. Archer Huts favor lane control, and can be tuned from heavy impact volleys to chain-hopping electric harassment.",
-    model = "assets/models/towers/archer_hut/archer_hut.glb",
+    model = "assets/models/towers/archer_hut/archer_hut_phase1.glb",
     projectileModel = "assets/models/towers/archer_hut/archer_hut_arrow.glb",
 
     stats = {
@@ -68,6 +68,7 @@ return {
                 displayName = "Stone Specialization",
                 description = "Heavy stone heads trade finesse for crushing impact.",
                 minUpgradesRequired = 2,
+                model = "assets/models/towers/archer_hut/archer_hut_phase2.glb",
                 requires = { "hardened_draw" },
                 excludes = { "metal_specialization", "electric_specialization" },
                 upgradeLevels = {
