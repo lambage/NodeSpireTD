@@ -40,6 +40,9 @@ constexpr const char* kInteractiveIds[] = {"retry-button", "start-match-button",
                                             "tower-slot-0", "tower-slot-1", "tower-slot-2", "tower-slot-3",
                                             "tower-slot-4", "close-tower-profile", "close-enemy-profile",
                                             "match-chat-send-button"};
+constexpr const char* kTowerProfilePanelId = "tower-profile";
+constexpr const char* kTowerProfileDragHandleId = "tower-profile-drag-handle";
+constexpr const char* kPlayLevelRootId = "playlevel-root";
 constexpr float kTowerGhostAlpha = 0.45f;
 constexpr multiplayer::SimulationTick kSnapshotIntervalTicks = 3;
 constexpr glm::vec4 kPlacementRangeFill{0.18f, 0.72f, 0.48f, 0.16f};
@@ -193,6 +196,12 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     if (Rml::Element* chatInput = document_->GetElementById("match-chat-input")) {
         chatInput->AddEventListener(Rml::EventId::Change, this);
     }
+    if (Rml::Element* dragHandle = document_->GetElementById(kTowerProfileDragHandleId)) {
+        dragHandle->AddEventListener(Rml::EventId::Mousedown, this);
+    }
+    if (Rml::Element* root = document_->GetElementById(kPlayLevelRootId)) {
+        root->AddEventListener(Rml::EventId::Mouseup, this);
+    }
     if (Rml::Element* chatPanel = document_->GetElementById("match-chat")) {
         chatPanel->SetClass("hidden", !onlineMatch_);
     }
@@ -245,6 +254,12 @@ void PlayLevelScene::onExit(Rml::Context& context) {
         }
         if (Rml::Element* chatInput = document_->GetElementById("match-chat-input")) {
             chatInput->RemoveEventListener(Rml::EventId::Change, this);
+        }
+        if (Rml::Element* dragHandle = document_->GetElementById(kTowerProfileDragHandleId)) {
+            dragHandle->RemoveEventListener(Rml::EventId::Mousedown, this);
+        }
+        if (Rml::Element* root = document_->GetElementById(kPlayLevelRootId)) {
+            root->RemoveEventListener(Rml::EventId::Mouseup, this);
         }
         document_->Close();
         context.UnloadDocument(document_);
@@ -315,6 +330,7 @@ SceneTransition PlayLevelScene::update(float dt) {
 
     if (!pauseMenuVisible_) {
         towerPreviewSpinRadians_ = std::fmod(towerPreviewSpinRadians_ + dt * 0.55f, 6.2831853071795864769f);
+        updateTowerProfileDrag();
         updateCamera(dt);
         updateTowerPlacement();
         updateMatchSimulation(dt);
@@ -507,6 +523,14 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
     }
 
     const Rml::String id = target->GetId();
+    if (event == Rml::EventId::Mousedown && id == kTowerProfileDragHandleId) {
+        beginTowerProfileDrag();
+        event.StopPropagation();
+        return;
+    }
+    if (event == Rml::EventId::Mouseup) {
+        endTowerProfileDrag();
+    }
     if (event == Rml::EventId::Change && id == "match-chat-input" &&
         event.GetParameter<bool>("linebreak", false)) {
         submitChat();
@@ -1769,6 +1793,62 @@ void PlayLevelScene::populateAudioControls() {
         }
         setAudioValueLabel(control.valueId, control.value);
     }
+}
+
+void PlayLevelScene::beginTowerProfileDrag() {
+    if (!document_) {
+        return;
+    }
+    Rml::Element* panel = document_->GetElementById(kTowerProfilePanelId);
+    if (!panel || panel->IsClassSet("hidden")) {
+        return;
+    }
+
+    float mouseX = 0.0f;
+    float mouseY = 0.0f;
+    SDL_GetMouseState(&mouseX, &mouseY);
+    const Rml::Vector2f panelOffset = panel->GetAbsoluteOffset(Rml::BoxArea::Border);
+    towerProfileDragPointerOffset_ = {mouseX - panelOffset.x, mouseY - panelOffset.y};
+    towerProfileDragActive_ = true;
+}
+
+void PlayLevelScene::updateTowerProfileDrag() {
+    if (!towerProfileDragActive_ || !document_) {
+        return;
+    }
+
+    const bool leftMouseDown = (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+    if (!leftMouseDown) {
+        towerProfileDragActive_ = false;
+        return;
+    }
+
+    Rml::Element* panel = document_->GetElementById(kTowerProfilePanelId);
+    if (!panel || panel->IsClassSet("hidden")) {
+        towerProfileDragActive_ = false;
+        return;
+    }
+
+    float mouseX = 0.0f;
+    float mouseY = 0.0f;
+    SDL_GetMouseState(&mouseX, &mouseY);
+    const VkExtent2D extent = vulkanContext_.extent();
+    const float panelWidth = panel->GetOffsetWidth();
+    const float panelHeight = panel->GetOffsetHeight();
+    const float maxLeft = std::max(0.0f, static_cast<float>(extent.width) - panelWidth);
+    const float maxTop = std::max(0.0f, static_cast<float>(extent.height) - panelHeight);
+    const float left = glm::clamp(mouseX - towerProfileDragPointerOffset_.x, 0.0f, maxLeft);
+    const float top = glm::clamp(mouseY - towerProfileDragPointerOffset_.y, 0.0f, maxTop);
+
+    panel->SetProperty("left", std::to_string(left) + "px");
+    panel->SetProperty("top", std::to_string(top) + "px");
+    panel->SetProperty("right", "auto");
+    panel->SetProperty("bottom", "auto");
+    panel->SetProperty("margin-left", "0px");
+}
+
+void PlayLevelScene::endTowerProfileDrag() {
+    towerProfileDragActive_ = false;
 }
 
 void PlayLevelScene::refreshHud() {

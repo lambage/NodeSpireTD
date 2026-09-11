@@ -357,6 +357,7 @@ header
 .profile-heading { display: flex; flex-direction: row; align-items: center; }
 .profile-heading > div { width: 90%; }
 .profile-heading h2 { margin: 4dp 0 0 0; font-family: "Times New Roman"; font-size: 24dp; color: #f3f0df; }
+#tower-profile-drag-handle { cursor: move; }
 .icon-button
 {
 	width: 32dp;

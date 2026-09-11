@@ -41,7 +41,7 @@
 		<div id="tower-slot-inspector" class="tower-slot-inspector hidden"></div>
 
 		<section id="tower-profile" class="tower-profile hidden">
-			<div class="profile-heading">
+			<div id="tower-profile-drag-handle" class="profile-heading">
 				<div><div class="section-kicker">TOWER PROFILE</div><h2 id="tower-profile-name">Tower</h2></div>
 				<button id="close-tower-profile" class="icon-button" title="Close tower profile">&#x00d7;</button>
 			</div>

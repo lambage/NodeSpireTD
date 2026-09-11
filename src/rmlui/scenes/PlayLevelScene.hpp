@@ -12,6 +12,7 @@
 #include "scenes/TowerPlacementRules.hpp"
 
 #include <RmlUi/Core/EventListener.h>
+#include <RmlUi/Core/Vector2.h>
 #include <glm/vec3.hpp>
 #include <memory>
 #include <optional>
@@ -87,6 +88,9 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     void setPauseMenuVisible(bool visible);
     void populateAudioControls();
     void setAudioValueLabel(const char* id, float value);
+    void beginTowerProfileDrag();
+    void updateTowerProfileDrag();
+    void endTowerProfileDrag();
 
     VulkanContext& vulkanContext_;
     multiplayer::MultiplayerSession& session_;
@@ -129,6 +133,8 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     Rml::String chatHistoryRml_;
     bool removeChatFocusKey_ = false;
     bool normalizeSlashPrefix_ = false;
+    bool towerProfileDragActive_ = false;
+    Rml::Vector2f towerProfileDragPointerOffset_{};
     float towerPreviewSpinRadians_ = 0.0f;
     multiplayer::TowerRuntimeId renderedTowerProfileRuntimeId_ = 0;
     multiplayer::PlayerId renderedTowerProfileOwnerId_ = 0;
