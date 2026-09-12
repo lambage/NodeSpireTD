@@ -155,9 +155,6 @@ bool EnemyLoadController::parseEnemyArchetypeScript(const std::string& scriptPat
     if (outArchetype.spawnIntervalSeconds <= 0.05f) {
         outArchetype.spawnIntervalSeconds = 0.05f;
     }
-    if (outArchetype.defeatIntervalSeconds <= 0.05f) {
-        outArchetype.defeatIntervalSeconds = 0.05f;
-    }
     if (outArchetype.baseDamage <= 0) {
         outArchetype.baseDamage = 1;
     }

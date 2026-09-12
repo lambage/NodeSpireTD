@@ -1,0 +1,135 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Lobby</title>
+	<link type="text/rcss" href="lobby.rcss"/>
+</head>
+<body>
+	<div id="lobby-root">
+		<div id="lobby-background"></div>
+		<div id="lobby-shade"></div>
+		<header>
+			<button id="back-button" class="icon-button">&#x2039;</button>
+			<div class="brand-block">
+				<div class="eyebrow">NODE SPIRE TD</div>
+				<div class="title">Match</div>
+			</div>
+			<div class="account-strip">
+				<span class="online-dot"></span>
+				<span>Online</span>
+				<span class="currency">0 CREDITS</span>
+			</div>
+		</header>
+
+		<main>
+			<section class="launch-rail">
+				<div class="section-kicker">DEPLOYMENT</div>
+				<h1>Start your adventure</h1>
+				<p class="section-copy">Take the first watch alone, or build a party before entering the Spire.</p>
+				<button id="solo-button" class="primary-button">
+					<span class="button-label">Start solo</span>
+					<span class="button-note">Immediate deployment</span>
+				</button>
+				<button id="rejoin-button" class="primary-button hidden">
+					<span class="button-label">Rejoin match</span>
+					<span class="button-note">Return to the active deployment</span>
+				</button>
+				<div class="mode-divider"><span>OR PARTY UP</span></div>
+				<div id="party-setup">
+					<label class="profile-label" for="player-name">CALLSIGN</label>
+					<input id="player-name" type="text" maxlength="32" placeholder="Player name"/>
+					<button id="host-button" class="secondary-button">Create party</button>
+					<div class="join-row">
+						<input id="join-address" type="text" value="127.0.0.1" maxlength="64"/>
+						<button id="join-button" class="compact-button">Join</button>
+					</div>
+					<div id="party-connection-feedback" class="connection-feedback hidden"></div>
+				</div>
+				<div id="active-party" class="hidden">
+					<div class="party-heading">
+						<div>
+							<div class="section-kicker">ACTIVE PARTY</div>
+							<div id="party-role" class="party-role">Party leader</div>
+						</div>
+						<div class="party-code">4 SLOTS</div>
+					</div>
+					<div id="party-roster" class="roster">
+						<div class="roster-row local-player">
+							<span id="local-player-name" class="player-name">You</span>
+							<span id="local-player-state" class="player-state">NOT READY</span>
+						</div>
+						<div class="roster-row empty-slot"><span>Open slot</span><span>WAITING</span></div>
+						<div class="roster-row empty-slot"><span>Open slot</span><span>WAITING</span></div>
+						<div class="roster-row empty-slot"><span>Open slot</span><span>WAITING</span></div>
+					</div>
+					<div class="party-actions">
+						<button id="ready-button" class="secondary-button">Not ready</button>
+						<button id="leave-button" class="text-button">Leave party</button>
+					</div>
+				</div>
+			</section>
+
+			<section class="social-stage">
+				<div id="solo-briefing">
+					<div class="briefing-mark">01</div>
+					<div class="section-kicker">SELECTED LEVEL</div>
+					<h2 id="selected-level-name">placeholder</h2>
+					<p id="selected-level-description">placeholder</p>
+					<div class="contract-stats">
+						<div><span id="selected-level-threat" class="stat-value">NORMAL</span><span class="stat-label">THREAT</span></div>
+						<div><span id="selected-level-players" class="stat-value">1-4</span><span class="stat-label">PLAYERS</span></div>
+						<div><span id="selected-level-waves" class="stat-value">25</span><span class="stat-label">WAVES</span></div>
+					</div>
+					<button id="choose-level-button" class="level-picker-button">Choose another level</button>
+				</div>
+				<div id="party-chat-shell" class="hidden">
+					<div class="chat-title"><span>Party channel</span><span class="live-label">LIVE</span></div>
+					<div id="chat-messages"></div>
+					<div class="chat-compose">
+						<input id="chat-input" type="text" maxlength="180" placeholder="Message your party"/>
+						<button id="chat-send-button" class="compact-button">Send</button>
+					</div>
+				</div>
+			</section>
+
+			<aside class="loadout-rail">
+				<div class="loadout-header">
+					<div class="section-kicker">TOWER LOADOUT</div>
+					<div id="loadout-count">0 / 5</div>
+				</div>
+				<h2>Choose your defenses</h2>
+				<p>Select up to five towers to take into the next match.</p>
+				<div id="loadout-slots"></div>
+				<div class="inventory-label">INVENTORY</div>
+				<div id="tower-inventory"></div>
+			</aside>
+		</main>
+
+		<div id="level-selector" class="hidden">
+			<div class="level-selector-shade"></div>
+			<div class="level-selector-panel">
+				<div class="level-selector-header">
+					<div>
+						<div class="section-kicker">MISSION BOARD</div>
+						<h2>Select a level</h2>
+					</div>
+					<div class="carousel-count">AVAILABLE DEPLOYMENTS</div>
+				</div>
+				<div class="level-carousel">
+					<button id="level-previous-button" class="carousel-arrow" title="Previous levels">&#x2039;</button>
+					<div id="level-carousel-track"></div>
+					<button id="level-next-button" class="carousel-arrow" title="Next levels">&#x203a;</button>
+				</div>
+				<div class="level-selector-actions">
+					<button id="level-cancel-button" class="text-button">Cancel</button>
+					<button id="level-confirm-button" class="primary-button">Select level</button>
+				</div>
+			</div>
+		</div>
+
+		<footer>
+			<span id="lobby-status">Choose solo play or form a party.</span>
+			<span class="build-label">LOBBY PREVIEW</span>
+		</footer>
+	</div>
+</body>
+</rml>

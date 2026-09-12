@@ -1,0 +1,153 @@
+# 0003: PlayLevel RmlUi contract and migration sequence
+
+## Status
+
+Accepted on 2026-09-05. This decision defines the boundary for migrating PlayLevel from the
+legacy ImGui/Lua scene to RmlUi. It extends ADR 0002.
+
+## Context
+
+The legacy `assets/scenes/PlayLevel.lua` is more than a view. It polls raw engine state, decides
+which overlays and actions are available, interprets keyboard and mouse input, formats gameplay
+status, manages tower selection and placement, and contains several developer-only panels. That
+makes gameplay policy difficult to test and couples the scene to ImGui's immediate-mode API.
+
+PlayLevel is also the first migrated scene that needs the 3D renderer and RmlUi in the same frame.
+The vendored RmlUi 6.3 SDL/Vulkan sample backend only exposes an initialization path that creates
+and owns its Vulkan instance, device, swapchain, render pass, command buffers, and synchronization.
+It cannot consume the existing `VulkanContext` handles. The current RmlUi executable therefore
+cannot render `WorldRenderer` safely: the two renderers own unrelated Vulkan devices and
+swapchains.
+
+## Decision
+
+### C++ owns UI policy
+
+PlayLevel UI reads one immutable `PlayLevelUiSnapshot` per update and sends player intent through
+`IPlayLevelUiApi`. The snapshot contains presentation-ready state: visibility, enabled state,
+labels, progress, and disabled reasons. RML event handlers do not derive gameplay eligibility or
+mutate simulation state directly.
+
+The first contract lives in `src/rmlui/playlevel/PlayLevelUiContract.*`. It covers:
+
+- loading, load failure, waiting, running, paused, victory, and defeat phases;
+- base health, money, wave and enemy summaries;
+- engine-decided start-wave availability and countdown presentation;
+- tower loadout and placement presentation;
+- selected tower upgrades, targeting, and selling;
+- selected enemy information;
+- explicit commands for start wave, slot selection, placement cancellation, selection clearing,
+  upgrades, targeting, selling, pause, restart, and return to Lobby.
+
+Lua remains appropriate for authored tower, enemy, and wave definitions. It is not the PlayLevel
+HUD controller. The RmlUi PlayLevel scene is a native event listener and snapshot renderer, like
+the migrated Lobby.
+
+### Renderer integration comes before scene activation
+
+The RmlUi sample Vulkan backend is incompatible with the application's existing ownership model,
+so the approved fallback from the RmlUi backend migration plan applies: adapt the RmlUi render
+interface to record into the command buffer and render target owned by `VulkanContext`.
+`WorldRenderer` and gameplay renderer internals remain unchanged.
+
+The implementation order is:
+
+1. Complete SDL3 ownership of the game window and Vulkan surface in `VulkanContext`.
+2. Initialize RmlUi against that window and the existing Vulkan instance/device/swapchain.
+3. Render a static RmlUi overlay after `WorldRenderer` in the same frame.
+4. Adapt the legacy PlayLevel controllers to implement `IPlayLevelUiApi` and remove UI policy from
+   the Lua render function.
+5. Add the production PlayLevel RML/RCSS document and enable the Lobby-to-PlayLevel transition.
+6. Remove the remaining PlayLevel ImGui bindings and regenerate Lua metadata.
+
+Steps 1 and 2 are now represented by the standalone `NodeSpireVulkanContext` target and the
+adapted `RenderInterface_VK`:
+`VulkanContext` accepts the backend's `SDL_Window*`, enables SDL's required Vulkan instance
+extensions, creates the one SDL Vulkan surface, and uses pixel dimensions for its swapchain. The
+backend exposes its window through `Backend::GetWindow()`. RmlUi borrows the context's instance,
+physical device, device, graphics queue, allocator, and target formats. Each frame it records into
+the command buffer already opened by `VulkanContext`; only `VulkanContext` submits and presents.
+RmlUi retains ownership of its shaders, pipelines, descriptors, geometry, textures, and upload
+command pool.
+
+Borrowing the application's command buffer also adopts its frame-fence lifetime. Each RmlUi draw
+gets distinct uniform storage, and uniform allocations plus released geometry are deferred by the
+`VulkanContext` frame index. `BeginFrame` reclaims only the bucket whose fence the application has
+just waited. A geometry-level uniform allocation is not valid here because RmlUi can draw the same
+compiled geometry multiple times with different transforms before Vulkan consumes the commands.
+
+The shared depth target is `VK_FORMAT_D32_SFLOAT`, so it cannot support the sample backend's
+stencil-based transformed clipping. The initial adapter uses axis-aligned Vulkan scissoring for
+all clipping. This supports the production HUD documents; arbitrary transformed clip regions
+remain deferred until there is a demonstrated need to add stencil to the shared render target.
+
+The native `PlayLevelScene` now renders the world before `Rml::Context::Render()` in the same
+dynamic-rendering command buffer and owns the existing fixed-tick `MatchSimulation`. Match start
+begins the authored five-second wave countdown; only the host advances wave spawning and movement.
+Tower placement and upgrades are typed player commands validated by the host, and periodic match
+snapshots rebuild tower/enemy presentation on clients. Single player uses the same local command
+gate rather than mutating placed towers directly.
+
+Tower profile layout is native RmlUi. Shared profile attributes and statistics live in
+`playlevel.rml`, while each tower owns its upgrade topology in
+`assets/ui/playlevel/towers/<tower-id>.rml`. C++ supplies authoritative state and attaches command
+listeners to matching `upgrade-<node-id>` elements; it does not infer a generic visual tree from
+the archetype's tier and column fields. The Archer Hut is the first complete authored fragment.
+
+The Lua asset audit on 2026-09-05 narrowed the authored contracts to four files: one tower
+archetype, two enemy archetypes, and `PlayLevelWaves.lua`. Tower Lua owns gameplay identity,
+models, base stats, upgrade requirements, costs, and effects; its RML fragment owns icons and
+visual topology. Enemy Lua owns model, combat, movement, reward, and render values. Wave Lua owns
+the declarative `waves` table only. The old level Lua modules were removed because level selection
+and world asset paths are authored in `assets/levels/catalog.json`; multiplayer announcements now
+carry the catalog level ID instead of a Lua script path.
+
+The native Lobby and PlayLevel share match lifecycle through `MultiplayerSession`. A host
+broadcasts the selected catalog level before entering PlayLevel; clients consume that announcement
+in the native Lobby update and transition automatically. Once every loaded scene reports ready,
+only the host can send `PartyMatchBegin`; clients show "Waiting for host to start" and never receive
+a start control. The active level descriptor remains in the session while a client returns to
+Lobby, enabling Rejoin without reconnecting. Returning to Lobby preserves the party for every
+role. When the host leaves PlayLevel, it broadcasts `PartyMatchEnd`; every client returns to Lobby
+and the active match descriptor is cleared, while the party connection and roster persist. The
+host ends the party only through the Lobby's explicit Disband party action; clients use the
+corresponding Leave party action.
+
+The Escape menu is a trim-and-rebuild of the legacy ImGui pause panel. It keeps live master,
+music, and SFX volume controls, Resume, and Back to Lobby. Display mode, graphics quality, and
+other settings that can recreate rendering resources remain exclusive to the main-menu Options
+scene and are deliberately unavailable during a match.
+
+World selection is shared by towers and enemies. A left-click raycast resolves either a placed
+tower runtime ID or an active enemy runtime ID, with the two selections kept mutually exclusive.
+Tower selection opens the upgrade profile; enemy selection opens a dedicated RmlUi dossier whose
+name and biography come from the enemy Lua archetype and whose health, shield, armor, movement,
+reward, base damage, and resistances come from the live `ActiveEnemy`. The selected world instance
+is highlighted, and the dossier closes automatically when that enemy leaves the active simulation.
+
+Continuous PlayLevel camera controls read SDL3 keyboard and mouse state from the native scene
+during `update()`. RmlUi remains the owner of SDL event translation for document interaction;
+right-button mouse look temporarily enables window-relative mouse mode and releases it when the
+button or scene is released. This avoids reintroducing the ImGui-dependent legacy camera input
+path while preserving its movement behavior.
+
+### Trim-and-rebuild scope
+
+The production RmlUi HUD preserves match start, loading, wave countdown, economy, base health,
+tower loadout and placement feedback, tower upgrades, targeting, selling, enemy inspection,
+pause, victory, defeat, restart, and return-to-Lobby flows.
+
+The Lua gameplay harness, model animation debugger, pick-sphere controls, placement-bound tuning,
+raw renderer statistics, and manual damage/spend controls are not ported into the player HUD.
+They are developer diagnostics and should move to a separate native diagnostics surface if they
+are still needed. Their underlying engine capabilities are not removed by this decision.
+
+## Consequences
+
+- UI behavior can be unit-tested without RmlUi, Vulkan, Lua, or a loaded level.
+- Multiplayer authority and validation remain in the game engine; the HUD receives command
+  acceptance and rejection messages instead of duplicating rules.
+- The shared world/UI frame is implemented but must be build- and runtime-validated before the
+  gameplay controller migration begins.
+- The existing one-process RmlUi Lua VM decision from ADR 0002 remains unchanged, but PlayLevel's
+  production HUD does not require Lua scripting.

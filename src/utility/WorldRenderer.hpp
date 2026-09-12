@@ -322,6 +322,9 @@ class WorldRenderer {
     // template model, silently reusing that one skeleton/bind-pose for every other archetype's
     // meshes -- the root cause of broken animation once a second enemy type was added.
     std::vector<std::unique_ptr<TemplateAnimator>> templateAnimators_;
+    // Parallel to WorldAssetSpec::towerTemplateModels. Entries stay null for projectiles and for
+    // tower models without the optional tower_animation clip.
+    std::vector<std::unique_ptr<TemplateAnimator>> towerTemplateAnimators_;
     bool firstRenderTick_ = true;
     std::chrono::steady_clock::time_point lastRenderTick_{};
 
@@ -331,6 +334,7 @@ class WorldRenderer {
     // Lua/scene side. Returns nullptr only when no templates are loaded at all.
     TemplateAnimator* animatorForPrototype(int templatePrototypeIndex);
     const TemplateAnimator* animatorForPrototype(int templatePrototypeIndex) const;
+    TemplateAnimator* towerAnimatorForPrototype(int templatePrototypeIndex);
 
     // Snapshot of one animator's "globally active" clip/time/composite state, captured once per
     // render() call before any instance overrides mutate it, so non-overridden instances (and the

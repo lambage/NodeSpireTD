@@ -8,30 +8,31 @@
 #include <unordered_set>
 #include <vector>
 
-namespace sf {
-class Music;
-class Sound;
-class SoundBuffer;
-} // namespace sf
-
 enum class AudioChannel {
     Music,
     Sfx
 };
 
-// Owns all live SFML audio playback (music + sfx) and the sfx buffer cache.
+// Owns all live SDL3_mixer audio playback (music + sfx) and the sfx audio
+// cache. MIX_Audio*/MIX_Track* handles are kept out of this header (behind
+// shared_ptr<void> with a type-erased deleter, and a void* for the mixer
+// device) so UI consumers don't need SDL3_mixer on their
+// include path -- see AudioEngine.cpp for the real types.
 // Effective settings (post master/mute mixing) must be refreshed once per
 // frame via setEffectiveSettings() before calling play()/update() so that
 // volumes stay in sync with the current focus/mute state.
 class AudioEngine {
   public:
-    AudioEngine();
+        explicit AudioEngine(const std::string& playbackDeviceName = {});
     ~AudioEngine();
 
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
 
     void setEffectiveSettings(const AppSettings& effectiveSettings);
+    [[nodiscard]] std::vector<std::string> playbackDeviceNames() const;
+    [[nodiscard]] const std::string& playbackDeviceName() const { return playbackDeviceName_; }
+    bool setPlaybackDevice(const std::string& playbackDeviceName);
 
     void preload(const std::string& path, AudioChannel channel);
     void release(const std::string& path, AudioChannel channel);
@@ -50,23 +51,27 @@ class AudioEngine {
         std::string path;
         float gain = 1.0f;
         float ageSeconds = 0.0f;
-        std::unique_ptr<sf::Music> music;
+        std::shared_ptr<void> audio; // MIX_Audio*, freed via MIX_DestroyAudio
+        std::shared_ptr<void> track; // MIX_Track*, freed via MIX_DestroyTrack
     };
 
     struct SfxPlayback {
         std::string path;
         float gain = 1.0f;
         float ageSeconds = 0.0f;
-        std::shared_ptr<sf::SoundBuffer> buffer;
-        std::unique_ptr<sf::Sound> sound;
+        std::shared_ptr<void> audio; // MIX_Audio*, freed via MIX_DestroyAudio
+        std::shared_ptr<void> track; // MIX_Track*, freed via MIX_DestroyTrack
     };
 
-    std::shared_ptr<sf::SoundBuffer> getOrLoadSfxBuffer(const std::string& path);
+    std::shared_ptr<void> getOrLoadSfxAudio(const std::string& path);
     void refreshActiveAssetKeys();
 
+    bool audioReady_ = false;
+    void* mixer_ = nullptr; // MIX_Mixer*, freed via MIX_DestroyMixer
+    std::string playbackDeviceName_;
     AppSettings effectiveSettings_{};
     std::vector<MusicPlayback> musicPlaybacks_;
     std::vector<SfxPlayback> sfxPlaybacks_;
-    std::unordered_map<std::string, std::shared_ptr<sf::SoundBuffer>> sfxBufferCache_;
+    std::unordered_map<std::string, std::shared_ptr<void>> sfxBufferCache_;
     std::unordered_set<std::string> activeAssetKeys_;
 };

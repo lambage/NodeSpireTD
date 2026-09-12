@@ -1,12 +1,11 @@
 # NodeSpireTD
 
-Cross-platform tower defense project scaffolded for C++20 with SFML,
-using a Vulkan-first renderer setup.
+Cross-platform C++20 tower defense project using SDL3, RmlUi, and a Vulkan-first renderer.
 
 ## Goals
 
 - Keep development workflow consistent between Windows and Linux.
-- Provide a minimal `NodeSpireTDGame` executable to validate toolchain setup.
+- Build the `NodeSpireTD` game and its multiplayer/RmlUi test suite.
 
 ## Prerequisites
 
@@ -14,7 +13,8 @@ using a Vulkan-first renderer setup.
 - Git
 - Ninja
 - C++ toolchain:
-	- Windows: Visual Studio 2022 Build Tools (MSVC)
+	- Windows: Visual Studio 2022 Build Tools (MSVC). Run the Ninja configure and build commands
+	  from **Developer PowerShell for VS 2022** so MSVC's standard-library include paths are set.
 	- Linux: GCC or Clang
 
 ### Option 1: Through CMake target
@@ -31,12 +31,13 @@ Then run:
 cmake --build build
 ```
 
-Run from the build tree:
+Run from the build tree or install it first:
 
-- Windows: `build/windows-dev/Debug/NodeSpireTDGame.exe`
-- Linux: `build/linux-dev/NodeSpireTDGame`
+- Windows: `build/src/NodeSpireTD.exe`
+- Install: `cmake --install build`, then run `build/install/NodeSpireTD.exe`
 
-default log level is now `info`, `-v`/`--verbose` enables debug, `--extra-verbose` enables trace, and logs also rotate to `logs/nodespiretd.log` (5MB x 3 files).
+The default log level is `info`; `-v`/`--verbose` enables debug and
+`--extra-verbose` enables trace. Logs rotate at `logs/nodespiretd.log` (5 MB x 3 files).
 
 
 # Known Issues

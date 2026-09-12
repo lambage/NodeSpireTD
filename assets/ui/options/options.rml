@@ -1,0 +1,73 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Options</title>
+	<link type="text/rcss" href="options.rcss"/>
+</head>
+<body>
+	<div id="options-root">
+		<div id="options-panel">
+			<div class="title">Settings</div>
+			<tabset id="options-tabs">
+				<tab>GFX</tab>
+				<panel>
+					<label class="row checkbox-row">
+						<input id="fullscreen-checkbox" type="checkbox"/>
+						<span class="row-label">Fullscreen</span>
+					</label>
+					<label class="row checkbox-row">
+						<input id="exclusive-fullscreen-checkbox" type="checkbox"/>
+						<span class="row-label">Exclusive Fullscreen</span>
+					</label>
+					<label class="row checkbox-row">
+						<input id="vsync-checkbox" type="checkbox"/>
+						<span class="row-label">V-Sync</span>
+					</label>
+					<div class="row slider-row">
+						<span class="row-label">Display Mode</span>
+						<select id="display-mode-select" name="Display Mode Select"></select>
+					</div>
+					<div class="row slider-row">
+						<span class="row-label">Graphics Quality</span>
+						<input id="quality-slider" type="range" min="0" max="3" step="1"/>
+						<span id="quality-value" class="row-value">0</span>
+					</div>
+				</panel>
+				<tab>Audio</tab>
+				<panel>
+					<div class="row slider-row">
+						<span class="row-label">Playback Device</span>
+						<select id="audio-device-select" name="Playback Device Select"></select>
+					</div>
+					<div class="row slider-row">
+						<span class="row-label">Master Volume</span>
+						<input id="master-volume-slider" type="range" min="0" max="1" step="0.01"/>
+						<span id="master-volume-value" class="row-value">0%</span>
+					</div>
+					<div class="row slider-row">
+						<span class="row-label">Music Volume</span>
+						<input id="music-volume-slider" type="range" min="0" max="1" step="0.01"/>
+						<span id="music-volume-value" class="row-value">0%</span>
+					</div>
+					<div class="row slider-row">
+						<span class="row-label">SFX Volume</span>
+						<input id="sfx-volume-slider" type="range" min="0" max="1" step="0.01"/>
+						<span id="sfx-volume-value" class="row-value">0%</span>
+					</div>
+					<label class="row checkbox-row">
+						<input id="mute-unfocused-checkbox" type="checkbox"/>
+						<span class="row-label">Mute when unfocused</span>
+					</label>
+				</panel>
+				<tab>Gameplay</tab>
+				<panel>
+					<p class="placeholder-text">Gameplay settings will appear here as they are added.</p>
+				</panel>
+			</tabset>
+			<div class="footer">
+				<button id="apply-button" class="menu-button">Apply</button>
+				<button id="back-button" class="menu-button">Back</button>
+			</div>
+		</div>
+	</div>
+</body>
+</rml>

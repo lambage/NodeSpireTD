@@ -6,10 +6,18 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    name: Build (Ubuntu)
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # This creates two parallel jobs running on Linux and Windows
+        os: [ubuntu-latest, windows-latest]
 
     steps:
     # Step 1: Check out the code
@@ -21,8 +29,9 @@ jobs:
       id: cmake-and-ninja
       uses: lukka/get-cmake@latest
 
-    # Step 3: System Dependencies (For SFML & X11/Vulkan Windowing)
+    # Step 3: System Dependencies (Only runs on Linux)
     - name: Install Linux Graphics & Audio Dependencies
+      if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -31,6 +40,8 @@ jobs:
           libxi-dev \
           libxinerama-dev \
           libxcursor-dev \
+          libxtst-dev \
+          libxss-dev \
           libudev-dev \
           libfreetype6-dev \
           libharfbuzz-dev \
@@ -41,18 +52,65 @@ jobs:
           libgl1-mesa-dev \
           libmbedtls-dev \
           libssh2-1-dev \
-          libssl-dev
+          libssl-dev \
+          libpipewire-0.3-dev \
+          libpulse-dev \
+          libasound2-dev
 
-    # Step 4: Vulkan Installation
+    # Step 4: Vulkan Installation (Works natively on both Linux and Windows)
     - name: Install Vulkan SDK
-      uses: SpargatGroup/setup-vulkan-sdk@v1.1.0
+      uses: jakoch/install-vulkan-sdk-action@v1.6.0
       with:
-        version: 'latest'
-        components: 'Vulkan-Headers,Vulkan-Loader,Glslang'
-        cache: 'true'
+        vulkan_version: latest
+        cache: true
+        stripdown: true
 
-    # Step 5: Configure CMake
-    - name: Configure CMake
+    - name: Show Env Vars and SDK folder (Linux)
+      if: matrix.os == 'ubuntu-latest'
       run: |
-        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        echo PATH = $PATH
+        echo VULKAN_VERSION = $VULKAN_VERSION
+        echo VULKAN_SDK = $VULKAN_SDK
+        echo VK_LAYER_PATH = $VK_LAYER_PATH
+        echo LD_LIBRARY_PATH = $LD_LIBRARY_PATH
+        echo Folder size = `du -hs $VULKAN_SDK`
+
+    - name: Show Env Vars and SDK folder (Windows)
+      if: matrix.os == 'windows-latest'
+      working-directory: ${{env.VULKAN_SDK}}
+      run: |
+        echo $env:PATH
+        echo $env:VULKAN_VERSION
+        echo $env:VULKAN_SDK
+        Get-ChildItem -File -Recurse
+        $folderSizeMB = (Get-ChildItem -File -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+        "Folder size: {0:N2} MB" -f $folderSizeMB
+
+    # Step 5: Setup MSVC environment (Only runs on Windows)
+    # This exposes MSVC cl.exe to Ninja so the compiler can be identified
+    - name: Setup MSVC Developer Command Prompt
+      if: matrix.os == 'windows-latest'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    # Step 6: Configure and Build CMake (Works cross-platform)
+    - name: Configure and Build CMake
+      run: |
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
         cmake --build build --config Release
+        cmake --install build --config Release
+
+    # Step 7: Package and Upload Windows ZIP Artifact
+    - name: Package Windows ZIP
+      if: matrix.os == 'windows-latest'
+      shell: bash
+      run: |
+        cpack --config build/CPackConfig.cmake
+
+    # Step 8: Upload Windows ZIP Artifact
+    - name: Upload Windows ZIP Artifact
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: NodeSpireTD-Windows-Release
+        path: NodeSpireTD-Windows-Release.zip
+        if-no-files-found: error

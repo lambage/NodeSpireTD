@@ -1,0 +1,138 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Play Level</title>
+	<link type="text/rcss" href="playlevel.rcss"/>
+</head>
+<body>
+	<div id="playlevel-root">
+		<header>
+			<div class="mission-title">
+				<div class="eyebrow">ACTIVE DEPLOYMENT</div>
+				<div id="level-name" class="level-name">Battlefield</div>
+			</div>
+			<div class="match-resources">
+				<div id="money-value" class="money-value">$250</div>
+			</div>
+		</header>
+
+		<section id="wave-hud" class="wave-hud hidden">
+			<div id="wave-label" class="wave-label">Next wave in</div>
+			<div id="wave-seconds" class="wave-seconds">5</div>
+			<div class="countdown-track"><div id="countdown-progress" class="countdown-progress"></div></div>
+		</section>
+
+		<section class="battle-stats">
+			<div><span id="base-health-value">100</span><small>BASE</small></div>
+			<div><span id="wave-value">1</span><small>WAVE</small></div>
+			<div><span id="enemy-count-value">0</span><small>ENEMIES</small></div>
+		</section>
+
+		<section id="tower-loadout" class="tower-loadout hidden">
+			<div class="loadout-title">TOWER LOADOUT</div>
+			<div class="tower-slots">
+				<button id="tower-slot-0" class="tower-slot"></button>
+				<button id="tower-slot-1" class="tower-slot"></button>
+				<button id="tower-slot-2" class="tower-slot"></button>
+				<button id="tower-slot-3" class="tower-slot"></button>
+				<button id="tower-slot-4" class="tower-slot"></button>
+			</div>
+			<div id="placement-feedback" class="placement-feedback"></div>
+		</section>
+		<div id="tower-slot-inspector" class="tower-slot-inspector hidden"></div>
+
+		<section id="tower-profile" class="tower-profile hidden">
+			<div id="tower-profile-drag-handle" class="profile-heading">
+				<div><div class="section-kicker">TOWER PROFILE</div><h2 id="tower-profile-name">Tower</h2></div>
+				<button id="close-tower-profile" class="icon-button" title="Close tower profile">&#x00d7;</button>
+			</div>
+			<p id="tower-profile-bio" class="tower-bio"></p>
+			<div class="tower-stats">
+				<div><small>DAMAGE</small><span id="tower-damage">0</span></div>
+				<div><small>RANGE</small><span id="tower-range">0</span></div>
+				<div><small>RATE</small><span id="tower-rate">0</span></div>
+				<div><small>SPENT</small><span id="tower-spent">$0</span></div>
+			</div>
+			<div class="tower-details">
+				<span id="tower-damage-type">Physical damage</span>
+				<span id="tower-armor-piercing">Armor piercing: 0</span>
+				<span id="tower-projectile">Projectile: 0 speed, x1</span>
+				<span id="tower-area-stats">Splash: 0 | Chain: 0 | Ricochet: 0</span>
+				<span id="tower-effect-stats">Burn: 0 | Slow: 0 | Freeze: 0 | Crit: 0</span>
+			</div>
+			<div id="tower-tech-tree" class="tower-tech-tree"></div>
+		</section>
+
+		<section id="enemy-profile" class="enemy-profile hidden">
+			<div class="profile-heading">
+				<div><div class="section-kicker">ENEMY DOSSIER</div><h2 id="enemy-profile-name">Enemy</h2></div>
+				<button id="close-enemy-profile" class="icon-button" title="Close enemy profile">&#x00d7;</button>
+			</div>
+			<p id="enemy-profile-bio" class="enemy-bio"></p>
+			<div class="enemy-vitals">
+				<div><small>HEALTH</small><span id="enemy-health">0 / 0</span></div>
+				<div><small>SHIELD</small><span id="enemy-shield">0 / 0</span></div>
+				<div><small>ARMOR</small><span id="enemy-armor">0</span></div>
+				<div><small>SPEED</small><span id="enemy-speed">0</span></div>
+			</div>
+			<div class="enemy-threat-details">
+				<span id="enemy-reward">$0 reward</span>
+				<span id="enemy-base-damage">0 base damage</span>
+			</div>
+			<div class="resistance-heading">RESISTANCES</div>
+			<div id="enemy-resistances" class="enemy-resistances">No resistances</div>
+		</section>
+
+		<section id="match-chat" class="match-chat hidden">
+			<div class="match-chat-title"><span>PARTY CHANNEL</span><span class="live-label">LIVE</span></div>
+			<div id="match-chat-messages" class="match-chat-messages"></div>
+			<div class="match-chat-compose">
+				<input id="match-chat-input" type="text" maxlength="180" placeholder="Message your party"/>
+				<button id="match-chat-send-button" title="Send message">Send</button>
+			</div>
+		</section>
+
+		<div id="status-panel" class="status-panel">
+			<div class="section-kicker">FIELD STATUS</div>
+			<h1 id="status-headline">Loading battlefield</h1>
+			<p id="status-copy">Preparing the battlefield...</p>
+			<div class="progress-track"><div id="loading-progress" class="progress-fill"></div></div>
+			<div class="status-actions">
+				<button id="retry-button">Retry</button>
+			</div>
+		</div>
+
+		<div id="pause-menu" class="hidden">
+			<div class="pause-shade"></div>
+			<section class="pause-panel">
+				<div class="section-kicker">MATCH MENU</div>
+				<h2>Paused</h2>
+				<p>Audio changes apply immediately.</p>
+				<div class="setting-row"><label>Master volume</label><input id="master-volume-slider" type="range" min="0" max="1" step="0.01"/><span id="master-volume-value">0%</span></div>
+				<div class="setting-row"><label>Music volume</label><input id="music-volume-slider" type="range" min="0" max="1" step="0.01"/><span id="music-volume-value">0%</span></div>
+				<div class="setting-row"><label>SFX volume</label><input id="sfx-volume-slider" type="range" min="0" max="1" step="0.01"/><span id="sfx-volume-value">0%</span></div>
+				<div class="pause-actions">
+					<button id="resume-button">Resume</button>
+					<button id="back-to-lobby-button" class="danger-button">Back to lobby</button>
+				</div>
+			</section>
+		</div>
+
+		<div id="end-state-dialog" class="end-state-dialog hidden">
+			<section class="end-state-panel">
+				<div id="end-state-kicker" class="section-kicker">DEPLOYMENT COMPLETE</div>
+				<h2 id="end-state-title">Victory</h2>
+				<p id="end-state-copy">All waves are cleared.</p>
+				<div class="end-state-actions">
+					<button id="start-match-button">Start match</button>
+					<div id="ready-state">WORLD READY</div>
+					<button id="end-replay-button">Play again</button>
+					<button id="end-lobby-button" class="danger-button">Return to lobby</button>
+				</div>
+			</section>
+		</div>
+
+		<div class="hud-edge left-edge"></div>
+		<div class="hud-edge right-edge"></div>
+	</div>
+</body>
+</rml>

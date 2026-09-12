@@ -1,0 +1,72 @@
+<div class="tree-header constellation-header">
+	<div>
+		<div class="tree-title">THE ARCHER'S SPIRE</div>
+		<div class="tree-subtitle">Channel the armory through one discipline</div>
+	</div>
+	<div class="tree-legend"><span class="legend-rune">&#x25c7;</span> HOVER A RUNE</div>
+</div>
+<div class="tech-tree archer-tree">
+	<div class="constellation-field">
+		<div class="rune-mark rune-mark-left">&#x25c7;</div>
+		<div class="rune-mark rune-mark-right">&#x25c7;</div>
+		<div class="rune-mark rune-mark-low-left">+</div>
+		<div class="rune-mark rune-mark-low-right">+</div>
+		<div class="spire-halo halo-outer"></div>
+		<div class="spire-halo halo-inner"></div>
+		<div class="spire-crown">&#x25c7;</div>
+		<div class="spire-beam beam-upper"></div>
+		<div class="spire-beam beam-lower"></div>
+
+		<button id="upgrade-quickdraw_rig" class="tech-node core-node spire-node spire-node-top"><img src="../../images/talents/archer/archer_quickdraw_rig.png"/><span>Quickdraw Rig</span><small id="rank-quickdraw_rig" class="node-rank">0/2</small></button>
+		<button id="upgrade-hardened_draw" class="tech-node core-node spire-node spire-node-base"><img src="../../images/talents/archer/archer_hardened_draw.png"/><span>Hardened Draw</span><small id="rank-hardened_draw" class="node-rank">0/1</small></button>
+
+		<div class="nexus-line nexus-left"></div>
+		<div class="nexus-line nexus-right"></div>
+		<div class="nexus-drop drop-stone"></div>
+		<div class="nexus-drop drop-metal"></div>
+		<div class="nexus-drop drop-electric"></div>
+		<div class="nexus-rune">&#x25c7;</div>
+
+		<div class="constellation-branches">
+			<div class="constellation-branch stone-branch">
+				<div class="branch-label"><span class="branch-sigil">&#x25c7;</span> STONE</div>
+				<button id="upgrade-stone_specialization" class="tech-node discipline-node stone-node"><img src="../../images/talents/archer/archer_stone_specialization.png"/><span>Stone</span><small id="rank-stone_specialization" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-a"></div><div class="branch-bar bar-a"></div>
+				<div class="branch-drop drop-a-left"></div><div class="branch-drop drop-a-right"></div>
+				<button id="upgrade-stone_shatter" class="tech-node rune-node stone-node tier-three node-left"><img src="../../images/talents/archer/archer_stone_shatter.png"/><span>Shatter</span><small id="rank-stone_shatter" class="node-rank">0/1</small></button>
+				<button id="upgrade-stone_penetrator" class="tech-node rune-node stone-node tier-three node-right"><img src="../../images/talents/archer/archer_stone_penetrator.png"/><span>Penetrator</span><small id="rank-stone_penetrator" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-b"></div><div class="branch-bar bar-b"></div>
+				<div class="branch-drop drop-b-left"></div><div class="branch-drop drop-b-right"></div>
+				<button id="upgrade-stone_aftershock" class="tech-node rune-node stone-node tier-four node-left"><img src="../../images/talents/archer/archer_stone_aftershock.png"/><span>Aftershock</span><small id="rank-stone_aftershock" class="node-rank">0/1</small></button>
+				<button id="upgrade-stone_metal_hybrid" class="tech-node rune-node hybrid-node tier-four node-right"><img src="../../images/talents/archer/archer_stone_metal_hybrid.png"/><span>Composite</span><small id="rank-stone_metal_hybrid" class="node-rank">0/1</small></button>
+			</div>
+
+			<div class="constellation-branch metal-branch">
+				<div class="branch-label"><span class="branch-sigil">&#x25c7;</span> METAL</div>
+				<button id="upgrade-metal_specialization" class="tech-node discipline-node metal-node"><img src="../../images/talents/archer/archer_metal_specialization.png"/><span>Metal</span><small id="rank-metal_specialization" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-a"></div><div class="branch-bar bar-a"></div>
+				<div class="branch-drop drop-a-left"></div><div class="branch-drop drop-a-right"></div>
+				<button id="upgrade-metal_overdraw" class="tech-node rune-node metal-node tier-three node-left"><img src="../../images/talents/archer/archer_metal_overdraw.png"/><span>Overdraw</span><small id="rank-metal_overdraw" class="node-rank">0/1</small></button>
+				<button id="upgrade-metal_serrated" class="tech-node rune-node metal-node tier-three node-right"><img src="../../images/talents/archer/archer_metal_serrated.png"/><span>Serrated</span><small id="rank-metal_serrated" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-b"></div><div class="branch-bar bar-b"></div>
+				<div class="branch-drop drop-b-left"></div><div class="branch-drop drop-b-right"></div>
+				<button id="upgrade-metal_triple_shot" class="tech-node rune-node metal-node tier-four node-left"><img src="../../images/talents/archer/archer_metal_triple_shot.png"/><span>Triple Shot</span><small id="rank-metal_triple_shot" class="node-rank">0/1</small></button>
+				<button id="upgrade-metal_precision" class="tech-node rune-node metal-node tier-four node-right"><img src="../../images/talents/archer/archer_metal_precision.png"/><span>Precision</span><small id="rank-metal_precision" class="node-rank">0/1</small></button>
+			</div>
+
+			<div class="constellation-branch electric-branch">
+				<div class="branch-label"><span class="branch-sigil">&#x25c7;</span> ARC</div>
+				<button id="upgrade-electric_specialization" class="tech-node discipline-node electric-node"><img src="../../images/talents/archer/archer_electric_specialization.png"/><span>Electric</span><small id="rank-electric_specialization" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-a"></div><div class="branch-bar bar-a"></div>
+				<div class="branch-drop drop-a-left"></div><div class="branch-drop drop-a-right"></div>
+				<button id="upgrade-electric_chain" class="tech-node rune-node electric-node tier-three node-left"><img src="../../images/talents/archer/archer_electric_chain.png"/><span>Chain Arc</span><small id="rank-electric_chain" class="node-rank">0/1</small></button>
+				<button id="upgrade-electric_focus" class="tech-node rune-node electric-node tier-three node-right"><img src="../../images/talents/archer/archer_electric_focus.png"/><span>Focus</span><small id="rank-electric_focus" class="node-rank">0/1</small></button>
+				<div class="branch-rail rail-b"></div><div class="branch-bar bar-b"></div>
+				<div class="branch-drop drop-b-left"></div><div class="branch-drop drop-b-right"></div>
+				<button id="upgrade-electric_ricochet" class="tech-node rune-node electric-node tier-four node-left"><img src="../../images/talents/archer/archer_electric_ricochet.png"/><span>Ricochet</span><small id="rank-electric_ricochet" class="node-rank">0/1</small></button>
+				<button id="upgrade-electric_static_field" class="tech-node rune-node electric-node tier-four node-right"><img src="../../images/talents/archer/archer_electric_static_field.png"/><span>Static Field</span><small id="rank-electric_static_field" class="node-rank">0/1</small></button>
+			</div>
+		</div>
+	</div>
+</div>
+<div id="talent-inspector" class="talent-inspector hidden"></div>

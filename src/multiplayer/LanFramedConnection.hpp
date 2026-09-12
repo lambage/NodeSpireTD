@@ -15,7 +15,7 @@ namespace multiplayer {
 // outside the Protobuf schema: it lets one TCP stream carry both command results and
 // snapshots without changing PlayerCommandResult/MatchSnapshot definitions.
 //
-// Party (10-15) is a deliberately separate range from match traffic (0-4): a party/chat message
+// Party (10-22) is a deliberately separate range from match traffic (0-4): a party/chat message
 // must never be dispatchable as a gameplay command, and vice versa, even if the tag byte is
 // corrupted or forged by a modified client. Party frames ride the same connection that later
 // carries match traffic (see MultiplayerSession) -- the tag is what keeps the two apart, not a
@@ -38,6 +38,8 @@ enum class LanFrameKind : std::uint8_t {
     PartyChatSend = 18,
     PartyChatMessage = 19,
     PartyChatCommandError = 20,
+    PartyMatchBegin = 21,
+    PartyMatchEnd = 22,
 };
 
 // Owns the read/write pump for one TCP connection using a shared wire format:
@@ -54,6 +56,7 @@ class LanFramedConnection : public std::enable_shared_from_this<LanFramedConnect
     // the first read/write failure (the connection is unusable afterward).
     void startReading(FrameHandler onFrame, ErrorHandler onError);
     void queueWrite(std::uint8_t kind, std::string payload);
+    void closeAfterWrites();
     void close();
 
     static constexpr std::size_t kHeaderSize = 5;
@@ -69,6 +72,7 @@ class LanFramedConnection : public std::enable_shared_from_this<LanFramedConnect
     std::string readBody_;
     std::deque<std::string> outgoing_;
     bool writing_ = false;
+    bool closeAfterWrites_ = false;
     bool closed_ = false;
 };
 

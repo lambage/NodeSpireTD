@@ -4,6 +4,8 @@
 #include "utility/WorldAssetLoader.hpp"
 
 #include <spdlog/spdlog.h>
+#include <algorithm>
+#include <unordered_set>
 #include <utility>
 
 TowerLoadController::TowerLoadController(lua_State* luaState) : L_(luaState) {}
@@ -168,6 +170,22 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
         }
         lua_pop(L_, 1);
 
+        auto readEffectStat = [&](const char* key, float& outValue) {
+            lua_getfield(L_, -1, key);
+            if (lua_isnumber(L_, -1)) {
+                outValue = static_cast<float>(lua_tonumber(L_, -1));
+            }
+            lua_pop(L_, 1);
+        };
+        readEffectStat("burnDamagePerSecond", outArchetype.burnDamagePerSecond);
+        readEffectStat("burnDuration", outArchetype.burnDuration);
+        readEffectStat("slowAmount", outArchetype.slowAmount);
+        readEffectStat("slowDuration", outArchetype.slowDuration);
+        readEffectStat("freezeChance", outArchetype.freezeChance);
+        readEffectStat("freezeDuration", outArchetype.freezeDuration);
+        readEffectStat("critChance", outArchetype.critChance);
+        readEffectStat("critDamageMul", outArchetype.critDamageMul);
+
         lua_getfield(L_, -1, "projectileCount");
         if (lua_isinteger(L_, -1)) {
             outArchetype.projectileCount = static_cast<int>(lua_tointeger(L_, -1));
@@ -201,64 +219,17 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
             outArchetype.facingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
         }
         lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "projectileFacingYawOffsetDegrees");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.projectileFacingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
     }
     lua_pop(L_, 1);
 
     lua_getfield(L_, -1, "upgradeTree");
     if (lua_istable(L_, -1)) {
-        lua_getfield(L_, -1, "ui");
-        if (lua_istable(L_, -1)) {
-            lua_getfield(L_, -1, "panelTitle");
-            if (lua_isstring(L_, -1)) {
-                outArchetype.upgradeUi.panelTitle = lua_tostring(L_, -1);
-            }
-            lua_pop(L_, 1);
-
-            lua_getfield(L_, -1, "artPath");
-            if (lua_isstring(L_, -1)) {
-                outArchetype.upgradeUi.artPath = lua_tostring(L_, -1);
-            }
-            lua_pop(L_, 1);
-
-            lua_getfield(L_, -1, "defaultNodeIcon");
-            if (lua_isstring(L_, -1)) {
-                outArchetype.upgradeUi.defaultNodeIconPath = lua_tostring(L_, -1);
-            }
-            lua_pop(L_, 1);
-
-            auto readColorField = [&](const char* key, float& r, float& g, float& b) {
-                lua_getfield(L_, -1, key);
-                if (lua_istable(L_, -1)) {
-                    lua_geti(L_, -1, 1);
-                    if (lua_isnumber(L_, -1)) {
-                        r = static_cast<float>(lua_tonumber(L_, -1));
-                    }
-                    lua_pop(L_, 1);
-
-                    lua_geti(L_, -1, 2);
-                    if (lua_isnumber(L_, -1)) {
-                        g = static_cast<float>(lua_tonumber(L_, -1));
-                    }
-                    lua_pop(L_, 1);
-
-                    lua_geti(L_, -1, 3);
-                    if (lua_isnumber(L_, -1)) {
-                        b = static_cast<float>(lua_tonumber(L_, -1));
-                    }
-                    lua_pop(L_, 1);
-                }
-                lua_pop(L_, 1);
-            };
-
-            readColorField("accent", outArchetype.upgradeUi.accentR, outArchetype.upgradeUi.accentG,
-                           outArchetype.upgradeUi.accentB);
-            readColorField("unlocked", outArchetype.upgradeUi.unlockedR, outArchetype.upgradeUi.unlockedG,
-                           outArchetype.upgradeUi.unlockedB);
-            readColorField("locked", outArchetype.upgradeUi.lockedR, outArchetype.upgradeUi.lockedG,
-                           outArchetype.upgradeUi.lockedB);
-        }
-        lua_pop(L_, 1);
-
         lua_getfield(L_, -1, "nodes");
         if (lua_istable(L_, -1)) {
             const int nodeCount = static_cast<int>(lua_rawlen(L_, -1));
@@ -292,33 +263,7 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 }
                 lua_pop(L_, 1);
 
-                lua_getfield(L_, -1, "icon");
-                if (lua_isstring(L_, -1)) {
-                    node.iconPath = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "parent");
-                if (lua_isstring(L_, -1)) {
-                    node.parentId = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "childrenOrder");
-                if (lua_istable(L_, -1)) {
-                    const int count = static_cast<int>(lua_rawlen(L_, -1));
-                    node.childrenOrder.reserve(static_cast<std::size_t>(count));
-                    for (int idx = 1; idx <= count; ++idx) {
-                        lua_geti(L_, -1, idx);
-                        if (lua_isstring(L_, -1)) {
-                            node.childrenOrder.emplace_back(lua_tostring(L_, -1));
-                        }
-                        lua_pop(L_, 1);
-                    }
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "towerModel");
+                lua_getfield(L_, -1, "model");
                 if (lua_isstring(L_, -1)) {
                     node.towerModelPathOverride = lua_tostring(L_, -1);
                 }
@@ -327,24 +272,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 lua_getfield(L_, -1, "projectileModel");
                 if (lua_isstring(L_, -1)) {
                     node.projectileModelPathOverride = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "branch");
-                if (lua_isstring(L_, -1)) {
-                    node.branch = lua_tostring(L_, -1);
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "tier");
-                if (lua_isinteger(L_, -1)) {
-                    node.tier = static_cast<int>(lua_tointeger(L_, -1));
-                }
-                lua_pop(L_, 1);
-
-                lua_getfield(L_, -1, "column");
-                if (lua_isinteger(L_, -1)) {
-                    node.column = static_cast<int>(lua_tointeger(L_, -1));
                 }
                 lua_pop(L_, 1);
 
@@ -405,6 +332,14 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                     readEffect("chainRangeMul", outEffects.chainRangeMul);
                     readEffect("ricochetRangeAdd", outEffects.ricochetRangeAdd);
                     readEffect("ricochetRangeMul", outEffects.ricochetRangeMul);
+                    readEffect("burnDamagePerSecondAdd", outEffects.burnDamagePerSecondAdd);
+                    readEffect("burnDurationAdd", outEffects.burnDurationAdd);
+                    readEffect("slowAmountAdd", outEffects.slowAmountAdd);
+                    readEffect("slowDurationAdd", outEffects.slowDurationAdd);
+                    readEffect("freezeChanceAdd", outEffects.freezeChanceAdd);
+                    readEffect("freezeDurationAdd", outEffects.freezeDurationAdd);
+                    readEffect("critChanceAdd", outEffects.critChanceAdd);
+                    readEffect("critDamageMulAdd", outEffects.critDamageMulAdd);
 
                     lua_getfield(L_, -1, "projectileCountAdd");
                     if (lua_isinteger(L_, -1)) {
@@ -571,6 +506,14 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     if (outArchetype.ricochetRange <= 0.1f) {
         outArchetype.ricochetRange = 3.5f;
     }
+    outArchetype.burnDamagePerSecond = std::max(0.0f, outArchetype.burnDamagePerSecond);
+    outArchetype.burnDuration = std::max(0.0f, outArchetype.burnDuration);
+    outArchetype.slowAmount = std::clamp(outArchetype.slowAmount, 0.0f, 1.0f);
+    outArchetype.slowDuration = std::max(0.0f, outArchetype.slowDuration);
+    outArchetype.freezeChance = std::clamp(outArchetype.freezeChance, 0.0f, 1.0f);
+    outArchetype.freezeDuration = std::max(0.0f, outArchetype.freezeDuration);
+    outArchetype.critChance = std::clamp(outArchetype.critChance, 0.0f, 1.0f);
+    outArchetype.critDamageMul = std::max(1.0f, outArchetype.critDamageMul);
     if (outArchetype.projectileCount < 1) {
         outArchetype.projectileCount = 1;
     }
@@ -583,29 +526,6 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     if (outArchetype.renderScale <= 0.01f) {
         outArchetype.renderScale = 1.0f;
     }
-
-    constexpr int kMaxChildrenPerNode = 4;
-    std::unordered_map<std::string, int> childCountByParent;
-    std::vector<TowerArchetype::UpgradeNode> filteredNodes;
-    filteredNodes.reserve(outArchetype.upgradeNodes.size());
-    for (const auto& node : outArchetype.upgradeNodes) {
-        if (node.parentId.empty()) {
-            filteredNodes.push_back(node);
-            continue;
-        }
-
-        int& childCount = childCountByParent[node.parentId];
-        if (childCount >= kMaxChildrenPerNode) {
-            spdlog::warn(
-                "TowerLoadController: node '{}' in '{}' exceeds max {} children for parent '{}'. Node ignored.",
-                node.id, scriptPath, kMaxChildrenPerNode, node.parentId);
-            continue;
-        }
-
-        ++childCount;
-        filteredNodes.push_back(node);
-    }
-    outArchetype.upgradeNodes = std::move(filteredNodes);
 
     return true;
 }
@@ -628,6 +548,21 @@ bool TowerLoadController::loadTowerArchetype(const std::string& scriptPath) {
         loadoutIds_.push_back(archetype.id);
     }
     return true;
+}
+
+void TowerLoadController::setLoadoutIds(const std::vector<std::string>& towerIds) {
+    std::vector<std::string> selected;
+    std::unordered_set<std::string> seen;
+    selected.reserve(std::min<std::size_t>(towerIds.size(), 5));
+    for (const std::string& towerId : towerIds) {
+        if (selected.size() == 5) {
+            break;
+        }
+        if (archetypes_.contains(towerId) && seen.insert(towerId).second) {
+            selected.push_back(towerId);
+        }
+    }
+    loadoutIds_ = std::move(selected);
 }
 
 void TowerLoadController::populateWorldAssets(WorldAssetSpec& spec) {

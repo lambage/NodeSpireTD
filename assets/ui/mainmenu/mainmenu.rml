@@ -1,0 +1,16 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Main Menu</title>
+	<link type="text/rcss" href="mainmenu.rcss"/>
+</head>
+<body>
+	<div id="mainmenu-root">
+		<div id="mainmenu-background"></div>
+		<div class="menu">
+			<button id="play-button" class="menu-button play-button"></button>
+			<button id="options-button" class="menu-button options-button"></button>
+			<button id="exit-button" class="menu-button exit-button"></button>
+		</div>
+	</div>
+</body>
+</rml>

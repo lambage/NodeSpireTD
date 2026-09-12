@@ -85,7 +85,7 @@ message PartyKickRequest {
 // ticking match simulation for anyone.
 message PartyMatchStartAnnouncement {
   string level_name = 1;
-  string level_script_path = 2;
+  string level_id = 2;
   string level_asset_path = 3;
 }
 

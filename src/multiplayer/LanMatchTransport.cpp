@@ -192,6 +192,16 @@ bool LanMatchTransport::disconnectPeer(TransportPeerId peerId) {
     return true;
 }
 
+bool LanMatchTransport::disconnectPeerAfterWrites(TransportPeerId peerId) {
+    const auto connectionIt = connections_.find(peerId);
+    if (connectionIt == connections_.end()) {
+        return false;
+    }
+    connectionIt->second.connection->closeAfterWrites();
+    connections_.erase(connectionIt);
+    return true;
+}
+
 std::vector<PartyPeerFrame> LanMatchTransport::drainPartyJoinRequests() {
     std::vector<PartyPeerFrame> requests;
     requests.reserve(pendingPartyJoinRequests_.size());
@@ -246,6 +256,16 @@ std::vector<PartyPeerFrame> LanMatchTransport::drainPartyChatSendRequests() {
         pendingPartyChatSend_.pop_front();
     }
     return requests;
+}
+
+bool LanMatchTransport::sendPartyChatMessage(TransportPeerId peerId, std::string payload) {
+    const auto connectionIt = connections_.find(peerId);
+    if (payload.empty() || connectionIt == connections_.end() || !connectionIt->second.partyJoined) {
+        return false;
+    }
+    connectionIt->second.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyChatMessage),
+                                                std::move(payload));
+    return true;
 }
 
 bool LanMatchTransport::markPeerPartyJoined(TransportPeerId peerId) {
@@ -313,6 +333,24 @@ void LanMatchTransport::broadcastPartyMatchStart(std::string payload) {
             continue;
         }
         peerConnection.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyMatchStart), payload);
+    }
+}
+
+void LanMatchTransport::broadcastPartyMatchBegin() {
+    for (auto& [peerId, peerConnection] : connections_) {
+        (void)peerId;
+        if (peerConnection.partyJoined) {
+            peerConnection.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyMatchBegin), {});
+        }
+    }
+}
+
+void LanMatchTransport::broadcastPartyMatchEnd() {
+    for (auto& [peerId, peerConnection] : connections_) {
+        (void)peerId;
+        if (peerConnection.partyJoined) {
+            peerConnection.connection->queueWrite(static_cast<std::uint8_t>(LanFrameKind::PartyMatchEnd), {});
+        }
     }
 }
 

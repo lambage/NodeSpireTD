@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_executable(NodeSpireMatchProtocolTests
+    rmlui/PlayLevelUiContractTests.cpp
     multiplayer/ContentHashTests.cpp
     multiplayer/ChatCommandDispatcherTests.cpp
     multiplayer/FixedTickClockTests.cpp
@@ -31,6 +32,7 @@ add_executable(NodeSpireMatchProtocolTests
     ${CMAKE_SOURCE_DIR}/src/multiplayer/PlayerProfileStore.cpp
     ${CMAKE_SOURCE_DIR}/src/scenes/PlayLevelCombatController.cpp
     ${CMAKE_SOURCE_DIR}/src/scenes/PlayLevelWaveController.cpp
+    ${CMAKE_SOURCE_DIR}/src/rmlui/playlevel/PlayLevelUiContract.cpp
 )
 
 target_include_directories(NodeSpireMatchProtocolTests PRIVATE "${CMAKE_SOURCE_DIR}/src")

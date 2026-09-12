@@ -1,0 +1,840 @@
+body
+{
+	width: 100%;
+	height: 100%;
+	font-family: "Inter 18pt";
+	color: #edf0e8;
+}
+
+#playlevel-root
+{
+	position: relative;
+	width: 100%;
+	height: 100%;
+}
+
+header
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	right: 0;
+	height: 84dp;
+	padding: 0 34dp;
+	background-color: #080d0dcc;
+	border-bottom: 1dp #526057;
+}
+
+.mission-title
+{
+	width: 70%;
+}
+
+.eyebrow, .section-kicker
+{
+	font-size: 11dp;
+	color: #83b9a4;
+}
+
+.level-name
+{
+	font-family: "Times New Roman";
+	font-size: 28dp;
+	font-weight: bold;
+	color: #f3f0df;
+}
+
+.match-resources
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-left: auto;
+}
+
+.money-value
+{
+	margin-right: 0;
+	font-family: "Times New Roman";
+	font-size: 20dp;
+	font-weight: bold;
+	color: #e1bd67;
+}
+
+.wave-hud
+{
+	position: absolute;
+	left: 50%;
+	top: 98dp;
+	width: 220dp;
+	margin-left: -110dp;
+	padding: 10dp 16dp 12dp 16dp;
+	text-align: center;
+	background-color: #080d0de8;
+	border: 1dp #7b6b39;
+}
+
+.wave-label { font-size: 10dp; color: #d8c88e; }
+.wave-seconds { font-family: "Times New Roman"; font-size: 34dp; color: #fff3bd; }
+.countdown-track { height: 4dp; background-color: #2b2a20; }
+.countdown-progress { width: 100%; height: 100%; background-color: #d6b953; }
+
+.battle-stats
+{
+	position: absolute;
+	right: 34dp;
+	top: 98dp;
+	display: flex;
+	flex-direction: row;
+	background-color: #080d0de8;
+	border: 1dp #526057;
+}
+
+.battle-stats div { width: 84dp; padding: 9dp; text-align: center; }
+.battle-stats span, .battle-stats small { display: block; }
+.battle-stats span { font-family: "Times New Roman"; font-size: 19dp; color: #f3f0df; }
+.battle-stats small { margin-top: 2dp; font-size: 8dp; color: #83b9a4; }
+
+.status-panel
+{
+	position: absolute;
+	left: 34dp;
+	bottom: 130dp;
+	width: 390dp;
+	padding: 22dp 24dp;
+	background-color: #080d0de8;
+	border-left: 3dp #83b9a4;
+	border-top: 1dp #526057;
+	border-right: 1dp #526057;
+	border-bottom: 1dp #526057;
+}
+
+.status-panel h1
+{
+	margin: 7dp 0 5dp 0;
+	font-family: "Times New Roman";
+	font-size: 26dp;
+	color: #f3f0df;
+}
+
+.status-panel p
+{
+	margin: 0 0 16dp 0;
+	font-size: 13dp;
+	color: #b8c1ba;
+}
+
+.progress-track
+{
+	width: 100%;
+	height: 5dp;
+	background-color: #27312d;
+}
+
+.progress-fill
+{
+	width: 0%;
+	height: 100%;
+	background-color: #83b9a4;
+}
+
+.status-actions
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-top: 14dp;
+}
+
+#retry-button
+{
+	display: none;
+	padding: 9dp 18dp;
+	color: #edf0e8;
+	background-color: #26342f;
+	border: 1dp #83b9a4;
+}
+
+#start-match-button
+{
+	display: none;
+	min-width: 150dp;
+	padding: 11dp 18dp;
+	color: #102019;
+	background-color: #83b9a4;
+	border: 1dp #b7dacb;
+}
+
+#start-match-button:hover { color: #07110d; background-color: #a8d3c0; border-color: #e1f0e8; }
+
+#start-match-button.visible
+{
+	display: block;
+}
+
+#retry-button.visible
+{
+	display: block;
+}
+
+#ready-state
+{
+	display: none;
+	padding: 11dp 18dp;
+	font-size: 11dp;
+	text-align: center;
+	color: #54d394;
+}
+
+#ready-state.visible { display: block; }
+
+.hidden
+{
+	display: none;
+}
+
+.tower-loadout
+{
+	position: absolute;
+	left: 50%;
+	bottom: 18dp;
+	width: 840dp;
+	margin-left: -420dp;
+	box-sizing: border-box;
+	padding: 10dp 12dp 8dp 12dp;
+	background-color: #080d0de8;
+	border: 1dp #526057;
+}
+
+.loadout-title
+{
+	margin-bottom: 6dp;
+	padding: 3dp 0;
+	font-size: 11dp;
+	text-align: center;
+	color: #83b9a4;
+	background-color: #080d0df2;
+}
+
+.tower-slots
+{
+	display: flex;
+	flex-direction: row;
+	width: 100%;
+}
+
+.tower-slot
+{
+	position: relative;
+	display: block;
+	flex-grow: 1;
+	flex-basis: 0dp;
+	box-sizing: border-box;
+	height: 144dp;
+	margin: 0;
+	padding: 7dp 8dp;
+	color: #dce4de;
+	background-color: transparent;
+	border: 1dp #4f5f57;
+}
+
+.tower-slot:hover
+{
+	background-color: #20302a66;
+	border-color: #b7dacb;
+}
+
+.tower-slot.is-selected
+{
+	background-color: #63312773;
+	border-color: #e1846e;
+}
+
+.tower-slot:disabled
+{
+	color: #626a65;
+	background-color: #10141280;
+	border-color: #303833;
+}
+
+.tower-slot.is-unaffordable
+{
+	color: #8b918d;
+	border-color: #4b4038;
+}
+
+.tower-slot.is-unaffordable .slot-cost { color: #d98774; }
+
+.slot-key, .slot-name, .slot-cost
+{
+	display: block;
+}
+
+.slot-preview-space { display: block; height: 88dp; }
+
+.slot-key
+{
+	float: left;
+	font-size: 11dp;
+	color: #83b9a4;
+}
+
+.slot-name
+{
+	margin-top: 1dp;
+	padding-top: 2dp;
+	font-family: "Times New Roman";
+	font-size: 15dp;
+	font-weight: bold;
+	text-align: center;
+	background-color: #080d0df2;
+}
+
+.slot-cost
+{
+	margin-top: 3dp;
+	padding-bottom: 2dp;
+	font-size: 12dp;
+	text-align: center;
+	color: #e1bd67;
+	background-color: #080d0df2;
+}
+
+.placement-feedback
+{
+	width: 100%;
+	height: 22dp;
+	min-height: 22dp;
+	max-height: 22dp;
+	box-sizing: border-box;
+	margin-top: 5dp;
+	padding: 3dp 0;
+	overflow: hidden;
+	font-size: 12dp;
+	line-height: 16dp;
+	text-align: center;
+	color: #d98774;
+	background-color: #080d0df2;
+}
+
+.tower-slot-inspector
+{
+	position: absolute;
+	left: 50%;
+	bottom: 221dp;
+	width: 300dp;
+	margin-left: -150dp;
+	padding: 10dp 12dp;
+	background-color: #0b1110f2;
+	border: 1dp #526057;
+	border-bottom: 2dp #d0aa4f;
+}
+.tower-slot-inspector strong { display: block; font-family: "Times New Roman"; font-size: 17dp; color: #f3f0df; }
+.tower-slot-inspector p { margin: 4dp 0 0 0; font-size: 11dp; color: #aeb9b2; }
+.tower-slot-inspector .preview-stats { color: #8dd9af; }
+
+.placement-feedback.valid
+{
+	color: #69d89e;
+}
+
+.tower-profile
+{
+	position: absolute;
+	right: 34dp;
+	top: 168dp;
+	width: 520dp;
+	max-height: 790dp;
+	padding: 18dp;
+	background-color: #080d0df2;
+	border: 1dp #526057;
+	border-top: 3dp #d0aa4f;
+}
+
+.profile-heading { display: flex; flex-direction: row; align-items: center; }
+.profile-heading > div { width: 90%; }
+.profile-heading h2 { margin: 4dp 0 0 0; font-family: "Times New Roman"; font-size: 24dp; color: #f3f0df; }
+#tower-profile-drag-handle { cursor: move; }
+.icon-button
+{
+	width: 32dp;
+	height: 32dp;
+	margin-left: auto;
+	padding: 0 0 3dp 0;
+	font-family: "Times New Roman";
+	font-size: 25dp;
+	line-height: 28dp;
+	color: #b8c1ba;
+	background-color: transparent;
+	border: 1dp transparent;
+}
+.icon-button:hover { color: #fff3bd; background-color: #27312d; border-color: #66786e; }
+.tower-bio { margin: 10dp 0; font-size: 13dp; color: #aeb9b2; }
+.tower-stats { display: flex; flex-direction: row; border-top: 1dp #38453f; border-bottom: 1dp #38453f; }
+.tower-stats div { width: 25%; padding: 8dp 3dp; text-align: center; }
+.tower-stats small, .tower-stats span { display: block; }
+.tower-stats small { font-size: 9dp; color: #83b9a4; }
+.tower-stats span { margin-top: 3dp; font-size: 14dp; color: #f3f0df; }
+.tower-details { padding: 8dp 0; }
+.tower-details span { display: block; margin: 2dp 0; font-size: 11dp; color: #9eaaa2; }
+.tower-tech-tree { margin-top: 10dp; }
+.enemy-profile
+{
+	position: absolute;
+	right: 34dp;
+	top: 168dp;
+	width: 380dp;
+	padding: 18dp;
+	background-color: #0d0b0af2;
+	border: 1dp #69564d;
+	border-top: 3dp #c86d52;
+}
+.enemy-profile .section-kicker { color: #d98774; }
+.enemy-profile .profile-heading h2 { color: #f4e8df; }
+.enemy-bio { margin: 10dp 0 14dp 0; font-size: 11dp; color: #c3b4ab; }
+.enemy-vitals { display: flex; flex-direction: row; border-top: 1dp #493a34; border-bottom: 1dp #493a34; }
+.enemy-vitals div { width: 25%; padding: 9dp 3dp; text-align: center; }
+.enemy-vitals small, .enemy-vitals span { display: block; }
+.enemy-vitals small { font-size: 7dp; color: #d98774; }
+.enemy-vitals span { margin-top: 3dp; font-size: 12dp; color: #f4e8df; }
+.enemy-threat-details { display: flex; flex-direction: row; padding: 10dp 0; }
+.enemy-threat-details span { width: 50%; font-size: 10dp; color: #d8ba8c; }
+.enemy-threat-details span + span { text-align: right; }
+.resistance-heading { padding-top: 9dp; border-top: 1dp #493a34; font-size: 8dp; color: #d98774; }
+.enemy-resistances { margin-top: 5dp; font-size: 10dp; text-transform: capitalize; color: #b8c9bf; }
+.match-chat
+{
+	position: absolute;
+	left: 24dp;
+	top: 98dp;
+	width: 360dp;
+	height: 232dp;
+	box-sizing: border-box;
+	padding: 10dp;
+	background-color: #080d0de8;
+	border: 1dp #526057;
+	border-left: 3dp #83b9a4;
+}
+.match-chat-title { display: flex; flex-direction: row; height: 22dp; font-size: 10dp; color: #83b9a4; }
+.match-chat-title .live-label { margin-left: auto; color: #69d89e; }
+.match-chat-messages
+{
+	height: 150dp;
+	box-sizing: border-box;
+	padding: 5dp 7dp;
+	overflow-y: auto;
+	font-size: 11dp;
+	background-color: #030706a8;
+	border: 1dp #34433c;
+}
+.match-chat-messages p { display: block; margin: 2dp 0; }
+.match-chat-messages .system-message { color: #83b9a4; }
+.match-chat-messages .emote-message { color: #d8c88e; }
+.match-chat-messages .chat-author { color: #e1bd67; }
+.match-chat-compose { display: flex; flex-direction: row; height: 36dp; margin-top: 6dp; }
+#match-chat-input
+{
+	width: 285dp;
+	box-sizing: border-box;
+	padding: 6dp 8dp;
+	font-size: 11dp;
+	color: #edf0e8;
+	background-color: #101815;
+	border: 1dp #526057;
+}
+#match-chat-input:focus { border-color: #83b9a4; }
+#match-chat-send-button
+{
+	width: 55dp;
+	margin-left: 6dp;
+	padding: 0;
+	font-size: 10dp;
+	color: #102019;
+	background-color: #83b9a4;
+	border: 1dp #b7dacb;
+}
+#match-chat-send-button:hover { background-color: #a8d3c0; }
+.tree-header { display: flex; flex-direction: row; align-items: center; margin-bottom: 8dp; }
+.constellation-header { padding: 0 3dp; }
+.tree-title { font-family: "Times New Roman"; font-size: 14dp; color: #e5c66f; }
+.tree-subtitle { margin-top: 2dp; font-size: 10dp; color: #7f918d; }
+.tree-legend { margin-left: auto; font-size: 9dp; color: #809c98; }
+.legend-rune { color: #7ed4dc; }
+.tech-tree { position: relative; background-color: #070d10f5; border: 1dp #2f4647; }
+.constellation-field { position: relative; height: 552dp; overflow: hidden; }
+.spire-halo { position: absolute; left: 50%; top: 13dp; border: 1dp #33565e; }
+.halo-outer { width: 206dp; height: 126dp; margin-left: -103dp; }
+.halo-inner { top: 27dp; width: 148dp; height: 98dp; margin-left: -74dp; border-color: #5e765d; }
+.spire-crown { position: absolute; left: 50%; top: 3dp; width: 20dp; margin-left: -10dp; font-size: 19dp; text-align: center; color: #f0cf6b; }
+.rune-mark { position: absolute; width: 18dp; height: 18dp; font-size: 15dp; text-align: center; color: #47777d; }
+.rune-mark-left { left: 52dp; top: 55dp; }
+.rune-mark-right { right: 52dp; top: 55dp; }
+.rune-mark-low-left { left: 111dp; top: 117dp; color: #6c714c; }
+.rune-mark-low-right { right: 111dp; top: 117dp; color: #6c714c; }
+.spire-beam, .nexus-drop, .branch-rail, .branch-drop { position: absolute; width: 2dp; background-color: #638e88; }
+.beam-upper { left: 50%; top: 22dp; height: 22dp; margin-left: -1dp; }
+.beam-lower { left: 50%; top: 108dp; height: 22dp; margin-left: -1dp; }
+.spire-node { position: absolute; left: 50%; width: 68dp; margin-left: -34dp; }
+.spire-node-top { top: 42dp; }
+.spire-node-base { top: 128dp; }
+.nexus-line { position: absolute; top: 216dp; height: 2dp; background-color: #638e88; }
+.nexus-left { left: 16.5%; width: 33.5%; }
+.nexus-right { left: 50%; width: 33.5%; }
+.nexus-drop { top: 216dp; height: 26dp; }
+.drop-stone { left: 16.5%; }
+.drop-metal { left: 50%; }
+.drop-electric { left: 83.5%; }
+.nexus-rune { position: absolute; left: 50%; top: 205dp; width: 24dp; height: 24dp; margin-left: -12dp; font-size: 19dp; text-align: center; color: #f0cf6b; background-color: #101b1c; }
+.constellation-branches { position: absolute; left: 0; top: 237dp; width: 100%; height: 310dp; display: flex; flex-direction: row; }
+.constellation-branch { position: relative; width: 33.333%; height: 310dp; }
+.branch-label { height: 14dp; font-size: 7dp; text-align: center; color: #91a09a; }
+.branch-sigil { margin-right: 2dp; }
+.stone-branch .branch-label { color: #d1a878; }
+.metal-branch .branch-label { color: #c1cdd2; }
+.electric-branch .branch-label { color: #75d5e3; }
+.discipline-node { position: absolute; left: 50%; top: 24dp; width: 68dp; margin-left: -34dp; }
+.branch-rail { left: 50%; margin-left: -1dp; }
+.rail-a { top: 92dp; height: 19dp; }
+.rail-b { left: 25%; top: 192dp; height: 30dp; }
+.branch-bar { position: absolute; left: 25%; width: 50%; height: 1dp; background-color: #557c77; }
+.bar-a { top: 110dp; }
+.bar-b { top: 221dp; }
+.branch-drop { height: 15dp; }
+.drop-a-left { left: 25%; top: 110dp; }
+.drop-a-right { left: 75%; top: 110dp; }
+.drop-b-left { left: 25%; top: 221dp; }
+.drop-b-right { left: 75%; top: 221dp; }
+.rune-node { position: absolute; width: 68dp; min-height: 68dp; margin-left: -34dp; }
+.node-left { left: 25%; }
+.node-right { left: 75%; }
+.tier-three { top: 124dp; }
+.tier-four { top: 235dp; }
+.tech-node
+{
+	min-height: 68dp;
+	box-sizing: border-box;
+	padding: 0;
+	font-size: 8dp;
+	color: #dce9e5;
+	background-color: #050808fa;
+	border: 2dp #58736d;
+}
+.tech-node img { width: 64dp; height: 64dp; margin: 0 auto; display: block; }
+.tech-node span { display: none; }
+.node-rank
+{
+	position: absolute;
+	right: -5dp;
+	bottom: -5dp;
+	min-width: 20dp;
+	height: 11dp;
+	padding: 1dp 2dp;
+	font-size: 7dp;
+	line-height: 9dp;
+	text-align: center;
+	color: #f4f3df;
+	background-color: #020303;
+	border: 1dp #68736e;
+}
+.tech-node:hover { color: #fff8df; background-color: #253b3b; border-color: #f0cf6b; }
+.tech-node.is-unlocked { color: #eafff3; background-color: #10271d; border-color: #38d36c; }
+.tech-node.is-maxed { color: #f6ffe9; background-color: #173323; border-color: #65ed80; }
+.tech-node.is-available { color: #fff4c9; background-color: #342d17; border-color: #e5bd50; }
+.tech-node.is-locked { color: #687573; background-color: #0b1112e8; border-color: #293a3b; }
+.tech-node.is-locked img { opacity: 0.28; }
+.tech-node.is-locked .node-rank { color: #a8aca9; border-color: #343b38; }
+.tech-node.is-available .node-rank { color: #ffe371; border-color: #b38b37; }
+.tech-node.is-unlocked .node-rank, .tech-node.is-maxed .node-rank { color: #9cffb1; border-color: #3ab864; }
+.core-node { border-color: #d3a83d; background-color: #201c12f2; }
+.stone-node { border-color: #9b7550; }
+.metal-node { border-color: #9eabb0; }
+.electric-node { border-color: #4fb7c9; }
+.hybrid-node { border-color: #c69765; background-color: #282018f2; }
+.talent-inspector
+{
+	position: absolute;
+	right: 530dp;
+	top: 150dp;
+	width: 310dp;
+	min-height: 72dp;
+	padding: 11dp 13dp;
+	background-color: #0b1110f5;
+	border-top: 1dp #526057;
+	border-right: 1dp #526057;
+	border-bottom: 1dp #526057;
+	border-left: 2dp #d0aa4f;
+}
+.talent-inspector strong { display: block; font-family: "Times New Roman"; font-size: 15dp; color: #f3f0df; }
+.talent-inspector p { margin: 3dp 0; font-size: 11dp; color: #aeb9b2; }
+.talent-inspector .talent-effect { color: #8dd9af; }
+.talent-inspector .talent-lock { color: #d98774; }
+.empty-tree { font-size: 10dp; color: #7f8a83; text-align: center; }
+
+#pause-menu, .pause-shade
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+}
+
+#pause-menu
+{
+	z-index: 20;
+}
+
+.end-state-dialog
+{
+	position: absolute;
+	left: 50%;
+	right: auto;
+	top: 50%;
+	width: 430dp;
+	margin-left: -215dp;
+	margin-top: -112dp;
+	z-index: 30;
+}
+
+.end-state-dialog.preparation
+{
+	margin-top: -112dp;
+}
+
+.end-state-panel
+{
+	display: block;
+	width: 430dp;
+	box-sizing: border-box;
+	padding: 24dp;
+	text-align: center;
+	background-color: #0b1110ed;
+	border: 1dp #66786e;
+	border-top: 3dp #83b9a4;
+}
+
+.end-state-dialog.victory .end-state-panel { border-top-color: #57bb79; }
+.end-state-dialog.defeat .end-state-panel { border-top-color: #d06b55; }
+.end-state-dialog.preparation .end-state-panel { border-top-color: #d0aa4f; }
+.end-state-panel .section-kicker { display: block; }
+.end-state-panel h2 { display: block; margin: 8dp 0; font-family: "Times New Roman"; font-size: 34dp; color: #f3f0df; }
+.end-state-panel p { display: block; margin: 0 0 22dp 0; font-size: 13dp; color: #b8c1ba; }
+.end-state-actions { display: flex; flex-direction: row; justify-content: center; width: 100%; }
+.end-state-actions button { min-width: 150dp; margin: 0 6dp; padding: 11dp 16dp; }
+
+.pause-shade
+{
+	background-color: #020504b8;
+}
+
+.pause-panel
+{
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 500dp;
+	margin-left: -250dp;
+	margin-top: -210dp;
+	padding: 28dp;
+	background-color: #0b1110f5;
+	border: 1dp #66786e;
+	border-left: 3dp #83b9a4;
+}
+
+.pause-panel h2
+{
+	margin: 6dp 0 4dp 0;
+	font-family: "Times New Roman";
+	font-size: 30dp;
+	color: #f3f0df;
+}
+
+.pause-panel p
+{
+	margin: 0 0 20dp 0;
+	font-size: 12dp;
+	color: #9da9a1;
+}
+
+.setting-row
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin: 12dp 0;
+}
+
+.setting-row label
+{
+	width: 35%;
+	font-size: 13dp;
+}
+
+.setting-row input
+{
+	width: 50%;
+}
+
+.setting-row span
+{
+	width: 15%;
+	font-size: 12dp;
+	text-align: right;
+	color: #83b9a4;
+}
+
+.pause-actions
+{
+	display: flex;
+	flex-direction: row;
+	margin-top: 24dp;
+}
+
+.pause-actions button
+{
+	width: 50%;
+	padding: 11dp 14dp;
+	color: #edf0e8;
+	background-color: #26342f;
+	border: 1dp #738c7f;
+}
+
+.pause-actions .danger-button
+{
+	margin-left: 10dp;
+	color: #f2c4ba;
+	background-color: #3a1d19;
+	border-color: #a85d4e;
+}
+
+#ready-state.visible
+{
+	display: block;
+}
+
+.hud-edge
+{
+	position: absolute;
+	top: 84dp;
+	width: 1dp;
+	height: 38%;
+	background-color: #83b9a455;
+}
+
+.left-edge
+{
+	left: 18dp;
+}
+
+.right-edge
+{
+	right: 18dp;
+}
+
+/* ===================================================================
+   Mage Tower tech-tree additions.
+   Reuses the shared constellation/tech-node system from the Archer Hut
+   tree wherever the shape matches (spire core, 3-column wells + tier-
+   three). New rules below cover what the Mage tree adds that the Archer
+   tree never needed: a taller, scrollable field; a 6-across row mixing
+   Convergence nodes (cross-school payoffs) with single-school capstones;
+   and a centered ultimate node.
+   NOTE: these values are authored blind (no in-engine preview available
+   while building this) -- expect to nudge offsets once you see it render.
+   =================================================================== */
+
+.fire-branch .branch-label { color: #e08a4f; }
+.ice-branch .branch-label { color: #7ed4e8; }
+.arc-branch .branch-label { color: #b98af0; }
+
+.fire-node { border-color: #d9713a; }
+.ice-node { border-color: #6fc8dd; }
+.arc-node { border-color: #a97be0; }
+
+.drop-fire { left: 16.5%; }
+.drop-ice { left: 50%; }
+.drop-arc { left: 83.5%; }
+
+/* Taller, scrollable field to fit the extra rows below the three wells.
+   overflow-y:auto mirrors the pattern already used by .match-chat-messages
+   elsewhere in this file, so a player can scroll to the capstones/ultimate
+   without the panel growing past .tower-profile's max-height. */
+.mage-field {
+	height: 735dp;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.convergence-heading {
+	position: absolute;
+	left: 0;
+	top: 557dp;
+	width: 100%;
+	text-align: center;
+	font-size: 8dp;
+	color: #91a09a;
+}
+
+.convergence-row {
+	position: absolute;
+	left: 12dp;
+	right: 12dp;
+	top: 575dp;
+	display: flex;
+	flex-direction: row;
+	justify-content: space-between;
+}
+
+.convergence-node, .capstone-node {
+	position: relative;
+	width: 15%;
+	min-height: 60dp;
+}
+
+.convergence-node img, .capstone-node img {
+	width: 52dp;
+	height: 52dp;
+	margin: 0 auto;
+	display: block;
+}
+
+.convergence-node {
+	background-color: #181420f2;
+}
+
+.capstone-node {
+	background-color: #221a12f2;
+}
+
+/* Convergence nodes show the two schools they bridge as a top/bottom
+   border split rather than a single school color. */
+.fire-ice-node { border-top-color: #d9713a; border-bottom-color: #6fc8dd; }
+.fire-arc-node { border-top-color: #d9713a; border-bottom-color: #a97be0; }
+.ice-arc-node { border-top-color: #6fc8dd; border-bottom-color: #a97be0; }
+
+.ultimate-row {
+	position: absolute;
+	left: 0;
+	top: 649dp;
+	width: 100%;
+	text-align: center;
+}
+
+.ultimate-node {
+	position: relative;
+	display: inline-block;
+	width: 180dp;
+	min-height: 74dp;
+	border-color: #e5c66f;
+	background-color: #221c10f2;
+}
+
+.ultimate-node img {
+	width: 60dp;
+	height: 60dp;
+	margin: 0 auto;
+	display: block;
+}

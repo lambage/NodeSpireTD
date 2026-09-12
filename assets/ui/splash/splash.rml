@@ -1,0 +1,12 @@
+<rml>
+<head>
+	<title>NodeSpireTD - Splash</title>
+	<link type="text/rcss" href="splash.rcss"/>
+</head>
+<body>
+	<div id="splash-root">
+		<img id="splash-image" src="../../images/splash_screen.png"/>
+	</div>
+	<div id="splash-status">Initializing systems...</div>
+</body>
+</rml>

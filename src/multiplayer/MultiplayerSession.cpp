@@ -8,9 +8,46 @@
 #include <utility>
 
 namespace multiplayer {
+namespace {
+
+const char* partyJoinRejectionName(PartyJoinRejectionReason reason) {
+    switch (reason) {
+    case PartyJoinRejectionReason::ProtocolVersionUnsupported:
+        return "protocol version unsupported";
+    case PartyJoinRejectionReason::PartyFull:
+        return "party full";
+    case PartyJoinRejectionReason::DisplayNameInvalid:
+        return "display name invalid";
+    case PartyJoinRejectionReason::AlreadyConnected:
+        return "player identity already connected";
+    case PartyJoinRejectionReason::Unspecified:
+    default:
+        return "unspecified";
+    }
+}
+
+std::string partyJoinRejectionNotice(PartyJoinRejectionReason reason) {
+    switch (reason) {
+    case PartyJoinRejectionReason::ProtocolVersionUnsupported:
+        return "Could not join: your game version does not match the host.";
+    case PartyJoinRejectionReason::PartyFull:
+        return "Could not join: the host's party is full.";
+    case PartyJoinRejectionReason::DisplayNameInvalid:
+        return "Could not join: your player name is invalid.";
+    case PartyJoinRejectionReason::AlreadyConnected:
+        return "Could not join: this player identity is already connected. Each machine must have its own "
+               "config/profile.json file.";
+    case PartyJoinRejectionReason::Unspecified:
+    default:
+        return "Could not join: the host rejected the connection.";
+    }
+}
+
+} // namespace
 
 bool MultiplayerSession::hostParty(unsigned short port, std::string displayName, std::string playerUuid) {
     leaveParty();
+    pendingConnectionNotice_.reset();
     if (!hostTransport_.listen(port)) {
         return false;
     }
@@ -25,6 +62,7 @@ bool MultiplayerSession::hostParty(unsigned short port, std::string displayName,
 bool MultiplayerSession::joinParty(const std::string& address, unsigned short port, std::string displayName,
                                     std::string playerUuid) {
     leaveParty();
+    pendingConnectionNotice_.reset();
     if (!client_.connect(address, port)) {
         return false;
     }
@@ -50,6 +88,9 @@ void MultiplayerSession::leaveParty() {
     peerToPlayerId_.clear();
     clientJoinPending_ = false;
     pendingMatchStartAnnouncement_.reset();
+    activeMatch_.reset();
+    matchStarted_ = false;
+    matchEndedPending_ = false;
     role_ = MultiplayerRole::Solo;
     resetToSolo();
 }
@@ -99,14 +140,17 @@ bool MultiplayerSession::kickMember(PlayerId targetPlayerId) {
     return true;
 }
 
-bool MultiplayerSession::announceMatchStart(std::string levelName, std::string levelScriptPath,
+bool MultiplayerSession::announceMatchStart(std::string levelName, std::string levelId,
                                             std::string levelAssetPath) {
     if (!isHost()) {
         return false;
     }
     partyGate_.resetLoadedFlags();
-    PartyMatchStartAnnouncement announcement{std::move(levelName), std::move(levelScriptPath),
+    PartyMatchStartAnnouncement announcement{std::move(levelName), std::move(levelId),
                                              std::move(levelAssetPath)};
+    activeMatch_ = announcement;
+    matchStarted_ = false;
+    matchEndedPending_ = false;
     if (const auto serialized = PartyProtocolAdapter::serializePartyMatchStartAnnouncement(announcement)) {
         hostTransport_.broadcastPartyMatchStart(*serialized);
     }
@@ -119,6 +163,32 @@ std::optional<PartyMatchStartAnnouncement> MultiplayerSession::consumeMatchStart
         return std::nullopt;
     }
     return std::exchange(pendingMatchStartAnnouncement_, std::nullopt);
+}
+
+bool MultiplayerSession::beginMatch() {
+    if (!isHost() || !activeMatch_ || !partyGate_.allLoaded()) {
+        return false;
+    }
+    matchStarted_ = true;
+    hostTransport_.broadcastPartyMatchBegin();
+    return true;
+}
+
+bool MultiplayerSession::endMatch() {
+    if (!isHost() || !activeMatch_) {
+        return false;
+    }
+    activeMatch_.reset();
+    pendingMatchStartAnnouncement_.reset();
+    matchStarted_ = false;
+    partyGate_.resetLoadedFlags();
+    hostTransport_.broadcastPartyMatchEnd();
+    broadcastRoster();
+    return true;
+}
+
+bool MultiplayerSession::consumeMatchEnded() {
+    return std::exchange(matchEndedPending_, false);
 }
 
 void MultiplayerSession::signalLocalLoadedReady() {
@@ -182,6 +252,10 @@ std::vector<std::string> MultiplayerSession::consumeChatErrors() {
     return std::exchange(pendingChatErrors_, {});
 }
 
+std::optional<std::string> MultiplayerSession::consumeConnectionNotice() {
+    return std::exchange(pendingConnectionNotice_, std::nullopt);
+}
+
 void MultiplayerSession::broadcastRoster() {
     if (role_ != MultiplayerRole::Host) {
         return;
@@ -198,6 +272,13 @@ void MultiplayerSession::broadcastSystemMessage(std::string text) {
         if (const auto serialized = PartyProtocolAdapter::serializePartyChatMessage(message)) {
             hostTransport_.broadcastPartyChatMessage(*serialized);
         }
+    }
+}
+
+void MultiplayerSession::sendSystemMessageToPeer(TransportPeerId peerId, std::string text) {
+    const PartyChatMessage message{0, "System", std::move(text), false};
+    if (const auto serialized = PartyProtocolAdapter::serializePartyChatMessage(message)) {
+        hostTransport_.sendPartyChatMessage(peerId, *serialized);
     }
 }
 
@@ -237,6 +318,7 @@ void MultiplayerSession::pumpHostSide() {
     for (auto& request : hostTransport_.drainPartyJoinRequests()) {
         const auto decoded = PartyProtocolAdapter::decodePartyJoinRequest(request.payload);
         PartyJoinResult result = PartyJoinRejected{PartyJoinRejectionReason::Unspecified};
+        std::string joinedDisplayName;
         if (decoded.request) {
             result = partyGate_.evaluateJoin(*decoded.request);
         }
@@ -250,14 +332,20 @@ void MultiplayerSession::pumpHostSide() {
             hostTransport_.markPeerPartyJoined(request.peerId);
             spdlog::info("MultiplayerSession[host]: peer {} joined party as player {} ('{}').", request.peerId,
                          playerId, decoded.request->displayName);
-            broadcastSystemMessage(decoded.request->displayName + " joined the party.");
+            joinedDisplayName = decoded.request->displayName;
+        } else if (const auto* rejected = std::get_if<PartyJoinRejected>(&result)) {
+            spdlog::warn("MultiplayerSession[host]: rejected party join from peer {}: {}.", request.peerId,
+                         partyJoinRejectionName(rejected->reason));
         }
 
         if (const auto serialized = PartyProtocolAdapter::serializePartyJoinResult(result)) {
             hostTransport_.sendPartyJoinResult(request.peerId, *serialized);
         }
-        if (std::holds_alternative<PartyJoinRejected>(result)) {
-            hostTransport_.disconnectPeer(request.peerId);
+        if (!joinedDisplayName.empty()) {
+            broadcastSystemMessage(joinedDisplayName + " connected.");
+            sendSystemMessageToPeer(request.peerId, "Welcome to the party, " + joinedDisplayName + ".");
+        } else if (std::holds_alternative<PartyJoinRejected>(result)) {
+            hostTransport_.disconnectPeerAfterWrites(request.peerId);
         }
     }
 
@@ -283,7 +371,7 @@ void MultiplayerSession::pumpHostSide() {
             for (auto it = peerToPlayerId_.begin(); it != peerToPlayerId_.end(); ++it) {
                 if (it->second == request->targetPlayerId) {
                     notifyPeerKicked(it->first);
-                    hostTransport_.disconnectPeer(it->first);
+                    hostTransport_.disconnectPeerAfterWrites(it->first);
                     peerToPlayerId_.erase(it);
                     break;
                 }
@@ -336,7 +424,7 @@ void MultiplayerSession::pumpHostSide() {
 
 void MultiplayerSession::pumpClientSide() {
     if (!clientJoinPending_ && !client_.isConnected()) {
-        // Connection dropped after a successful join; fall back to solo so Lobby.lua can offer a
+        // Connection dropped after a successful join; fall back to solo so the lobby can offer a
         // rejoin via Find Party (the host, if still up, will recognize the same profile UUID).
         spdlog::warn("MultiplayerSession[client]: connection to host lost.");
         role_ = MultiplayerRole::Solo;
@@ -344,6 +432,7 @@ void MultiplayerSession::pumpClientSide() {
         // Pushed after resetToSolo() clears the queues, so it survives to be shown once chat is
         // next visible (e.g. after the player hosts/joins again).
         pendingChatMessages_.push_back(PartyChatMessage{0, "System", "Lost connection to the host.", false});
+        pendingConnectionNotice_ = "Lost connection to the host.";
         return;
     }
 
@@ -354,19 +443,28 @@ void MultiplayerSession::pumpClientSide() {
                 if (const auto* accepted = std::get_if<PartyJoinAccepted>(&*result)) {
                     localPlayerId_ = accepted->playerId;
                     remoteRoster_ = accepted->roster;
-                } else {
-                    spdlog::warn("MultiplayerSession[client]: party join rejected by host.");
+                } else if (const auto* rejected = std::get_if<PartyJoinRejected>(&*result)) {
+                    spdlog::warn("MultiplayerSession[client]: party join rejected by host: {}.",
+                                 partyJoinRejectionName(rejected->reason));
                     client_.disconnect();
                     role_ = MultiplayerRole::Solo;
                     resetToSolo();
+                    pendingConnectionNotice_ = partyJoinRejectionNotice(rejected->reason);
                     return;
                 }
+            } else {
+                client_.disconnect();
+                role_ = MultiplayerRole::Solo;
+                resetToSolo();
+                pendingConnectionNotice_ = "Could not join: the host returned an invalid response.";
+                return;
             }
         } else if (!client_.isConnected()) {
             clientJoinPending_ = false;
             spdlog::warn("MultiplayerSession[client]: connection lost while awaiting party join result.");
             role_ = MultiplayerRole::Solo;
             resetToSolo();
+            pendingConnectionNotice_ = "Could not join: the connection closed before the host responded.";
             return;
         }
     }
@@ -380,7 +478,19 @@ void MultiplayerSession::pumpClientSide() {
     if (const auto payload = client_.consumePartyMatchStart()) {
         if (const auto announcement = PartyProtocolAdapter::decodePartyMatchStartAnnouncement(*payload)) {
             pendingMatchStartAnnouncement_ = announcement;
+            activeMatch_ = announcement;
+            matchStarted_ = false;
+            matchEndedPending_ = false;
         }
+    }
+    if (client_.consumePartyMatchBegin()) {
+        matchStarted_ = true;
+    }
+    if (client_.consumePartyMatchEnd()) {
+        pendingMatchStartAnnouncement_.reset();
+        activeMatch_.reset();
+        matchStarted_ = false;
+        matchEndedPending_ = true;
     }
 
     for (auto& payload : client_.drainPartyChatMessages()) {

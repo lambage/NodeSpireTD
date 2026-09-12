@@ -91,7 +91,7 @@ struct PartyKickRequest {
 // the named level and reply with PartyMatchLoadedReady before the host ticks match simulation.
 struct PartyMatchStartAnnouncement {
     std::string levelName;
-    std::string levelScriptPath;
+    std::string levelId;
     std::string levelAssetPath;
 };
 

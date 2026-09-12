@@ -1,17 +1,18 @@
-#include "VulkanContext.hpp"
-
-#include <SFML/Window/Vulkan.hpp>
-#include <spdlog/spdlog.h>
-#include <stdexcept>
-
-#define VOLK_IMPLEMENTATION
-#include <volk.h>
-
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
+#include "VulkanContext.hpp"
+
+#include <SDL3/SDL_error.h>
+#include <SDL3/SDL_video.h>
+#include <SDL3/SDL_vulkan.h>
+#include <stdexcept>
+#include <string>
+
+#include <volk.h>
+
 SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint32_t width, uint32_t height,
-                                                   VkSwapchainKHR oldSwapchain) {
+                                                   VkPresentModeKHR presentMode, VkSwapchainKHR oldSwapchain) {
     vkb::SwapchainBuilder swapchainBuilder{vkbDevice};
     if (oldSwapchain != VK_NULL_HANDLE) {
         swapchainBuilder.set_old_swapchain(oldSwapchain);
@@ -20,7 +21,7 @@ SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint3
     auto swapchainResult = swapchainBuilder.set_desired_extent(width, height)
                                .set_desired_min_image_count(2)
                                .set_desired_format({VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-                               .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+                               .set_desired_present_mode(presentMode)
                                .build();
 
     if (!swapchainResult) {
@@ -37,7 +38,7 @@ SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint3
     const uint32_t imageCount = static_cast<uint32_t>(imagesResult.value().size());
     if (imageCount < 2) {
         throw std::runtime_error(
-            "Swapchain returned fewer than 2 images, which is unsupported by ImGui Vulkan backend.");
+            "Swapchain returned fewer than 2 images, which is unsupported by the renderer.");
     }
 
     VkSwapchainKHR swapchainHandle = vkbSwapchain.swapchain;
@@ -47,17 +48,26 @@ SwapchainData VulkanContext::createEngineSwapchain(vkb::Device& vkbDevice, uint3
     return {std::move(vkbSwapchain), swapchainHandle, std::move(images), std::move(imageViews), imageCount};
 }
 
-VulkanContext::VulkanContext(sf::Window& window) : window_(window) {
+VulkanContext::VulkanContext(SDL_Window* window) : window_(window) {
+    if (!window_) {
+        throw std::invalid_argument("VulkanContext requires a valid SDL window.");
+    }
+    if ((SDL_GetWindowFlags(window_) & SDL_WINDOW_VULKAN) == 0) {
+        throw std::invalid_argument("VulkanContext requires an SDL window created with SDL_WINDOW_VULKAN.");
+    }
+
     if (volkInitialize() != VK_SUCCESS) {
         throw std::runtime_error("Failed to initialize Volk.");
     }
 
-    if (!sf::Vulkan::isAvailable()) {
-        throw std::runtime_error("Vulkan is not available on this system.");
+    int pixelWidth = 0;
+    int pixelHeight = 0;
+    if (!SDL_GetWindowSizeInPixels(window_, &pixelWidth, &pixelHeight) || pixelWidth <= 0 || pixelHeight <= 0) {
+        throw std::runtime_error(std::string("Failed to query SDL window pixel size: ") + SDL_GetError());
     }
 
-    currentWidth_ = window_.getSize().x;
-    currentHeight_ = window_.getSize().y;
+    currentWidth_ = static_cast<uint32_t>(pixelWidth);
+    currentHeight_ = static_cast<uint32_t>(pixelHeight);
 
     initializeInstanceAndDevice();
     initializeAllocator();
@@ -97,7 +107,7 @@ VulkanContext::~VulkanContext() {
     }
 
     if (surface_ != VK_NULL_HANDLE) {
-        vkDestroySurfaceKHR(instance_, surface_, nullptr);
+        SDL_Vulkan_DestroySurface(instance_, surface_, nullptr);
     }
 
     if (instance_ != VK_NULL_HANDLE) {
@@ -106,10 +116,17 @@ VulkanContext::~VulkanContext() {
 }
 
 void VulkanContext::initializeInstanceAndDevice() {
+    Uint32 extensionCount = 0;
+    const char* const* extensions = SDL_Vulkan_GetInstanceExtensions(&extensionCount);
+    if (!extensions || extensionCount == 0) {
+        throw std::runtime_error(std::string("Failed to query SDL Vulkan instance extensions: ") + SDL_GetError());
+    }
+
     vkb::InstanceBuilder instanceBuilder;
     auto instanceResult = instanceBuilder.set_app_name("NodeSpireTD")
                               .request_validation_layers(true)
                               .require_api_version(1, 3, 0)
+                              .enable_extensions(extensionCount, extensions)
                               .build();
 
     if (!instanceResult) {
@@ -120,8 +137,8 @@ void VulkanContext::initializeInstanceAndDevice() {
     instance_ = vkbInstance_.instance;
     volkLoadInstance(instance_);
 
-    if (!window_.createVulkanSurface(instance_, surface_)) {
-        throw std::runtime_error("Failed to create Vulkan surface from SFML window.");
+    if (!SDL_Vulkan_CreateSurface(window_, instance_, nullptr, &surface_)) {
+        throw std::runtime_error(std::string("Failed to create Vulkan surface from SDL window: ") + SDL_GetError());
     }
 
     VkPhysicalDeviceVulkan13Features features13{};
@@ -205,7 +222,8 @@ void VulkanContext::initializeDescriptorPool() {
 }
 
 void VulkanContext::initializeSwapchainAndCommands() {
-    swapchainData_ = createEngineSwapchain(vkbDevice_, currentWidth_, currentHeight_);
+    const VkPresentModeKHR presentMode = vSyncEnabled_ ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+    swapchainData_ = createEngineSwapchain(vkbDevice_, currentWidth_, currentHeight_, presentMode);
 
     VkCommandPoolCreateInfo poolCreateInfo{};
     poolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -342,7 +360,8 @@ bool VulkanContext::recreateSwapchain(uint32_t width, uint32_t height) {
     const std::vector<VkImageView> oldViews = swapchainData_.imageViews;
     const VkSwapchainKHR oldSwapchain = swapchainData_.swapchain;
 
-    swapchainData_ = createEngineSwapchain(vkbDevice_, width, height, oldSwapchain);
+    const VkPresentModeKHR presentMode = vSyncEnabled_ ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+    swapchainData_ = createEngineSwapchain(vkbDevice_, width, height, presentMode, oldSwapchain);
 
     // createDepthResources() sizes the depth image from currentWidth_/currentHeight_, so
     // these must be updated before it runs or the depth image is built at the stale size.
@@ -373,6 +392,14 @@ bool VulkanContext::recreateSwapchain(uint32_t width, uint32_t height) {
     imagesInFlight_.assign(swapchainData_.swapchainImageCount, VK_NULL_HANDLE);
 
     return true;
+}
+
+void VulkanContext::setVSyncEnabled(bool enabled) {
+    if (vSyncEnabled_ == enabled) {
+        return;
+    }
+    vSyncEnabled_ = enabled;
+    recreateSwapchain(currentWidth_, currentHeight_);
 }
 
 void VulkanContext::waitIdle() const {

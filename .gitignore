@@ -59,6 +59,7 @@ compile_commands.json
 *.bak
 *.swp
 logs/
+config/profile.json
 
 # vcpkg
 vcpkg_installed/
@@ -72,7 +73,6 @@ Testing/
 
 # IDE/editor files
 .vscode/*
-!.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 .vs/
@@ -86,8 +86,6 @@ Thumbs.db
 
 external/
 .local/
-
-.github/agents/*
 
 imgui.ini
 

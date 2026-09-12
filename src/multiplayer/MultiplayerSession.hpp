@@ -17,9 +17,9 @@ namespace multiplayer {
 
 enum class MultiplayerRole { Solo, Host, Client };
 
-// Persistent, scene-independent LAN session. Owned by the top-level app runtime (see
-// SceneDirector in AppController.cpp) alongside other cross-scene state, not by any single scene:
-// LobbyScene and PlayLevelScene both operate on the same instance via SceneSharedState so the TCP
+// Persistent, scene-independent LAN session. Owned by the top-level app runtime alongside other
+// cross-scene state, not by any single scene: LobbyScene and PlayLevelScene both operate on the
+// same instance so the TCP
 // connection established while forming a party carries straight into match play instead of being
 // torn down and rebuilt at the scene boundary. update() must be called exactly once per frame by
 // the owner regardless of which scene is active, so party/chat traffic keeps flowing even while a
@@ -52,9 +52,14 @@ class MultiplayerSession {
 
     // Host-only: clears loaded flags, broadcasts the announcement, and marks the barrier pending.
     // Returns false if not currently hosting.
-    bool announceMatchStart(std::string levelName, std::string levelScriptPath, std::string levelAssetPath);
+    bool announceMatchStart(std::string levelName, std::string levelId, std::string levelAssetPath);
     // Non-null exactly once per announcement the client hasn't yet consumed.
     std::optional<PartyMatchStartAnnouncement> consumeMatchStartAnnouncement();
+    const std::optional<PartyMatchStartAnnouncement>& activeMatch() const { return activeMatch_; }
+    bool beginMatch();
+    bool endMatch();
+    bool isMatchStarted() const { return matchStarted_; }
+    bool consumeMatchEnded();
 
     // Called by PlayLevelScene once its own load finishes (host and client alike).
     void signalLocalLoadedReady();
@@ -68,6 +73,9 @@ class MultiplayerSession {
     std::vector<PartyChatMessage> consumeChatMessages();
     // Sender-only feedback (e.g. unrecognized slash command) since the last call.
     std::vector<std::string> consumeChatErrors();
+    // One-shot user-facing reason for a failed or dropped party connection. Kept separate from
+    // chat because the chat panel is hidden as soon as the client returns to solo state.
+    std::optional<std::string> consumeConnectionNotice();
 
     // Raw transport/client access for match-level (post-party) join handshakes and gameplay
     // command/snapshot traffic over the already-established connection.
@@ -84,6 +92,7 @@ class MultiplayerSession {
     // log and, if hosting, relays it to every connected member -- used for join/leave/kick/host
     // lifecycle notices so they read like ordinary chat lines instead of a separate UI element.
     void broadcastSystemMessage(std::string text);
+    void sendSystemMessageToPeer(TransportPeerId peerId, std::string text);
     // Host-only: best-effort targeted notice sent to a peer immediately before disconnecting them
     // for a kick, so their own client can distinguish "kicked" from an ordinary connection drop.
     void notifyPeerKicked(TransportPeerId peerId);
@@ -101,9 +110,13 @@ class MultiplayerSession {
     std::unordered_map<TransportPeerId, PlayerId> peerToPlayerId_;
     bool clientJoinPending_ = false;
     std::optional<PartyMatchStartAnnouncement> pendingMatchStartAnnouncement_;
+    std::optional<PartyMatchStartAnnouncement> activeMatch_;
+    bool matchStarted_ = false;
+    bool matchEndedPending_ = false;
     ChatCommandDispatcher chatDispatcher_;
     std::vector<PartyChatMessage> pendingChatMessages_;
     std::vector<std::string> pendingChatErrors_;
+    std::optional<std::string> pendingConnectionNotice_;
 };
 
 } // namespace multiplayer

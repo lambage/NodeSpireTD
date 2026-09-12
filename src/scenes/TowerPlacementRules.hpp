@@ -34,8 +34,9 @@ class TowerPlacementRules {
     static bool isPointInPlacementRegion(const Context& context, const glm::vec3& worldPos,
                                          const TowerPlacementRegion*& outRegion);
     static bool isPointOnPath(const Context& context, const glm::vec3& worldPos);
-    static PlacementTerrainSample sampleTerrainAtCursor(const Context& context, const glm::mat4& viewMatrix,
-                                                        const glm::vec3& cameraPosition);
+    static PlacementTerrainSample sampleTerrainAtScreenPoint(const Context& context, const glm::mat4& viewMatrix,
+                                 const glm::vec3& cameraPosition, float screenX,
+                                 float screenY, float viewportWidth, float viewportHeight);
     static std::string validatePlacement(const Context& context, const TowerArchetype& archetype,
                                          const glm::vec3& worldPos, int footprintSampleCount,
                                          const PlacementTerrainSample& terrainSample, float availableFunds);

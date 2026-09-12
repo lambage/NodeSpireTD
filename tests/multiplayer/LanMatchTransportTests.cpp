@@ -137,3 +137,96 @@ TEST(LanMatchTransport, DisconnectingAPeerStopsFurtherReceivesFromIt) {
     EXPECT_FALSE(host.sendCommandResult(peerId, "unreachable"));
 }
 
+TEST(LanMatchTransport, FlushesQueuedResultBeforeDisconnectingPeer) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto acceptedPeers = host.drainAcceptedPeers();
+    ASSERT_EQ(acceptedPeers.size(), 1U);
+    const auto peerId = acceptedPeers.front();
+    ASSERT_TRUE(host.sendPartyJoinResult(peerId, "rejected-payload"));
+    ASSERT_TRUE(host.disconnectPeerAfterWrites(peerId));
+    EXPECT_FALSE(host.sendPartyJoinResult(peerId, "unreachable"));
+
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    const auto result = client.consumePartyJoinResult();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "rejected-payload");
+}
+
+TEST(LanMatchTransport, SendsPartyChatMessageToOneJoinedPeer) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto acceptedPeers = host.drainAcceptedPeers();
+    ASSERT_EQ(acceptedPeers.size(), 1U);
+    const auto peerId = acceptedPeers.front();
+    EXPECT_FALSE(host.sendPartyChatMessage(peerId, "too-early"));
+
+    ASSERT_TRUE(host.markPeerPartyJoined(peerId));
+    ASSERT_TRUE(host.sendPartyChatMessage(peerId, "welcome-payload"));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto messages = client.drainPartyChatMessages();
+    ASSERT_EQ(messages.size(), 1U);
+    EXPECT_EQ(messages.front(), "welcome-payload");
+}
+
+TEST(LanMatchTransport, BroadcastsMatchBeginOnlyToPartyJoinedPeers) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto acceptedPeers = host.drainAcceptedPeers();
+    ASSERT_EQ(acceptedPeers.size(), 1U);
+    host.broadcastPartyMatchBegin();
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    EXPECT_FALSE(client.consumePartyMatchBegin());
+
+    ASSERT_TRUE(host.markPeerPartyJoined(acceptedPeers.front()));
+    host.broadcastPartyMatchBegin();
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    EXPECT_TRUE(client.consumePartyMatchBegin());
+    EXPECT_FALSE(client.consumePartyMatchBegin());
+}
+
+TEST(LanMatchTransport, BroadcastsMatchEndOnlyToPartyJoinedPeers) {
+    boost::asio::io_context ioContext;
+
+    multiplayer::LanMatchTransport host(ioContext);
+    ASSERT_TRUE(host.listen(0));
+
+    multiplayer::LanMatchClient client(ioContext);
+    ASSERT_TRUE(client.connect("127.0.0.1", host.listenPort()));
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+
+    const auto acceptedPeers = host.drainAcceptedPeers();
+    ASSERT_EQ(acceptedPeers.size(), 1U);
+    host.broadcastPartyMatchEnd();
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    EXPECT_FALSE(client.consumePartyMatchEnd());
+
+    ASSERT_TRUE(host.markPeerPartyJoined(acceptedPeers.front()));
+    host.broadcastPartyMatchEnd();
+    pumpNetwork(ioContext, std::chrono::milliseconds(200));
+    EXPECT_TRUE(client.consumePartyMatchEnd());
+    EXPECT_FALSE(client.consumePartyMatchEnd());
+}
+

@@ -48,6 +48,7 @@ class LanMatchTransport final : public IMatchTransport {
     bool markPeerJoined(TransportPeerId peerId);
     bool sendJoinResult(TransportPeerId peerId, std::string payload);
     bool disconnectPeer(TransportPeerId peerId);
+    bool disconnectPeerAfterWrites(TransportPeerId peerId);
 
     // Peers whose connection dropped unexpectedly (not via an explicit disconnectPeer() call)
     // since the last drain. The owner (MultiplayerSession) uses this to remove the peer's party
@@ -68,10 +69,13 @@ class LanMatchTransport final : public IMatchTransport {
     bool sendPartyJoinResult(TransportPeerId peerId, std::string payload);
     void broadcastPartyRosterSnapshot(std::string payload);
     void broadcastPartyMatchStart(std::string payload);
+    void broadcastPartyMatchBegin();
+    void broadcastPartyMatchEnd();
 
     // Chat/emote traffic. Like ready/kick, a peer must be party-joined before its chat intents
     // are trusted (enforced in handleFrame(), not by the caller).
     std::vector<PartyPeerFrame> drainPartyChatSendRequests();
+    bool sendPartyChatMessage(TransportPeerId peerId, std::string payload);
     void broadcastPartyChatMessage(std::string payload);
     bool sendPartyChatCommandError(TransportPeerId peerId, std::string payload);
 

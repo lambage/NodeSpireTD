@@ -1,0 +1,73 @@
+body
+{
+	width: 100%;
+	height: 100%;
+	background-color: #000000;
+}
+
+#mainmenu-root
+{
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+#mainmenu-background
+{
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	decorator: image("../../images/splash_screen.png" contain center center);
+}
+
+.menu
+{
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.menu-button
+{
+	display: block;
+	width: 260dp;
+	height: 110dp;
+	margin-bottom: 12dp;
+}
+
+.play-button
+{
+	decorator: image("../../images/play_button.png" contain center center);
+}
+
+.play-button:hover
+{
+	decorator: image("../../images/play_button_hover.png" contain center center);
+}
+
+.options-button
+{
+	decorator: image("../../images/options_button.png" contain center center);
+}
+
+.options-button:hover
+{
+	decorator: image("../../images/options_button_hover.png" contain center center);
+}
+
+.exit-button
+{
+	decorator: image("../../images/quit_button.png" contain center center);
+}
+
+.exit-button:hover
+{
+	decorator: image("../../images/quit_button_hover.png" contain center center);
+}

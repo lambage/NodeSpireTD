@@ -18,6 +18,7 @@ nlohmann::json settingsToJson(const AppSettings& settings) {
         {"masterVolume", settings.masterVolume},
         {"musicVolume", settings.musicVolume},
         {"sfxVolume", settings.sfxVolume},
+        {"audioDevice", settings.audioDevice},
         {"muteWhenUnfocused", settings.muteWhenUnfocused},
     };
 }
@@ -35,6 +36,7 @@ AppSettings settingsFromJson(const nlohmann::json& json) {
     settings.masterVolume = json.value("masterVolume", settings.masterVolume);
     settings.musicVolume = json.value("musicVolume", settings.musicVolume);
     settings.sfxVolume = json.value("sfxVolume", settings.sfxVolume);
+    settings.audioDevice = json.value("audioDevice", settings.audioDevice);
     settings.muteWhenUnfocused = json.value("muteWhenUnfocused", settings.muteWhenUnfocused);
 
     return settings;

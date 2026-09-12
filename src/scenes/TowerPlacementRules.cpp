@@ -4,7 +4,6 @@
 
 #include <cmath>
 #include <glm/gtc/matrix_transform.hpp>
-#include <imgui.h>
 
 namespace {
 
@@ -93,28 +92,26 @@ bool TowerPlacementRules::isPointOnPath(const Context& context, const glm::vec3&
     return false;
 }
 
-PlacementTerrainSample TowerPlacementRules::sampleTerrainAtCursor(const Context& context, const glm::mat4& viewMatrix,
-                                                                  const glm::vec3& cameraPosition) {
+PlacementTerrainSample TowerPlacementRules::sampleTerrainAtScreenPoint(
+    const Context& context, const glm::mat4& viewMatrix, const glm::vec3& cameraPosition, float screenX,
+    float screenY, float viewportWidth, float viewportHeight) {
     PlacementTerrainSample sample;
     if (!context.worldRenderer || !context.worldRenderer->isLoaded()) {
         return sample;
     }
 
-    const ImGuiIO& io = ImGui::GetIO();
-    const ImVec2 displaySize = io.DisplaySize;
-    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) {
+    if (viewportWidth <= 1.0f || viewportHeight <= 1.0f) {
         return sample;
     }
 
-    const ImVec2 mousePos = io.MousePos;
-    if (!std::isfinite(mousePos.x) || !std::isfinite(mousePos.y)) {
+    if (!std::isfinite(screenX) || !std::isfinite(screenY)) {
         return sample;
     }
 
-    const float ndcX = (2.0f * mousePos.x) / displaySize.x - 1.0f;
-    const float ndcY = (2.0f * mousePos.y) / displaySize.y - 1.0f;
+    const float ndcX = (2.0f * screenX) / viewportWidth - 1.0f;
+    const float ndcY = (2.0f * screenY) / viewportHeight - 1.0f;
 
-    const float aspect = displaySize.y > 0.0f ? (displaySize.x / displaySize.y) : 1.0f;
+    const float aspect = viewportWidth / viewportHeight;
     constexpr float kFovYRadians = glm::radians(60.0f);
     glm::mat4 proj = glm::perspective(kFovYRadians, aspect, 0.05f, 2000.0f);
     proj[1][1] *= -1.0f;

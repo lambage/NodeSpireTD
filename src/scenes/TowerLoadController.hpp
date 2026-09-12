@@ -12,21 +12,6 @@ struct lua_State;
 struct WorldAssetSpec;
 
 struct TowerArchetype {
-  struct UpgradeUiStyle {
-    std::string panelTitle = "Tower Talent Tree";
-    std::string artPath;
-    std::string defaultNodeIconPath = "assets/images/question.png";
-    float accentR = 0.62f;
-    float accentG = 0.42f;
-    float accentB = 0.08f;
-    float unlockedR = 0.15f;
-    float unlockedG = 0.52f;
-    float unlockedB = 0.27f;
-    float lockedR = 0.22f;
-    float lockedG = 0.23f;
-    float lockedB = 0.26f;
-  };
-
   struct UpgradeEffects {
     float attackDamageAdd = 0.0f;
     float attackDamageMul = 1.0f;
@@ -42,6 +27,14 @@ struct TowerArchetype {
     float chainRangeMul = 1.0f;
     float ricochetRangeAdd = 0.0f;
     float ricochetRangeMul = 1.0f;
+    float burnDamagePerSecondAdd = 0.0f;
+    float burnDurationAdd = 0.0f;
+    float slowAmountAdd = 0.0f;
+    float slowDurationAdd = 0.0f;
+    float freezeChanceAdd = 0.0f;
+    float freezeDurationAdd = 0.0f;
+    float critChanceAdd = 0.0f;
+    float critDamageMulAdd = 0.0f;
     int projectileCountAdd = 0;
     int chainTargetCountAdd = 0;
     int ricochetCountAdd = 0;
@@ -56,14 +49,8 @@ struct TowerArchetype {
     std::string id;
     std::string displayName;
     std::string description;
-    std::string iconPath;
-    std::string parentId;
-    std::vector<std::string> childrenOrder;
     std::string towerModelPathOverride;
     std::string projectileModelPathOverride;
-    std::string branch;
-    int tier = 0;
-    int column = 0;
     int minUpgradesRequired = 0;
     int towerPrototypeOverrideIndex = -1;
     int projectilePrototypeOverrideIndex = -1;
@@ -89,12 +76,20 @@ struct TowerArchetype {
     float splashRadius = 0.0f;
     float chainRange = 3.5f;
     float ricochetRange = 3.5f;
+    float burnDamagePerSecond = 0.0f;
+    float burnDuration = 0.0f;
+    float slowAmount = 0.0f;
+    float slowDuration = 0.0f;
+    float freezeChance = 0.0f;
+    float freezeDuration = 0.0f;
+    float critChance = 0.0f;
+    float critDamageMul = 1.0f;
     int projectileCount = 1;
     int chainTargetCount = 1;
     int ricochetCount = 0;
     float renderScale = 1.0f;
     float facingYawOffsetDegrees = 0.0f;
-    UpgradeUiStyle upgradeUi;
+    float projectileFacingYawOffsetDegrees = 0.0f;
     std::vector<UpgradeNode> upgradeNodes;
 };
 
@@ -122,6 +117,7 @@ class TowerLoadController {
 
     const TowerArchetype* findArchetype(const std::string& towerId) const;
     const TowerArchetype* archetypeAtLoadoutSlot(int slot) const;
+    void setLoadoutIds(const std::vector<std::string>& towerIds);
 
     const std::vector<std::string>& loadoutIds() const { return loadoutIds_; }
     const std::unordered_map<std::string, TowerArchetype>& archetypes() const { return archetypes_; }

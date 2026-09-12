@@ -1,13 +1,14 @@
 {
-    "displayHeight": 1200,
-    "displayWidth": 1920,
+    "audioDevice": "",
+    "displayHeight": 1024,
+    "displayWidth": 1600,
     "exclusiveFullscreen": false,
     "fullscreen": true,
     "graphicsQuality": 0,
-    "masterVolume": 0.14499999582767487,
-    "musicVolume": 0.23999999463558197,
-    "muteWhenUnfocused": false,
-    "refreshRate": 60,
+    "masterVolume": 0.8299999833106995,
+    "musicVolume": 0.14000000059604645,
+    "muteWhenUnfocused": true,
+    "refreshRate": 30,
     "sfxVolume": 1.0,
     "vSyncEnabled": true
 }
