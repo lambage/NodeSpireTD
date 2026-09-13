@@ -50,7 +50,12 @@ struct WorldAssetSpec {
 struct WorldStagedMesh {
     std::vector<WorldVertex> vertices;
     std::vector<uint32_t> indices;
-    std::size_t imageIndex = SIZE_MAX;
+    struct MaterialTextureRefs {
+        std::size_t baseColorImageIndex = SIZE_MAX;
+        std::size_t normalImageIndex = SIZE_MAX;
+        std::size_t ormImageIndex = SIZE_MAX;
+        std::size_t emissiveImageIndex = SIZE_MAX;
+    } materialTextures{};
     glm::mat4 modelTransform{1.0f};
     glm::mat4 groupRootTransform{1.0f};
     int templatePrototypeIndex = -1;

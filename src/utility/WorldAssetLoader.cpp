@@ -217,6 +217,36 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                                      std::string_view assetId,
                                      const std::string& activityLabel) {
         setActivity(0.05f, "Scanning materials for " + activityLabel + "...");
+        auto queueTextureImage = [&](const auto& texInfo, std::set<std::size_t>& outNeededImages) {
+            if (!texInfo.has_value()) {
+                return;
+            }
+            const std::size_t tIdx = texInfo->textureIndex;
+            if (tIdx < srcAsset.textures.size() && srcAsset.textures[tIdx].imageIndex.has_value()) {
+                outNeededImages.insert(*srcAsset.textures[tIdx].imageIndex);
+            }
+        };
+
+        auto queueNormalTextureImage = [&](const auto& texInfo, std::set<std::size_t>& outNeededImages) {
+            if (!texInfo.has_value()) {
+                return;
+            }
+            const std::size_t tIdx = texInfo->textureIndex;
+            if (tIdx < srcAsset.textures.size() && srcAsset.textures[tIdx].imageIndex.has_value()) {
+                outNeededImages.insert(*srcAsset.textures[tIdx].imageIndex);
+            }
+        };
+
+        auto queueOcclusionTextureImage = [&](const auto& texInfo, std::set<std::size_t>& outNeededImages) {
+            if (!texInfo.has_value()) {
+                return;
+            }
+            const std::size_t tIdx = texInfo->textureIndex;
+            if (tIdx < srcAsset.textures.size() && srcAsset.textures[tIdx].imageIndex.has_value()) {
+                outNeededImages.insert(*srcAsset.textures[tIdx].imageIndex);
+            }
+        };
+
         std::set<std::size_t> neededImgs;
         for (const auto& mesh : srcAsset.meshes) {
             for (const auto& prim : mesh.primitives) {
@@ -224,13 +254,11 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
                     continue;
                 }
                 const auto& mat = srcAsset.materials[*prim.materialIndex];
-                if (!mat.pbrData.baseColorTexture.has_value()) {
-                    continue;
-                }
-                const auto tIdx = mat.pbrData.baseColorTexture->textureIndex;
-                if (tIdx < srcAsset.textures.size() && srcAsset.textures[tIdx].imageIndex.has_value()) {
-                    neededImgs.insert(*srcAsset.textures[tIdx].imageIndex);
-                }
+                queueTextureImage(mat.pbrData.baseColorTexture, neededImgs);
+                queueNormalTextureImage(mat.normalTexture, neededImgs);
+                queueTextureImage(mat.pbrData.metallicRoughnessTexture, neededImgs);
+                queueOcclusionTextureImage(mat.occlusionTexture, neededImgs);
+                queueTextureImage(mat.emissiveTexture, neededImgs);
             }
         }
 
@@ -481,22 +509,65 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
             }
         }
 
-        std::size_t imgKey = SIZE_MAX;
+        WorldStagedMesh::MaterialTextureRefs materialTextures{};
+        auto resolveTextureImageKey = [&](const auto& texInfo) -> std::size_t {
+            if (!texInfo.has_value()) {
+                return SIZE_MAX;
+            }
+            const std::size_t tIdx = texInfo->textureIndex;
+            if (tIdx >= srcAsset.textures.size()) {
+                return SIZE_MAX;
+            }
+            if (!srcAsset.textures[tIdx].imageIndex.has_value()) {
+                return SIZE_MAX;
+            }
+            return makeTextureKey(assetId, *srcAsset.textures[tIdx].imageIndex);
+        };
+        auto resolveNormalTextureImageKey = [&](const auto& texInfo) -> std::size_t {
+            if (!texInfo.has_value()) {
+                return SIZE_MAX;
+            }
+            const std::size_t tIdx = texInfo->textureIndex;
+            if (tIdx >= srcAsset.textures.size()) {
+                return SIZE_MAX;
+            }
+            if (!srcAsset.textures[tIdx].imageIndex.has_value()) {
+                return SIZE_MAX;
+            }
+            return makeTextureKey(assetId, *srcAsset.textures[tIdx].imageIndex);
+        };
+        auto resolveOcclusionTextureImageKey = [&](const auto& texInfo) -> std::size_t {
+            if (!texInfo.has_value()) {
+                return SIZE_MAX;
+            }
+            const std::size_t tIdx = texInfo->textureIndex;
+            if (tIdx >= srcAsset.textures.size()) {
+                return SIZE_MAX;
+            }
+            if (!srcAsset.textures[tIdx].imageIndex.has_value()) {
+                return SIZE_MAX;
+            }
+            return makeTextureKey(assetId, *srcAsset.textures[tIdx].imageIndex);
+        };
+
         if (primitive.materialIndex.has_value()) {
             const auto& mat = srcAsset.materials[*primitive.materialIndex];
-            if (mat.pbrData.baseColorTexture.has_value()) {
-                const auto tIdx = mat.pbrData.baseColorTexture->textureIndex;
-                if (tIdx < srcAsset.textures.size() && srcAsset.textures[tIdx].imageIndex.has_value()) {
-                    imgKey = makeTextureKey(assetId, *srcAsset.textures[tIdx].imageIndex);
-                }
-            } else {
+            materialTextures.baseColorImageIndex = resolveTextureImageKey(mat.pbrData.baseColorTexture);
+            materialTextures.normalImageIndex = resolveNormalTextureImageKey(mat.normalTexture);
+            materialTextures.emissiveImageIndex = resolveTextureImageKey(mat.emissiveTexture);
+            materialTextures.ormImageIndex = resolveTextureImageKey(mat.pbrData.metallicRoughnessTexture);
+            if (materialTextures.ormImageIndex == SIZE_MAX) {
+                materialTextures.ormImageIndex = resolveOcclusionTextureImageKey(mat.occlusionTexture);
+            }
+
+            if (!mat.pbrData.baseColorTexture.has_value()) {
                 const auto& factor = mat.pbrData.baseColorFactor;
                 constexpr float kEps = 1.0f / 255.0f;
                 const bool isDefaultWhite = std::abs(factor[0] - 1.0f) < kEps &&
                                             std::abs(factor[1] - 1.0f) < kEps &&
                                             std::abs(factor[2] - 1.0f) < kEps;
                 if (!isDefaultWhite) {
-                    imgKey = getOrCreateColorTexture(factor);
+                    materialTextures.baseColorImageIndex = getOrCreateColorTexture(factor);
                 }
             }
         }
@@ -504,7 +575,7 @@ bool WorldAssetLoader::load(const std::filesystem::path& assetPath,
         WorldStagedMesh sm;
         sm.vertices = std::move(vertices);
         sm.indices = std::move(indices);
-        sm.imageIndex = imgKey;
+        sm.materialTextures = materialTextures;
         sm.modelTransform = worldTransform;
         sm.groupRootTransform = groupRootTransform;
         sm.templatePrototypeIndex = templatePrototypeIndex;

@@ -17,8 +17,9 @@ layout(push_constant) uniform PushConstants {
     float previewLightBoost;
 } pc;
 
-layout(location = 0) out vec3 fragNormal;
-layout(location = 1) out vec2 fragUv;
+layout(location = 0) out vec3 fragWorldNormal;
+layout(location = 1) out vec3 fragWorldPos;
+layout(location = 2) out vec2 fragUv;
 
 void main() {
     vec4 localPos = vec4(inPosition, 1.0);
@@ -36,7 +37,9 @@ void main() {
         localNrm = mat3(skinMatrix) * localNrm;
     }
 
+    vec4 worldPos = pc.model * localPos;
     gl_Position = pc.mvp * localPos;
-    fragNormal = mat3(pc.model) * localNrm;
+    fragWorldNormal = mat3(pc.model) * localNrm;
+    fragWorldPos = worldPos.xyz;
     fragUv = inUv;
 }

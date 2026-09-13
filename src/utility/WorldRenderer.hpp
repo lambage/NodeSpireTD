@@ -58,6 +58,29 @@ struct WorldMesh {
     std::string     debugLabel;
 };
 
+struct MaterialTextureSetHash {
+    std::size_t operator()(const WorldStagedMesh::MaterialTextureRefs& refs) const noexcept {
+        const auto mix = [](std::size_t seed, std::size_t value) -> std::size_t {
+            seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+            return seed;
+        };
+        std::size_t seed = 0;
+        seed = mix(seed, refs.baseColorImageIndex);
+        seed = mix(seed, refs.normalImageIndex);
+        seed = mix(seed, refs.ormImageIndex);
+        seed = mix(seed, refs.emissiveImageIndex);
+        return seed;
+    }
+};
+
+inline bool operator==(const WorldStagedMesh::MaterialTextureRefs& a,
+                       const WorldStagedMesh::MaterialTextureRefs& b) {
+    return a.baseColorImageIndex == b.baseColorImageIndex &&
+           a.normalImageIndex == b.normalImageIndex &&
+           a.ormImageIndex == b.ormImageIndex &&
+           a.emissiveImageIndex == b.emissiveImageIndex;
+}
+
 struct WorldPickHit {
     bool hit = false;
     float distance = 0.0f;
@@ -252,9 +275,13 @@ class WorldRenderer {
     VkSampler        sampler_         = VK_NULL_HANDLE;
     VkDescriptorPool ownDescPool_     = VK_NULL_HANDLE;
     VkDescriptorSet  fallbackDescSet_ = VK_NULL_HANDLE;
-    WorldTexture     fallbackTexture_;
+    WorldTexture     fallbackBaseColorTexture_;
+    WorldTexture     fallbackNormalTexture_;
+    WorldTexture     fallbackOrmTexture_;
+    WorldTexture     fallbackEmissiveTexture_;
     std::unordered_map<std::size_t, WorldTexture>    textureCache_;
-    std::unordered_map<std::size_t, VkDescriptorSet> texDescSetCache_;
+    std::unordered_map<WorldStagedMesh::MaterialTextureRefs, VkDescriptorSet, MaterialTextureSetHash>
+        materialDescSetCache_;
 
     // ── Async loading ─────────────────────────────────────────────────────
     WorldAssetLoader assetLoader_;
@@ -284,9 +311,9 @@ class WorldRenderer {
     std::size_t              gpuTexCursor_   = 0;
     bool                     gpuDescsDone_   = false;
     bool                     gpuPipeDone_    = false;
-    std::vector<std::size_t> meshImgIdx_;   // parallel to meshes_
-    std::vector<std::size_t> enemyMeshImgIdx_; // parallel to enemyTemplateMeshes_
-    std::vector<std::size_t> towerMeshImgIdx_; // parallel to towerTemplateMeshes_
+    std::vector<WorldStagedMesh::MaterialTextureRefs> meshMaterialRefs_;   // parallel to meshes_
+    std::vector<WorldStagedMesh::MaterialTextureRefs> enemyMeshMaterialRefs_; // parallel to enemyTemplateMeshes_
+    std::vector<WorldStagedMesh::MaterialTextureRefs> towerMeshMaterialRefs_; // parallel to towerTemplateMeshes_
 
     AnimatedEntityInstanceSet animatedEntityInstances_;
     AnimatedEntityInstanceSet towerInstances_;
@@ -379,7 +406,10 @@ class WorldRenderer {
     void buildGroundCircleGeometry();
     void createSamplerLayoutAndPool();
     WorldTexture    uploadRGBAImage(const uint8_t* pixels, uint32_t w, uint32_t h);
-    VkDescriptorSet makeTextureDescSet(VkImageView view);
+    VkDescriptorSet makeTextureDescSet(VkImageView baseColorView,
+                                       VkImageView normalView,
+                                       VkImageView ormView,
+                                       VkImageView emissiveView);
     void            createFallbackTexture();
 
     VkShaderModule loadSpirv(const std::filesystem::path& path) const;
