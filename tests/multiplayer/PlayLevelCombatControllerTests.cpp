@@ -108,3 +108,27 @@ TEST(PlayLevelCombatController, BurnDamageTicksAndCreditsItsSourceTower) {
     EXPECT_EQ(enemies[0].lastDamagingTowerRuntimeId, 42);
     EXPECT_FLOAT_EQ(towers[0].totalDamageDealt, 5.0f);
 }
+
+TEST(PlayLevelCombatController, CleansUpFinishedDeathAnimations) {
+    PlayLevelCombatController combat;
+    std::vector<playlevel::ActiveEnemy> enemies(2);
+    enemies[0].runtimeId = 1;
+    enemies[0].lifecycleState = playlevel::EnemyLifecycleState::Dying;
+    enemies[0].deathClipName = "Death";
+    enemies[0].deathElapsedSeconds = 0.5f;
+    enemies[1].runtimeId = 2;
+    enemies[1].lifecycleState = playlevel::EnemyLifecycleState::Dying;
+    enemies[1].deathClipName = "Death";
+    enemies[1].deathElapsedSeconds = 0.0f;
+
+    combat.advanceDyingEnemies(0.75f,
+                               [](const playlevel::ActiveEnemy& enemy) {
+                                   return enemy.deathClipName == "Death" ? 1.0f : 0.0f;
+                               },
+                               enemies);
+
+    ASSERT_EQ(enemies.size(), 1);
+    EXPECT_EQ(enemies[0].runtimeId, 2);
+    EXPECT_EQ(enemies[0].lifecycleState, playlevel::EnemyLifecycleState::Dying);
+    EXPECT_FLOAT_EQ(enemies[0].deathElapsedSeconds, 0.75f);
+}

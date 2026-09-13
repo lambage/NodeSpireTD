@@ -1453,14 +1453,35 @@ void PlayLevelScene::updateMatchSimulation(float dt) {
         syncEnemyInstances();
         return;
     }
-    if (gameplayState_.matchStatus != MatchStatus::Running) {
+    const bool terminalState = gameplayState_.matchStatus == MatchStatus::Victory ||
+                              gameplayState_.matchStatus == MatchStatus::Defeat;
+    if (!terminalState && gameplayState_.matchStatus != MatchStatus::Running) {
         return;
     }
-    matchSimulation_.advance(dt, [this](multiplayer::SimulationTick tick, float tickSeconds) {
-        drainRemoteCommands(tick);
-        updateWaveSimulation(tickSeconds);
-        publishSnapshot(tick);
-    });
+
+    if (gameplayState_.matchStatus == MatchStatus::Running) {
+        matchSimulation_.advance(dt, [this](multiplayer::SimulationTick tick, float tickSeconds) {
+            drainRemoteCommands(tick);
+            updateWaveSimulation(tickSeconds);
+            publishSnapshot(tick);
+        });
+    } else {
+        const auto countAliveEnemies = [this]() {
+            return static_cast<int>(std::count_if(activeEnemies_.begin(), activeEnemies_.end(), [](const auto& enemy) {
+                return enemy.lifecycleState == playlevel::EnemyLifecycleState::Alive;
+            }));
+        };
+
+        matchSimulation_.combatController().advanceDyingEnemies(
+            dt,
+            [this](const playlevel::ActiveEnemy& enemy) {
+                const int clipIndex = worldRenderer_->templateAnimationClipIndexByName(
+                    enemy.deathClipName, enemy.templatePrototypeIndex);
+                return worldRenderer_->templateAnimationClipDurationSeconds(clipIndex, enemy.templatePrototypeIndex);
+            },
+            activeEnemies_);
+        gameplayState_.enemiesAlive = countAliveEnemies();
+    }
     syncTowerInstances();
     syncEnemyInstances();
 }
