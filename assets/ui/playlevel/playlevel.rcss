@@ -380,6 +380,17 @@ header
 .tower-stats span { margin-top: 3dp; font-size: 14dp; color: #f3f0df; }
 .tower-details { padding: 8dp 0; }
 .tower-details span { display: block; margin: 2dp 0; font-size: 11dp; color: #9eaaa2; }
+.tower-actions { margin-top: 10dp; padding-top: 10dp; border-top: 1dp #38453f; }
+.sell-tower-button
+{
+	padding: 10dp 16dp;
+	font-size: 11dp;
+	font-weight: bold;
+	color: #102019;
+	background-color: #d9b86b;
+	border: 1dp #f4d89d;
+}
+.sell-tower-button:hover { background-color: #ebd28d; border-color: #fff0bd; }
 .tower-tech-tree { margin-top: 10dp; }
 .enemy-profile
 {

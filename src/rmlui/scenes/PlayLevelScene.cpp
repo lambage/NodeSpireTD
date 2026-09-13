@@ -39,11 +39,12 @@ constexpr const char* kInteractiveIds[] = {"retry-button", "start-match-button",
                                             "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
                                             "tower-slot-0", "tower-slot-1", "tower-slot-2", "tower-slot-3",
                                             "tower-slot-4", "close-tower-profile", "close-enemy-profile",
-                                            "match-chat-send-button"};
+                                            "match-chat-send-button", "sell-tower-button"};
 constexpr const char* kTowerProfilePanelId = "tower-profile";
 constexpr const char* kTowerProfileDragHandleId = "tower-profile-drag-handle";
 constexpr const char* kPlayLevelRootId = "playlevel-root";
 constexpr float kTowerGhostAlpha = 0.45f;
+constexpr float kTowerSellRefundRatio = 0.80f;
 constexpr multiplayer::SimulationTick kSnapshotIntervalTicks = 3;
 constexpr glm::vec4 kPlacementRangeFill{0.18f, 0.72f, 0.48f, 0.16f};
 constexpr glm::vec4 kPlacementRangeOutline{0.35f, 1.0f, 0.65f, 0.85f};
@@ -119,6 +120,30 @@ bool canPurchaseUpgrade(const playlevel::PlacedTower& tower, const TowerArchetyp
     }
     if (reason) reason->clear();
     return true;
+}
+
+int towerTotalSpent(const playlevel::PlacedTower& tower, const TowerArchetype* archetype) {
+    int totalSpent = tower.cost;
+    if (!archetype) {
+        return totalSpent;
+    }
+    std::unordered_map<std::string, int> purchasedLevels;
+    for (const auto& nodeId : tower.unlockedUpgradeNodeIds) {
+        const auto node = std::find_if(archetype->upgradeNodes.begin(), archetype->upgradeNodes.end(),
+                                       [&nodeId](const auto& item) { return item.id == nodeId; });
+        if (node == archetype->upgradeNodes.end()) {
+            continue;
+        }
+        const int level = purchasedLevels[nodeId]++;
+        if (level < static_cast<int>(node->upgradeLevels.size())) {
+            totalSpent += node->upgradeLevels[static_cast<std::size_t>(level)].cost;
+        }
+    }
+    return totalSpent;
+}
+
+int towerSellValue(const playlevel::PlacedTower& tower, const TowerArchetype* archetype) {
+    return static_cast<int>(std::lround(static_cast<float>(towerTotalSpent(tower, archetype)) * kTowerSellRefundRatio));
 }
 
 void appendEffect(std::ostringstream& output, bool& hasEffect, const char* label, float value,
@@ -603,6 +628,39 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
         return;
     }
 
+    if (id == "sell-tower-button") {
+        const auto placed = std::find_if(placedTowers_.begin(), placedTowers_.end(), [this](const auto& tower) {
+            return tower.runtimeId == selectedTowerRuntimeId_;
+        });
+        if (placed == placedTowers_.end()) {
+            placementReason_ = "No tower selected for sale.";
+            refreshLoadout();
+            return;
+        }
+        const TowerArchetype* archetype = towerLoadController_ ? towerLoadController_->findArchetype(placed->towerId)
+                                                                : nullptr;
+        if (placed->ownerPlayerId != localPlayerId_) {
+            placementReason_ = "Only your own towers can be sold.";
+            refreshLoadout();
+            return;
+        }
+        multiplayer::SellTowerCommand sell;
+        sell.towerRuntimeId = selectedTowerRuntimeId_;
+        const int refund = towerSellValue(*placed, archetype);
+        if (selectedTowerRuntimeId_ != 0 && submitCommand(std::move(sell))) {
+            placementReason_ = "Tower sold for $" + std::to_string(refund) + ".";
+            selectedTowerRuntimeId_ = 0;
+            refreshTowerProfile();
+            refreshEnemyProfile();
+            syncTowerInstances();
+            refreshHud();
+        } else {
+            placementReason_ = "Tower sale was rejected by the host.";
+        }
+        refreshLoadout();
+        return;
+    }
+
     if (id == "close-enemy-profile") {
         selectedEnemyRuntimeId_ = 0;
         refreshEnemyProfile();
@@ -879,17 +937,14 @@ void PlayLevelScene::refreshTowerProfile() {
     setText(document_, "tower-range", value);
     std::snprintf(value, sizeof(value), "%.2f/s", 1.0f / std::max(0.01f, found->attackIntervalSeconds));
     setText(document_, "tower-rate", value);
-    int totalSpent = found->cost;
-    std::unordered_map<std::string, int> purchasedLevels;
-    for (const auto& nodeId : found->unlockedUpgradeNodeIds) {
-        const auto node = std::find_if(archetype->upgradeNodes.begin(), archetype->upgradeNodes.end(), [&nodeId](const auto& item) {
-            return item.id == nodeId;
-        });
-        if (node == archetype->upgradeNodes.end()) continue;
-        const int level = purchasedLevels[nodeId]++;
-        if (level < static_cast<int>(node->upgradeLevels.size())) totalSpent += node->upgradeLevels[level].cost;
-    }
+    const int totalSpent = towerTotalSpent(*found, archetype);
+    const int refundValue = towerSellValue(*found, archetype);
     setText(document_, "tower-spent", "$" + std::to_string(totalSpent));
+    if (Rml::Element* sellButton = document_->GetElementById("sell-tower-button")) {
+        const bool canSell = found->ownerPlayerId == localPlayerId_ && gameplayState_.matchStatus == MatchStatus::Running;
+        sellButton->SetClass("hidden", !canSell);
+        sellButton->SetInnerRML("Sell for $" + std::to_string(refundValue));
+    }
     setText(document_, "tower-damage-type", std::string(playlevel::damageTypeToString(found->damageType)) + " damage");
     std::snprintf(value, sizeof(value), "Armor piercing: %.1f", found->armorPiercing);
     setText(document_, "tower-armor-piercing", value);
@@ -1232,6 +1287,24 @@ PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandReq
         if (node->towerPrototypeOverrideIndex >= 0) placed->towerPrototypeIndex = node->towerPrototypeOverrideIndex;
         if (node->projectilePrototypeOverrideIndex >= 0) placed->projectilePrototypeIndex = node->projectilePrototypeOverrideIndex;
         if (command.playerId == localPlayerId_) gameplayState_.playerMoney = matchSimulation_.playerBalance(localPlayerId_);
+        syncTowerInstances();
+        return std::nullopt;
+    }
+    if (const auto* sell = std::get_if<multiplayer::SellTowerCommand>(&command.payload)) {
+        const auto placed = std::find_if(placedTowers_.begin(), placedTowers_.end(), [sell](const auto& tower) {
+            return tower.runtimeId == sell->towerRuntimeId;
+        });
+        if (placed == placedTowers_.end()) return multiplayer::CommandRejectionReason::UnknownTower;
+        if (placed->ownerPlayerId != command.playerId) return multiplayer::CommandRejectionReason::TowerNotOwnedByPlayer;
+        const TowerArchetype* archetype = towerLoadController_->findArchetype(placed->towerId);
+        const int refund = towerSellValue(*placed, archetype);
+        if (!matchSimulation_.creditPlayer(command.playerId, static_cast<float>(refund))) {
+            return multiplayer::CommandRejectionReason::InvalidPayload;
+        }
+        placedTowers_.erase(placed);
+        if (command.playerId == localPlayerId_) gameplayState_.playerMoney = matchSimulation_.playerBalance(localPlayerId_);
+        selectedTowerRuntimeId_ = 0;
+        selectedEnemyRuntimeId_ = 0;
         syncTowerInstances();
         return std::nullopt;
     }

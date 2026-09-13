@@ -59,6 +59,9 @@
 				<span id="tower-area-stats">Splash: 0 | Chain: 0 | Ricochet: 0</span>
 				<span id="tower-effect-stats">Burn: 0 | Slow: 0 | Freeze: 0 | Crit: 0</span>
 			</div>
+			<div class="tower-actions">
+				<button id="sell-tower-button" class="sell-tower-button">Sell for $0</button>
+			</div>
 			<div id="tower-tech-tree" class="tower-tech-tree"></div>
 		</section>
 
