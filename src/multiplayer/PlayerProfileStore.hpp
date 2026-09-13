@@ -20,6 +20,9 @@ class PlayerProfileStore {
     // unchanged if the trimmed name is empty or too long.
     bool setDisplayName(const std::string& displayName);
 
+    // Persists the most recently played catalog level id. Returns false when the id is empty.
+    bool setLastPlayedLevelId(const std::string& levelId);
+
   private:
     void load();
     bool save() const;

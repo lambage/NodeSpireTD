@@ -1,5 +1,4 @@
 - client can change the map locally and doesn't get notified from host when map is changed
-- lobby should remember last map played
 - talent hover ui text should be formatted better (all on one line right now)
 - cleanup tower ui, too much text at the top that doesn't really add much and just takes up space
 

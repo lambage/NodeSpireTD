@@ -1941,6 +1941,9 @@ void PlayLevelScene::setPauseMenuVisible(bool visible) {
         if (Rml::Element* menu = document_->GetElementById("pause-menu")) {
             menu->SetClass("hidden", !visible);
         }
+        // Keep overlay priority deterministic: when pause is open, suppress the
+        // start/preparation modal and restore it after closing pause if needed.
+        refreshHud();
     }
 }
 
@@ -2088,8 +2091,12 @@ void PlayLevelScene::refreshHud() {
                                    snapshot_.phase == PlayLevelUiPhase::LoadFailed;
         status->SetClass("hidden", !statusVisible);
     }
+    const bool preparing = snapshot_.phase == PlayLevelUiPhase::WaitingToStart;
+    const bool terminal = snapshot_.phase == PlayLevelUiPhase::Victory || snapshot_.phase == PlayLevelUiPhase::Defeat;
+    const bool suppressPreparationDialog = preparing && pauseMenuVisible_;
+
     if (Rml::Element* start = document_->GetElementById("start-match-button")) {
-        const bool visible = snapshot_.phase == PlayLevelUiPhase::WaitingToStart && !session_.isClient();
+        const bool visible = preparing && !session_.isClient() && !suppressPreparationDialog;
         start->SetClass("visible", visible);
         if (visible && onlineMatch_ && !session_.allMembersLoadedReady()) {
             start->SetAttribute("disabled", "");
@@ -2097,10 +2104,8 @@ void PlayLevelScene::refreshHud() {
             start->RemoveAttribute("disabled");
         }
     }
-    const bool preparing = snapshot_.phase == PlayLevelUiPhase::WaitingToStart;
-    const bool terminal = snapshot_.phase == PlayLevelUiPhase::Victory || snapshot_.phase == PlayLevelUiPhase::Defeat;
     if (Rml::Element* dialog = document_->GetElementById("end-state-dialog")) {
-        dialog->SetClass("hidden", !preparing && !terminal);
+        dialog->SetClass("hidden", suppressPreparationDialog || (!preparing && !terminal));
         dialog->SetClass("preparation", preparing);
         dialog->SetClass("victory", snapshot_.phase == PlayLevelUiPhase::Victory);
         dialog->SetClass("defeat", snapshot_.phase == PlayLevelUiPhase::Defeat);

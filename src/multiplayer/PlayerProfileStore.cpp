@@ -58,6 +58,7 @@ void PlayerProfileStore::load() {
                 input >> json;
                 profile_.playerUuid = json.value("playerUuid", std::string());
                 profile_.displayName = json.value("displayName", profile_.displayName);
+                profile_.lastPlayedLevelId = json.value("lastPlayedLevelId", std::string());
             } catch (const std::exception& ex) {
                 spdlog::warn("PlayerProfileStore: failed to parse {} ({}). Regenerating.", profileFilePath_.string(),
                              ex.what());
@@ -86,7 +87,9 @@ bool PlayerProfileStore::save() const {
             return false;
         }
 
-        const nlohmann::json json{{"playerUuid", profile_.playerUuid}, {"displayName", profile_.displayName}};
+        const nlohmann::json json{{"playerUuid", profile_.playerUuid},
+                      {"displayName", profile_.displayName},
+                      {"lastPlayedLevelId", profile_.lastPlayedLevelId}};
         output << json.dump(4) << '\n';
         return true;
     } catch (const std::exception& ex) {
@@ -101,6 +104,17 @@ bool PlayerProfileStore::setDisplayName(const std::string& displayName) {
         return false;
     }
     profile_.displayName = trimmedName;
+    return save();
+}
+
+bool PlayerProfileStore::setLastPlayedLevelId(const std::string& levelId) {
+    if (levelId.empty()) {
+        return false;
+    }
+    if (profile_.lastPlayedLevelId == levelId) {
+        return true;
+    }
+    profile_.lastPlayedLevelId = levelId;
     return save();
 }
 

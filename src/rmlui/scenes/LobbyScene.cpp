@@ -191,6 +191,7 @@ bool LobbyScene::loadLevelCatalog() {
     try {
         const nlohmann::json catalog = nlohmann::json::parse(input);
         const std::string defaultLevelId = catalog.value("defaultLevel", std::string{});
+        const std::string lastPlayedLevelId = profileStore_.profile().lastPlayedLevelId;
         for (const auto& item : catalog.at("levels")) {
             LevelEntry level{
                 item.at("id").get<std::string>(),          item.at("name").get<std::string>(),
@@ -207,10 +208,17 @@ bool LobbyScene::loadLevelCatalog() {
             }
         }
 
+        const auto lastPlayedLevel = std::find_if(levels_.begin(), levels_.end(), [&lastPlayedLevelId](const LevelEntry& level) {
+            return level.id == lastPlayedLevelId;
+        });
+        if (lastPlayedLevel != levels_.end()) {
+            selectedLevelIndex_ = static_cast<std::size_t>(std::distance(levels_.begin(), lastPlayedLevel));
+        }
+
         const auto defaultLevel = std::find_if(levels_.begin(), levels_.end(), [&defaultLevelId](const LevelEntry& level) {
             return level.id == defaultLevelId;
         });
-        if (defaultLevel != levels_.end()) {
+        if (lastPlayedLevel == levels_.end() && defaultLevel != levels_.end()) {
             selectedLevelIndex_ = static_cast<std::size_t>(std::distance(levels_.begin(), defaultLevel));
         }
         pendingLevelIndex_ = selectedLevelIndex_;
@@ -599,6 +607,7 @@ void LobbyScene::configurePlayLevelLaunch(const LevelEntry& level) {
                               level.animatedTemplateModels};
     playLevelLaunchConfig_.towerLoadoutIds = std::move(towerLoadoutIds);
     playLevelLaunchConfig_.towerLoadoutConfigured = towerLoadoutConfigured;
+    profileStore_.setLastPlayedLevelId(level.id);
 }
 
 bool LobbyScene::configurePlayLevelLaunch(const multiplayer::PartyMatchStartAnnouncement& announcement) {
