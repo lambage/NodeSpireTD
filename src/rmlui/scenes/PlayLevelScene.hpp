@@ -84,7 +84,9 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     float routeLength() const;
     bool pointerIsOverHud() const;
     const TowerArchetype* selectedTower() const;
-    glm::mat4 buildTowerTransform(const TowerArchetype& tower, const glm::vec3& position) const;
+    glm::mat4 buildTowerTransform(const glm::vec3& position,
+                    float facingYawOffsetDegrees,
+                    float renderScale) const;
     void setPauseMenuVisible(bool visible);
     void populateAudioControls();
     void setAudioValueLabel(const char* id, float value);

@@ -207,6 +207,7 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     lua_pop(L_, 1);
 
     lua_getfield(L_, -1, "render");
+    bool hasProjectileRenderScale = false;
     if (lua_istable(L_, -1)) {
         lua_getfield(L_, -1, "renderScale");
         if (lua_isnumber(L_, -1)) {
@@ -223,6 +224,13 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
         lua_getfield(L_, -1, "projectileFacingYawOffsetDegrees");
         if (lua_isnumber(L_, -1)) {
             outArchetype.projectileFacingYawOffsetDegrees = static_cast<float>(lua_tonumber(L_, -1));
+        }
+        lua_pop(L_, 1);
+
+        lua_getfield(L_, -1, "projectileRenderScale");
+        if (lua_isnumber(L_, -1)) {
+            outArchetype.projectileRenderScale = static_cast<float>(lua_tonumber(L_, -1));
+            hasProjectileRenderScale = true;
         }
         lua_pop(L_, 1);
     }
@@ -272,6 +280,28 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                 lua_getfield(L_, -1, "projectileModel");
                 if (lua_isstring(L_, -1)) {
                     node.projectileModelPathOverride = lua_tostring(L_, -1);
+                }
+                lua_pop(L_, 1);
+
+                auto readOptionalNodeNumber = [&](const char* key, std::optional<float>& outValue) {
+                    lua_getfield(L_, -1, key);
+                    if (lua_isnumber(L_, -1)) {
+                        outValue = static_cast<float>(lua_tonumber(L_, -1));
+                    }
+                    lua_pop(L_, 1);
+                };
+
+                readOptionalNodeNumber("renderScale", node.renderScaleOverride);
+                readOptionalNodeNumber("facingYawOffsetDegrees", node.facingYawOffsetDegreesOverride);
+                readOptionalNodeNumber("projectileFacingYawOffsetDegrees", node.projectileFacingYawOffsetDegreesOverride);
+                readOptionalNodeNumber("projectileRenderScale", node.projectileRenderScaleOverride);
+
+                lua_getfield(L_, -1, "render");
+                if (lua_istable(L_, -1)) {
+                    readOptionalNodeNumber("renderScale", node.renderScaleOverride);
+                    readOptionalNodeNumber("facingYawOffsetDegrees", node.facingYawOffsetDegreesOverride);
+                    readOptionalNodeNumber("projectileFacingYawOffsetDegrees", node.projectileFacingYawOffsetDegreesOverride);
+                    readOptionalNodeNumber("projectileRenderScale", node.projectileRenderScaleOverride);
                 }
                 lua_pop(L_, 1);
 
@@ -417,8 +447,50 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
                             readUpgradeEffects(level.effects);
                         }
 
+                        lua_getfield(L_, -1, "model");
+                        if (lua_isstring(L_, -1)) {
+                            level.towerModelPathOverride = lua_tostring(L_, -1);
+                        }
+                        lua_pop(L_, 1);
+
+                        lua_getfield(L_, -1, "projectileModel");
+                        if (lua_isstring(L_, -1)) {
+                            level.projectileModelPathOverride = lua_tostring(L_, -1);
+                        }
+                        lua_pop(L_, 1);
+
+                        auto readOptionalLevelNumber = [&](const char* key, std::optional<float>& outValue) {
+                            lua_getfield(L_, -1, key);
+                            if (lua_isnumber(L_, -1)) {
+                                outValue = static_cast<float>(lua_tonumber(L_, -1));
+                            }
+                            lua_pop(L_, 1);
+                        };
+
+                        readOptionalLevelNumber("renderScale", level.renderScaleOverride);
+                        readOptionalLevelNumber("facingYawOffsetDegrees", level.facingYawOffsetDegreesOverride);
+                        readOptionalLevelNumber("projectileFacingYawOffsetDegrees",
+                                                level.projectileFacingYawOffsetDegreesOverride);
+                        readOptionalLevelNumber("projectileRenderScale", level.projectileRenderScaleOverride);
+
+                        lua_getfield(L_, -1, "render");
+                        if (lua_istable(L_, -1)) {
+                            readOptionalLevelNumber("renderScale", level.renderScaleOverride);
+                            readOptionalLevelNumber("facingYawOffsetDegrees", level.facingYawOffsetDegreesOverride);
+                            readOptionalLevelNumber("projectileFacingYawOffsetDegrees",
+                                                    level.projectileFacingYawOffsetDegreesOverride);
+                            readOptionalLevelNumber("projectileRenderScale", level.projectileRenderScaleOverride);
+                        }
+                        lua_pop(L_, 1);
+
                         if (level.cost < 0) {
                             level.cost = 0;
+                        }
+                        if (level.renderScaleOverride && *level.renderScaleOverride <= 0.01f) {
+                            level.renderScaleOverride = 0.01f;
+                        }
+                        if (level.projectileRenderScaleOverride && *level.projectileRenderScaleOverride <= 0.01f) {
+                            level.projectileRenderScaleOverride = 0.01f;
                         }
                         sanitizeUpgradeEffects(level.effects);
                         node.upgradeLevels.push_back(std::move(level));
@@ -525,6 +597,19 @@ bool TowerLoadController::parseTowerArchetypeScript(const std::string& scriptPat
     }
     if (outArchetype.renderScale <= 0.01f) {
         outArchetype.renderScale = 1.0f;
+    }
+    if (!hasProjectileRenderScale) {
+        outArchetype.projectileRenderScale = outArchetype.renderScale;
+    } else if (outArchetype.projectileRenderScale <= 0.01f) {
+        outArchetype.projectileRenderScale = 1.0f;
+    }
+    for (auto& node : outArchetype.upgradeNodes) {
+        if (node.renderScaleOverride && *node.renderScaleOverride <= 0.01f) {
+            node.renderScaleOverride = 0.01f;
+        }
+        if (node.projectileRenderScaleOverride && *node.projectileRenderScaleOverride <= 0.01f) {
+            node.projectileRenderScaleOverride = 0.01f;
+        }
     }
 
     return true;
@@ -639,6 +724,15 @@ void TowerLoadController::populateWorldAssets(WorldAssetSpec& spec) {
                 ensureTowerTemplate("upgrade_tower:" + towerId + ":" + node.id, node.towerModelPathOverride);
             node.projectilePrototypeOverrideIndex = ensureProjectileTemplate(
                 "upgrade_projectile:" + towerId + ":" + node.id, node.projectileModelPathOverride);
+            for (std::size_t levelIdx = 0; levelIdx < node.upgradeLevels.size(); ++levelIdx) {
+                auto& level = node.upgradeLevels[levelIdx];
+                const std::string levelSuffix = ":level" + std::to_string(levelIdx + 1);
+                level.towerPrototypeOverrideIndex = ensureTowerTemplate(
+                    "upgrade_tower:" + towerId + ":" + node.id + levelSuffix, level.towerModelPathOverride);
+                level.projectilePrototypeOverrideIndex = ensureProjectileTemplate(
+                    "upgrade_projectile:" + towerId + ":" + node.id + levelSuffix,
+                    level.projectileModelPathOverride);
+            }
         }
     }
 }

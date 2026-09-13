@@ -86,6 +86,10 @@ struct PlacedTower {
     glm::vec3 position{0.0f};
     int towerPrototypeIndex = -1;
     int projectilePrototypeIndex = -1;
+    float renderScale = 1.0f;
+    float facingYawOffsetDegrees = 0.0f;
+    float projectileFacingYawOffsetDegrees = 0.0f;
+    float projectileRenderScale = 1.0f;
     float attackDamage = 1.0f;
     float armorPiercing = 0.0f;
     float attackRange = 0.0f;

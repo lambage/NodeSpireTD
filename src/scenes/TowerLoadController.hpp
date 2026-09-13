@@ -4,6 +4,7 @@
 #include "scenes/PlayLevelCombatController.hpp"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -44,6 +45,14 @@ struct TowerArchetype {
     struct UpgradeLevel {
       int cost = 0;
       UpgradeEffects effects{};
+      std::string towerModelPathOverride;
+      std::string projectileModelPathOverride;
+      std::optional<float> renderScaleOverride;
+      std::optional<float> facingYawOffsetDegreesOverride;
+      std::optional<float> projectileFacingYawOffsetDegreesOverride;
+      std::optional<float> projectileRenderScaleOverride;
+      int towerPrototypeOverrideIndex = -1;
+      int projectilePrototypeOverrideIndex = -1;
     };
 
     std::string id;
@@ -51,6 +60,10 @@ struct TowerArchetype {
     std::string description;
     std::string towerModelPathOverride;
     std::string projectileModelPathOverride;
+    std::optional<float> renderScaleOverride;
+    std::optional<float> facingYawOffsetDegreesOverride;
+    std::optional<float> projectileFacingYawOffsetDegreesOverride;
+    std::optional<float> projectileRenderScaleOverride;
     int minUpgradesRequired = 0;
     int towerPrototypeOverrideIndex = -1;
     int projectilePrototypeOverrideIndex = -1;
@@ -90,6 +103,7 @@ struct TowerArchetype {
     float renderScale = 1.0f;
     float facingYawOffsetDegrees = 0.0f;
     float projectileFacingYawOffsetDegrees = 0.0f;
+    float projectileRenderScale = 1.0f;
     std::vector<UpgradeNode> upgradeNodes;
 };
 

@@ -791,10 +791,12 @@ void PlayLevelScene::submitChat() {
     }
 }
 
-glm::mat4 PlayLevelScene::buildTowerTransform(const TowerArchetype& tower, const glm::vec3& position) const {
+glm::mat4 PlayLevelScene::buildTowerTransform(const glm::vec3& position,
+                                              float facingYawOffsetDegrees,
+                                              float renderScale) const {
     return glm::translate(glm::mat4{1.0f}, position) *
-           glm::rotate(glm::mat4{1.0f}, glm::radians(tower.facingYawOffsetDegrees), glm::vec3(0.0f, 1.0f, 0.0f)) *
-           glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, tower.renderScale)));
+           glm::rotate(glm::mat4{1.0f}, glm::radians(facingYawOffsetDegrees), glm::vec3(0.0f, 1.0f, 0.0f)) *
+           glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, renderScale)));
 }
 
 void PlayLevelScene::updateTowerPlacement() {
@@ -1201,6 +1203,10 @@ PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandReq
         placed.position = position;
         placed.towerPrototypeIndex = towerLoadController_->templatePrototypeIndex(tower->id);
         placed.projectilePrototypeIndex = towerLoadController_->projectileTemplatePrototypeIndex(tower->id);
+        placed.renderScale = tower->renderScale;
+        placed.facingYawOffsetDegrees = tower->facingYawOffsetDegrees;
+        placed.projectileFacingYawOffsetDegrees = tower->projectileFacingYawOffsetDegrees;
+        placed.projectileRenderScale = tower->projectileRenderScale;
         placed.attackDamage = tower->attackDamage;
         placed.armorPiercing = tower->armorPiercing;
         placed.attackRange = tower->attackRange;
@@ -1284,8 +1290,36 @@ PlayLevelScene::dispatchAuthoritativeCommand(const multiplayer::PlayerCommandReq
         placed->chainTargetCount = std::max(1, placed->chainTargetCount + effects.chainTargetCountAdd);
         placed->ricochetCount = std::max(0, placed->ricochetCount + effects.ricochetCountAdd);
         placed->unlockedUpgradeNodeIds.push_back(node->id);
-        if (node->towerPrototypeOverrideIndex >= 0) placed->towerPrototypeIndex = node->towerPrototypeOverrideIndex;
-        if (node->projectilePrototypeOverrideIndex >= 0) placed->projectilePrototypeIndex = node->projectilePrototypeOverrideIndex;
+        if (level.towerPrototypeOverrideIndex >= 0) {
+            placed->towerPrototypeIndex = level.towerPrototypeOverrideIndex;
+        } else if (node->towerPrototypeOverrideIndex >= 0) {
+            placed->towerPrototypeIndex = node->towerPrototypeOverrideIndex;
+        }
+        if (level.projectilePrototypeOverrideIndex >= 0) {
+            placed->projectilePrototypeIndex = level.projectilePrototypeOverrideIndex;
+        } else if (node->projectilePrototypeOverrideIndex >= 0) {
+            placed->projectilePrototypeIndex = node->projectilePrototypeOverrideIndex;
+        }
+        if (level.renderScaleOverride) {
+            placed->renderScale = std::max(0.01f, *level.renderScaleOverride);
+        } else if (node->renderScaleOverride) {
+            placed->renderScale = std::max(0.01f, *node->renderScaleOverride);
+        }
+        if (level.facingYawOffsetDegreesOverride) {
+            placed->facingYawOffsetDegrees = *level.facingYawOffsetDegreesOverride;
+        } else if (node->facingYawOffsetDegreesOverride) {
+            placed->facingYawOffsetDegrees = *node->facingYawOffsetDegreesOverride;
+        }
+        if (level.projectileFacingYawOffsetDegreesOverride) {
+            placed->projectileFacingYawOffsetDegrees = *level.projectileFacingYawOffsetDegreesOverride;
+        } else if (node->projectileFacingYawOffsetDegreesOverride) {
+            placed->projectileFacingYawOffsetDegrees = *node->projectileFacingYawOffsetDegreesOverride;
+        }
+        if (level.projectileRenderScaleOverride) {
+            placed->projectileRenderScale = std::max(0.01f, *level.projectileRenderScaleOverride);
+        } else if (node->projectileRenderScaleOverride) {
+            placed->projectileRenderScale = std::max(0.01f, *node->projectileRenderScaleOverride);
+        }
         if (command.playerId == localPlayerId_) gameplayState_.playerMoney = matchSimulation_.playerBalance(localPlayerId_);
         syncTowerInstances();
         return std::nullopt;
@@ -1596,6 +1630,10 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
         placed.position = {remote.positionX, remote.positionY, remote.positionZ};
         placed.towerPrototypeIndex = towerLoadController_->templatePrototypeIndex(tower->id);
         placed.projectilePrototypeIndex = towerLoadController_->projectileTemplatePrototypeIndex(tower->id);
+        placed.renderScale = tower->renderScale;
+        placed.facingYawOffsetDegrees = tower->facingYawOffsetDegrees;
+        placed.projectileFacingYawOffsetDegrees = tower->projectileFacingYawOffsetDegrees;
+        placed.projectileRenderScale = tower->projectileRenderScale;
         placed.attackDamage = tower->attackDamage;
         placed.armorPiercing = tower->armorPiercing;
         placed.attackRange = tower->attackRange;
@@ -1650,8 +1688,37 @@ void PlayLevelScene::applyRemoteSnapshot(const multiplayer::DecodedMatchSnapshot
             placed.projectileCount = std::max(1, placed.projectileCount + effects.projectileCountAdd);
             placed.chainTargetCount = std::max(1, placed.chainTargetCount + effects.chainTargetCountAdd);
             placed.ricochetCount = std::max(0, placed.ricochetCount + effects.ricochetCountAdd);
-            if (node->towerPrototypeOverrideIndex >= 0) placed.towerPrototypeIndex = node->towerPrototypeOverrideIndex;
-            if (node->projectilePrototypeOverrideIndex >= 0) placed.projectilePrototypeIndex = node->projectilePrototypeOverrideIndex;
+            const auto& level = node->upgradeLevels[static_cast<std::size_t>(levelIndex)];
+            if (level.towerPrototypeOverrideIndex >= 0) {
+                placed.towerPrototypeIndex = level.towerPrototypeOverrideIndex;
+            } else if (node->towerPrototypeOverrideIndex >= 0) {
+                placed.towerPrototypeIndex = node->towerPrototypeOverrideIndex;
+            }
+            if (level.projectilePrototypeOverrideIndex >= 0) {
+                placed.projectilePrototypeIndex = level.projectilePrototypeOverrideIndex;
+            } else if (node->projectilePrototypeOverrideIndex >= 0) {
+                placed.projectilePrototypeIndex = node->projectilePrototypeOverrideIndex;
+            }
+            if (level.renderScaleOverride) {
+                placed.renderScale = std::max(0.01f, *level.renderScaleOverride);
+            } else if (node->renderScaleOverride) {
+                placed.renderScale = std::max(0.01f, *node->renderScaleOverride);
+            }
+            if (level.facingYawOffsetDegreesOverride) {
+                placed.facingYawOffsetDegrees = *level.facingYawOffsetDegreesOverride;
+            } else if (node->facingYawOffsetDegreesOverride) {
+                placed.facingYawOffsetDegrees = *node->facingYawOffsetDegreesOverride;
+            }
+            if (level.projectileFacingYawOffsetDegreesOverride) {
+                placed.projectileFacingYawOffsetDegrees = *level.projectileFacingYawOffsetDegreesOverride;
+            } else if (node->projectileFacingYawOffsetDegreesOverride) {
+                placed.projectileFacingYawOffsetDegrees = *node->projectileFacingYawOffsetDegreesOverride;
+            }
+            if (level.projectileRenderScaleOverride) {
+                placed.projectileRenderScale = std::max(0.01f, *level.projectileRenderScaleOverride);
+            } else if (node->projectileRenderScaleOverride) {
+                placed.projectileRenderScale = std::max(0.01f, *node->projectileRenderScaleOverride);
+            }
         }
         placedTowers_.push_back(std::move(placed));
     }
@@ -1743,7 +1810,7 @@ void PlayLevelScene::syncTowerInstances() {
             continue;
         }
         AnimatedEntityInstanceSet::Instance instance;
-        instance.transform = buildTowerTransform(*tower, placed.position);
+        instance.transform = buildTowerTransform(placed.position, placed.facingYawOffsetDegrees, placed.renderScale);
         instance.prototypeIndex = placed.towerPrototypeIndex;
         instance.debugGroup = "placed-tower:" + std::to_string(index);
         instance.debugLabel = tower->displayName;
@@ -1773,21 +1840,29 @@ void PlayLevelScene::syncTowerInstances() {
     }
     for (const playlevel::ActiveProjectile& projectile : matchSimulation_.activeProjectiles()) {
         const TowerArchetype* tower = towerLoadController_->findArchetype(projectile.towerId);
+        const auto sourceTower = std::find_if(placedTowers_.begin(), placedTowers_.end(), [&projectile](const auto& placed) {
+            return placed.runtimeId == projectile.sourceTowerRuntimeId;
+        });
         const int prototypeIndex = projectile.prototypeIndex >= 0
                                        ? projectile.prototypeIndex
                                        : towerLoadController_->projectileTemplatePrototypeIndex(projectile.towerId);
         if (!tower || prototypeIndex < 0) {
             continue;
         }
+        const float projectileFacingYawOffsetDegrees =
+            sourceTower != placedTowers_.end() ? sourceTower->projectileFacingYawOffsetDegrees
+                                               : tower->projectileFacingYawOffsetDegrees;
+        const float projectileRenderScale = sourceTower != placedTowers_.end() ? sourceTower->projectileRenderScale
+                                                                                : tower->projectileRenderScale;
         glm::vec3 direction = projectile.velocity;
         direction.y = 0.0f;
         const float yaw = glm::dot(direction, direction) > 1e-6f ? std::atan2(direction.x, direction.z) : 0.0f;
         AnimatedEntityInstanceSet::Instance instance;
         instance.transform = glm::translate(glm::mat4{1.0f}, projectile.position) *
                              glm::rotate(glm::mat4{1.0f},
-                                         yaw + glm::radians(tower->projectileFacingYawOffsetDegrees),
+                                         yaw + glm::radians(projectileFacingYawOffsetDegrees),
                                          glm::vec3(0.0f, 1.0f, 0.0f)) *
-                             glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, tower->renderScale)));
+                             glm::scale(glm::mat4{1.0f}, glm::vec3(std::max(0.01f, projectileRenderScale)));
         instance.prototypeIndex = prototypeIndex;
         instance.debugGroup = "tower-projectile:" + std::to_string(projectile.runtimeId);
         instance.debugLabel = projectile.towerId;
@@ -1797,7 +1872,9 @@ void PlayLevelScene::syncTowerInstances() {
         const int prototypeIndex = towerLoadController_->templatePrototypeIndex(tower->id);
         if (prototypeIndex >= 0 && placementSample_.hit) {
             AnimatedEntityInstanceSet::Instance ghost;
-            ghost.transform = buildTowerTransform(*tower, placementSample_.worldPosition + glm::vec3(0.0f, 0.02f, 0.0f));
+            ghost.transform = buildTowerTransform(placementSample_.worldPosition + glm::vec3(0.0f, 0.02f, 0.0f),
+                                                  tower->facingYawOffsetDegrees,
+                                                  tower->renderScale);
             ghost.prototypeIndex = prototypeIndex;
             ghost.alpha = kTowerGhostAlpha;
             ghost.debugGroup = "tower-placement-preview";
