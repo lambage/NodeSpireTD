@@ -122,6 +122,19 @@ bool canPurchaseUpgrade(const playlevel::PlacedTower& tower, const TowerArchetyp
     return true;
 }
 
+const char* damageTypeBadge(playlevel::DamageType type) {
+    switch (type) {
+        case playlevel::DamageType::Physical: return "PHY";
+        case playlevel::DamageType::Fire: return "FIR";
+        case playlevel::DamageType::Poison: return "PSN";
+        case playlevel::DamageType::Arcane: return "ARC";
+        case playlevel::DamageType::Electric: return "ELC";
+        case playlevel::DamageType::Holy: return "HLY";
+        case playlevel::DamageType::Necrotic: return "NEC";
+    }
+    return "DMG";
+}
+
 int towerTotalSpent(const playlevel::PlacedTower& tower, const TowerArchetype* archetype) {
     int totalSpent = tower.cost;
     if (!archetype) {
@@ -644,9 +657,33 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
             refreshLoadout();
             return;
         }
+        const int refund = towerSellValue(*placed, archetype);
+        const bool quickSell = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
+        if (!quickSell) {
+            const SDL_MessageBoxButtonData buttons[] = {
+                { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Sell" },
+                { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel" },
+            };
+            const std::string messageText = "Sell this tower for $" + std::to_string(refund) + "?";
+            const SDL_MessageBoxData messageBox = {
+                SDL_MESSAGEBOX_WARNING,
+                nullptr,
+                "Sell tower?",
+                messageText.c_str(),
+                2,
+                buttons,
+                nullptr
+            };
+            int buttonId = 0;
+            const bool confirmed = SDL_ShowMessageBox(&messageBox, &buttonId) == 0 && buttonId == 1;
+            if (!confirmed) {
+                placementReason_ = "Sale cancelled.";
+                refreshLoadout();
+                return;
+            }
+        }
         multiplayer::SellTowerCommand sell;
         sell.towerRuntimeId = selectedTowerRuntimeId_;
-        const int refund = towerSellValue(*placed, archetype);
         if (selectedTowerRuntimeId_ != 0 && submitCommand(std::move(sell))) {
             placementReason_ = "Tower sold for $" + std::to_string(refund) + ".";
             selectedTowerRuntimeId_ = 0;
@@ -947,23 +984,59 @@ void PlayLevelScene::refreshTowerProfile() {
         sellButton->SetClass("hidden", !canSell);
         sellButton->SetInnerRML("Sell for $" + std::to_string(refundValue));
     }
-    setText(document_, "tower-damage-type", std::string(playlevel::damageTypeToString(found->damageType)) + " damage");
-    std::snprintf(value, sizeof(value), "Armor piercing: %.1f", found->armorPiercing);
-    setText(document_, "tower-armor-piercing", value);
-    std::snprintf(value, sizeof(value), "Projectile: %.1f speed, x%d", found->projectileSpeed, found->projectileCount);
-    setText(document_, "tower-projectile", value);
-    char areaStats[96];
-    std::snprintf(areaStats, sizeof(areaStats), "Splash: %.1f | Chain: %.1f (x%d) | Ricochet: %.1f (x%d)",
-                  found->splashRadius, found->chainRange, found->chainTargetCount, found->ricochetRange,
-                  found->ricochetCount);
-    setText(document_, "tower-area-stats", areaStats);
-    char effectStats[160];
-    std::snprintf(effectStats, sizeof(effectStats),
-                  "Burn: %.1f/s for %.1fs | Slow: %.0f%% for %.1fs | Freeze: %.0f%% for %.2fs | Crit: %.0f%% x%.2f",
-                  found->burnDamagePerSecond, found->burnDuration, found->slowAmount * 100.0f, found->slowDuration,
-                  found->freezeChance * 100.0f, found->freezeDuration, found->critChance * 100.0f,
-                  found->critDamageMul);
-    setText(document_, "tower-effect-stats", effectStats);
+    setText(document_, "tower-damage-type-icon", damageTypeBadge(found->damageType));
+
+    std::snprintf(value, sizeof(value), "AP %.1f", found->armorPiercing);
+    setText(document_, "tower-ap-chip", value);
+    if (Rml::Element* chip = document_->GetElementById("tower-ap-chip")) {
+        chip->SetClass("hidden", std::abs(found->armorPiercing) < 0.001f);
+    }
+
+    char chipLabel[96];
+    std::snprintf(chipLabel, sizeof(chipLabel), "Burn %.1f/s %.1fs", found->burnDamagePerSecond, found->burnDuration);
+    setText(document_, "tower-burn-chip", chipLabel);
+    if (Rml::Element* chip = document_->GetElementById("tower-burn-chip")) {
+        const bool active = found->burnDamagePerSecond > 0.001f && found->burnDuration > 0.001f;
+        chip->SetClass("hidden", !active);
+    }
+
+    std::snprintf(chipLabel, sizeof(chipLabel), "Slow %.0f%% %.1fs", found->slowAmount * 100.0f, found->slowDuration);
+    setText(document_, "tower-slow-chip", chipLabel);
+    if (Rml::Element* chip = document_->GetElementById("tower-slow-chip")) {
+        const bool active = found->slowAmount > 0.001f && found->slowDuration > 0.001f;
+        chip->SetClass("hidden", !active);
+    }
+
+    std::snprintf(chipLabel, sizeof(chipLabel), "Freeze %.0f%% %.2fs", found->freezeChance * 100.0f, found->freezeDuration);
+    setText(document_, "tower-freeze-chip", chipLabel);
+    if (Rml::Element* chip = document_->GetElementById("tower-freeze-chip")) {
+        const bool active = found->freezeChance > 0.001f && found->freezeDuration > 0.001f;
+        chip->SetClass("hidden", !active);
+    }
+
+    std::snprintf(chipLabel, sizeof(chipLabel), "Crit %.0f%% x%.2f", found->critChance * 100.0f, found->critDamageMul);
+    setText(document_, "tower-crit-chip", chipLabel);
+    if (Rml::Element* chip = document_->GetElementById("tower-crit-chip")) {
+        chip->SetClass("hidden", found->critChance <= 0.001f);
+    }
+
+    std::snprintf(chipLabel, sizeof(chipLabel), "Splash %.1f", found->splashRadius);
+    setText(document_, "tower-splash-chip", chipLabel);
+    if (Rml::Element* chip = document_->GetElementById("tower-splash-chip")) {
+        chip->SetClass("hidden", found->splashRadius <= 0.001f);
+    }
+
+    std::snprintf(chipLabel, sizeof(chipLabel), "Chain range %.1f x%d", found->chainRange, found->chainTargetCount);
+    setText(document_, "tower-chain-chip", chipLabel);
+    if (Rml::Element* chip = document_->GetElementById("tower-chain-chip")) {
+        chip->SetClass("hidden", found->chainRange <= 0.001f || found->chainTargetCount <= 0);
+    }
+
+    std::snprintf(chipLabel, sizeof(chipLabel), "Ricochet %.1f x%d", found->ricochetRange, found->ricochetCount);
+    setText(document_, "tower-ricochet-chip", chipLabel);
+    if (Rml::Element* chip = document_->GetElementById("tower-ricochet-chip")) {
+        chip->SetClass("hidden", found->ricochetRange <= 0.001f || found->ricochetCount <= 0);
+    }
 
     const bool treeChanged = renderedTowerProfileRuntimeId_ != found->runtimeId ||
                              renderedTowerProfileOwnerId_ != found->ownerPlayerId ||
@@ -981,8 +1054,12 @@ void PlayLevelScene::refreshTowerProfile() {
         std::ifstream fragment("assets/ui/playlevel/towers/" + archetype->id + ".rml");
         std::ostringstream contents;
         if (fragment) contents << fragment.rdbuf();
-        setText(document_, "tower-tech-tree",
-                fragment ? contents.str() : "<p class=\"empty-tree\">No upgrades available.</p>");
+        if (fragment) {
+            setText(document_, "tower-tech-tree",
+                    "<div class=\"tower-tech-tree-canvas\">" + contents.str() + "</div>");
+        } else {
+            setText(document_, "tower-tech-tree", "<p class=\"empty-tree\">No upgrades available.</p>");
+        }
         for (const auto& node : archetype->upgradeNodes) {
             if (Rml::Element* button = document_->GetElementById("upgrade-" + node.id)) {
                 button->AddEventListener(Rml::EventId::Click, this);
@@ -1092,11 +1169,11 @@ void PlayLevelScene::refreshTalentInspector(const std::string& nodeId, Rml::Elem
     const int maxLevel = static_cast<int>(node->upgradeLevels.size());
     std::ostringstream details;
     details << "<strong>" << Rml::StringUtilities::EncodeRml(node->displayName) << "</strong>"
-            << "<p>Level " << currentLevel << '/' << maxLevel;
+            << "<span class=\"talent-level\">Level " << currentLevel << '/' << maxLevel;
     if (currentLevel < maxLevel) {
         details << " &nbsp; | &nbsp; Next rank: $" << node->upgradeLevels[static_cast<std::size_t>(currentLevel)].cost;
     }
-    details << "</p><p>" << Rml::StringUtilities::EncodeRml(node->description) << "</p>";
+    details << "</span><p>" << Rml::StringUtilities::EncodeRml(node->description) << "</p>";
 
     if (currentLevel < maxLevel) {
         const auto& effects = node->upgradeLevels[static_cast<std::size_t>(currentLevel)].effects;
@@ -1124,7 +1201,7 @@ void PlayLevelScene::refreshTalentInspector(const std::string& nodeId, Rml::Elem
         appendEffect(effectText, hasEffect, "Projectiles", effects.projectileCountAdd);
         appendEffect(effectText, hasEffect, "Chain targets", effects.chainTargetCountAdd);
         appendEffect(effectText, hasEffect, "Ricochets", effects.ricochetCountAdd);
-        if (hasEffect) details << "<p class=\"talent-effect\">" << effectText.str() << "</p>";
+        if (hasEffect) details << "<p class=\"talent-effect\">Next: " << effectText.str() << "</p>";
     }
 
     std::string reason;
@@ -1136,14 +1213,31 @@ void PlayLevelScene::refreshTalentInspector(const std::string& nodeId, Rml::Elem
 
     if (anchor) {
         if (Rml::Element* profile = document_->GetElementById("tower-profile")) {
+            const float inspectorWidth = std::max(inspector->GetOffsetWidth(), 260.0f);
             const float inspectorHeight = std::max(inspector->GetOffsetHeight(), 96.0f);
+            const float profileWidth = profile->GetOffsetWidth();
             const float profileHeight = profile->GetOffsetHeight();
-            const float anchorCenter = anchor->GetAbsoluteOffset(Rml::BoxArea::Border).y -
-                                       profile->GetAbsoluteOffset(Rml::BoxArea::Border).y +
-                                       anchor->GetOffsetHeight() * 0.5f;
+            const Rml::Vector2f profileOffset = profile->GetAbsoluteOffset(Rml::BoxArea::Border);
+            const Rml::Vector2f anchorOffset = anchor->GetAbsoluteOffset(Rml::BoxArea::Border);
+            const float anchorRelativeX = anchorOffset.x - profileOffset.x;
+            const float anchorRelativeCenterY =
+                anchorOffset.y - profileOffset.y + anchor->GetOffsetHeight() * 0.5f;
+
+            const float maximumLeft = std::max(8.0f, profileWidth - inspectorWidth - 8.0f);
             const float maximumTop = std::max(8.0f, profileHeight - inspectorHeight - 8.0f);
-            const float top = std::clamp(anchorCenter - inspectorHeight * 0.5f, 8.0f, maximumTop);
+
+            const float preferredRight = anchorRelativeX + anchor->GetOffsetWidth() + 10.0f;
+            const float preferredLeft = anchorRelativeX - inspectorWidth - 10.0f;
+            float left = preferredRight;
+            if (left > maximumLeft && preferredLeft >= 8.0f) {
+                left = preferredLeft;
+            }
+            left = std::clamp(left, 8.0f, maximumLeft);
+            const float top = std::clamp(anchorRelativeCenterY - inspectorHeight * 0.5f, 8.0f, maximumTop);
+
+            inspector->SetProperty("left", std::to_string(left) + "px");
             inspector->SetProperty("top", std::to_string(top) + "px");
+            inspector->SetProperty("right", "auto");
         }
     }
 }
