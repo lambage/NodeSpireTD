@@ -38,6 +38,8 @@ constexpr const char* kDocumentPath = "assets/ui/playlevel/playlevel.rml";
 constexpr const char* kInteractiveIds[] = {"retry-button", "start-match-button", "resume-button", "back-to-lobby-button",
                                             "end-replay-button", "end-lobby-button",
                                             "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
+                                            "tower-preview-hitbox-0", "tower-preview-hitbox-1", "tower-preview-hitbox-2",
+                                            "tower-preview-hitbox-3", "tower-preview-hitbox-4",
                                             "close-tower-profile", "close-enemy-profile",
                                             "match-chat-send-button", "sell-tower-button"};
 constexpr const char* kTowerProfilePanelId = "tower-profile";
@@ -617,11 +619,11 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
         submitChat();
         return;
     }
-    if (id.starts_with("tower-slot-") && event == Rml::EventId::Mouseover) {
-        refreshTowerSlotInspector(std::stoi(id.substr(11)));
+    if (id.starts_with("tower-preview-hitbox-") && event == Rml::EventId::Mouseover) {
+        refreshTowerSlotInspector(std::stoi(id.substr(20)));
         return;
     }
-    if (id.starts_with("tower-slot-") && event == Rml::EventId::Mouseout) {
+    if (id.starts_with("tower-preview-hitbox-") && event == Rml::EventId::Mouseout) {
         refreshTowerSlotInspector(-1);
         return;
     }
@@ -656,8 +658,8 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
         return;
     }
 
-    if (id.starts_with("tower-slot-")) {
-        const int slot = std::stoi(id.substr(11));
+    if (id.starts_with("tower-preview-hitbox-")) {
+        const int slot = std::stoi(id.substr(20));
         const TowerArchetype* tower = towerLoadController_ ? towerLoadController_->archetypeAtLoadoutSlot(slot) : nullptr;
         if (!tower) {
             return;
@@ -2376,7 +2378,23 @@ void PlayLevelScene::refreshHud() {
 
 void PlayLevelScene::refreshLoadout() {
     towerPreviewPanels_.clear();
-    if (!towerLoadController_ || !snapshot_.loadoutVisible) {
+    if (!document_ || !towerLoadController_) {
+        return;
+    }
+
+    if (Rml::Element* topStrip = document_->GetElementById("tower-loadout-top")) {
+        topStrip->SetClass("hidden", !snapshot_.loadoutVisible);
+    }
+    if (Rml::Element* priceStrip = document_->GetElementById("tower-loadout-prices")) {
+        priceStrip->SetClass("hidden", !snapshot_.loadoutVisible);
+    }
+    for (int slot = 0; slot < 5; ++slot) {
+        if (Rml::Element* hitbox = document_->GetElementById("tower-preview-hitbox-" + std::to_string(slot))) {
+            hitbox->SetClass("hidden", !snapshot_.loadoutVisible);
+        }
+    }
+
+    if (!snapshot_.loadoutVisible) {
         return;
     }
 
@@ -2386,13 +2404,16 @@ void PlayLevelScene::refreshLoadout() {
     }
 
     constexpr float kLoadoutWidth = 840.0f;
-    constexpr float kLoadoutBottom = 18.0f;
+    constexpr float kLoadoutBottom = 48.0f;
     constexpr float kFeedbackHeight = 22.0f;
-    constexpr float kSlotHeight = 144.0f;
-    constexpr float kPreviewTopInset = 18.0f;
-    constexpr float kPreviewHeight = 94.0f;
+    constexpr float kSlotHeight = 160.0f;
+    constexpr float kPreviewTopInset = 10.0f;
+    constexpr float kPreviewHeight = 160.0f;
     constexpr float kPanelInset = 1.0f;
     constexpr float kPreviewGap = 6.0f;
+    constexpr float kTopNameRowHeight = 26.0f;
+    constexpr float kTopNameRowGap = 1.0f;
+    constexpr float kPriceRowGap = 1.0f;
     constexpr int kSlotCount = 5;
 
     const float panelLeft = (static_cast<float>(extent.width) - kLoadoutWidth) * 0.5f;
@@ -2401,12 +2422,38 @@ void PlayLevelScene::refreshLoadout() {
     const float panelTop = static_cast<float>(extent.height) - kLoadoutBottom - kFeedbackHeight -
                            kSlotHeight + kPreviewTopInset;
 
+    if (Rml::Element* topStrip = document_->GetElementById("tower-loadout-top")) {
+        const float topStripTop = panelTop - kTopNameRowHeight - kTopNameRowGap;
+        topStrip->SetProperty("top", std::to_string(std::max(0.0f, topStripTop)) + "px");
+        topStrip->SetClass("hidden", false);
+    }
+    if (Rml::Element* priceStrip = document_->GetElementById("tower-loadout-prices")) {
+        const float priceStripTop = panelTop + kPreviewHeight + kPriceRowGap;
+        priceStrip->SetProperty("top", std::to_string(priceStripTop) + "px");
+        priceStrip->SetClass("hidden", false);
+    }
+
     for (int slot = 0; slot < kSlotCount; ++slot) {
         const TowerArchetype* tower = towerLoadController_->archetypeAtLoadoutSlot(slot);
         const int prototypeIndex = tower ? towerLoadController_->templatePrototypeIndex(tower->id) : -1;
+        const std::string label = tower ? tower->displayName : "EMPTY";
+        const int cost = tower ? tower->cost : 0;
+        setText(document_, ("tower-slot-label-" + std::to_string(slot)).c_str(),
+                Rml::StringUtilities::EncodeRml(label));
+        setText(document_, ("tower-slot-price-" + std::to_string(slot)).c_str(), "$" + std::to_string(cost));
+
         const float x = panelLeft + static_cast<float>(slot) * (slotWidth + kPreviewGap) + kPanelInset;
         const float width = slotWidth - 2.0f * kPanelInset;
         towerPreviewPanels_.push_back({prototypeIndex, x, panelTop, width, kPreviewHeight});
+
+        if (Rml::Element* hitbox = document_->GetElementById("tower-preview-hitbox-" + std::to_string(slot))) {
+            hitbox->SetClass("hidden", false);
+            hitbox->SetClass("is-selected", selectedTowerSlot_ == slot);
+            hitbox->SetProperty("left", std::to_string(x) + "px");
+            hitbox->SetProperty("top", std::to_string(panelTop) + "px");
+            hitbox->SetProperty("width", std::to_string(width) + "px");
+            hitbox->SetProperty("height", std::to_string(kPreviewHeight) + "px");
+        }
     }
 }
 

@@ -883,6 +883,8 @@ void WorldRenderer::tickLoad() {
             buildHighlightPipeline();
             buildGroundCirclePipeline();
             buildGroundCircleGeometry();
+            buildPreviewPanelPipeline();
+            buildPreviewPanelGeometry();
         } catch (const std::exception& ex) {
             loadFailed_ = true;
             status_ = std::string("Pipeline build failed: ") + ex.what();
@@ -1627,6 +1629,18 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
         return;
     }
 
+    float referenceRadius = 0.5f;
+    for (const TowerPreviewPanel& panel : panels) {
+        if (panel.prototypeIndex < 0) {
+            continue;
+        }
+        glm::vec3 center(0.0f);
+        float radius = 0.5f;
+        if (computeTowerPrototypeBounds(panel.prototypeIndex, center, radius)) {
+            referenceRadius = std::max(referenceRadius, radius);
+        }
+    }
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
 
     for (std::size_t panelIdx = 0; panelIdx < panels.size(); ++panelIdx) {
@@ -1660,45 +1674,6 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
 
         const bool emptyPreview = panel.prototypeIndex < 0;
 
-        VkClearAttachment clears[2]{};
-        uint32_t clearCount = 1;
-        if (emptyPreview) {
-            // Empty slots keep an authored fallback color panel.
-            clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            clears[0].colorAttachment = 0;
-            clears[0].clearValue.color.float32[0] = 0.16f;
-            clears[0].clearValue.color.float32[1] = 0.26f;
-            clears[0].clearValue.color.float32[2] = 0.36f;
-            clears[0].clearValue.color.float32[3] = 1.0f;
-
-            clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-            clears[1].clearValue.depthStencil.depth = 1.0f;
-            clears[1].clearValue.depthStencil.stencil = 0;
-            clearCount = 2;
-        } else {
-            // For populated slots, clear depth only so the existing world color stays visible.
-            clears[0].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-            clears[0].clearValue.depthStencil.depth = 1.0f;
-            clears[0].clearValue.depthStencil.stencil = 0;
-        }
-
-        VkClearRect clearRect{};
-        clearRect.rect.offset = {x, y};
-        clearRect.rect.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
-        clearRect.baseArrayLayer = 0;
-        clearRect.layerCount = 1;
-        vkCmdClearAttachments(cmd, clearCount, clears, 1, &clearRect);
-
-        if (emptyPreview) {
-            continue;
-        }
-
-        glm::vec3 targetCenter(0.0f);
-        float targetRadius = 0.5f;
-        if (!computeTowerPrototypeBounds(panel.prototypeIndex, targetCenter, targetRadius)) {
-            continue;
-        }
-
         VkViewport viewport{};
         viewport.x = static_cast<float>(x);
         viewport.y = static_cast<float>(y);
@@ -1713,18 +1688,57 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
         scissor.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+        VkClearAttachment clearDepth{};
+        clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        clearDepth.clearValue.depthStencil.depth = 1.0f;
+        clearDepth.clearValue.depthStencil.stencil = 0;
+
+        VkClearRect clearRect{};
+        clearRect.rect = scissor;
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+        vkCmdClearAttachments(cmd, 1, &clearDepth, 1, &clearRect);
+
+        if (previewPanelPipeline_ != VK_NULL_HANDLE && previewPanelVertexBuffer_ != VK_NULL_HANDLE) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, previewPanelPipeline_);
+            const VkDeviceSize quadOffset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &previewPanelVertexBuffer_, &quadOffset);
+            const glm::vec4 panelColor{0.16f, 0.26f, 0.36f, 0.35f};
+            vkCmdPushConstants(cmd, previewPanelPipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(glm::vec4), &panelColor);
+            vkCmdDraw(cmd, previewPanelVertexCount_, 1, 0, 0);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        }
+
         const float aspect = static_cast<float>(w) / static_cast<float>(h);
         glm::mat4 proj = glm::perspective(glm::radians(35.0f), aspect, 0.01f, 500.0f);
         proj[1][1] *= -1.0f;
 
+        glm::vec3 targetCenter(0.0f);
+        float targetRadius = referenceRadius;
+        bool canDrawModel = !emptyPreview;
+        if (canDrawModel && !computeTowerPrototypeBounds(panel.prototypeIndex, targetCenter, targetRadius)) {
+            canDrawModel = false;
+            targetCenter = glm::vec3(0.0f);
+            targetRadius = referenceRadius;
+        }
+
         const float phase = static_cast<float>(panelIdx) * 0.47f;
         const float yaw = spinRadians + phase;
-        const float camDistance = targetRadius * 1.75f + 0.52f;
-        const float camHeight = targetRadius * 0.40f + 0.15f;
+        const float frameRadius = std::max(referenceRadius, targetRadius);
+        constexpr float kPreviewZoom = 1.4f;
+        const float camDistance = (frameRadius * 3.3f + 0.2f) / kPreviewZoom;
+        const float camHeight = (frameRadius * 0.62f + 0.22f) / kPreviewZoom;
         const glm::vec3 camPos =
             targetCenter + glm::vec3(std::sin(yaw) * camDistance, camHeight, std::cos(yaw) * camDistance);
-        const glm::vec3 lookAtPoint = targetCenter + glm::vec3(0.0f, targetRadius * 0.10f, 0.0f);
+        const glm::vec3 lookAtPoint = targetCenter + glm::vec3(0.0f, frameRadius * 0.12f, 0.0f);
         const glm::mat4 view = glm::lookAt(camPos, lookAtPoint, glm::vec3(0.0f, 1.0f, 0.0f));
+
+
+        if (!canDrawModel) {
+            continue;
+        }
 
         TemplateAnimator* previewAnimator = towerAnimatorForPrototype(panel.prototypeIndex);
         int activePreviewSkinIndex = -2;
@@ -1814,6 +1828,20 @@ void WorldRenderer::release() {
         groundCircleVertexBuffer_ = VK_NULL_HANDLE;
         groundCircleVertexAlloc_ = nullptr;
         groundCircleVertexCount_ = 0;
+    }
+    if (previewPanelPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_.device(), previewPanelPipeline_, nullptr);
+        previewPanelPipeline_ = VK_NULL_HANDLE;
+    }
+    if (previewPanelPipelineLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_.device(), previewPanelPipelineLayout_, nullptr);
+        previewPanelPipelineLayout_ = VK_NULL_HANDLE;
+    }
+    if (previewPanelVertexBuffer_ != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(ctx_.allocator(), previewPanelVertexBuffer_, previewPanelVertexAlloc_);
+        previewPanelVertexBuffer_ = VK_NULL_HANDLE;
+        previewPanelVertexAlloc_ = nullptr;
+        previewPanelVertexCount_ = 0;
     }
 
     if (ownDescPool_ != VK_NULL_HANDLE) {
@@ -2368,4 +2396,137 @@ void WorldRenderer::buildGroundCircleGeometry() {
     groundCircleVertexBuffer_ = uploadBuffer(verts.data(), verts.size() * sizeof(glm::vec3),
                                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, groundCircleVertexAlloc_);
     groundCircleVertexCount_ = static_cast<uint32_t>(verts.size());
+}
+
+void WorldRenderer::buildPreviewPanelPipeline() {
+    VkShaderModule vert = loadSpirv("assets/shaders/previewPanel.vert.spv");
+    VkShaderModule frag = loadSpirv("assets/shaders/previewPanel.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag;
+    stages[1].pName = "main";
+
+    VkVertexInputBindingDescription binding{};
+    binding.binding = 0;
+    binding.stride = sizeof(glm::vec2);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attrib{};
+    attrib = {0, 0, VK_FORMAT_R32G32_SFLOAT, 0};
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 1;
+    vertexInput.pVertexAttributeDescriptions = &attrib;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(glm::vec4);
+
+    VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layoutInfo.setLayoutCount = 0;
+    layoutInfo.pSetLayouts = nullptr;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
+
+    if (vkCreatePipelineLayout(ctx_.device(), &layoutInfo, nullptr, &previewPanelPipelineLayout_) != VK_SUCCESS) {
+        vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+        vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+        throw std::runtime_error("Failed to create preview panel pipeline layout.");
+    }
+
+    VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencil.depthTestEnable = VK_FALSE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+
+    VkPipelineColorBlendAttachmentState blendAttach{};
+    blendAttach.blendEnable = VK_TRUE;
+    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.colorBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blending.attachmentCount = 1;
+    blending.pAttachments = &blendAttach;
+
+    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynState.dynamicStateCount = 2;
+    dynState.pDynamicStates = dynStates;
+
+    const VkFormat colorFmt = ctx_.swapchainColorFormat();
+    const VkFormat depthFmt = ctx_.depthFormat();
+    VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachmentFormats = &colorFmt;
+    renderingInfo.depthAttachmentFormat = depthFmt;
+
+    VkGraphicsPipelineCreateInfo pipelineCI{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipelineCI.pNext = &renderingInfo;
+    pipelineCI.stageCount = 2;
+    pipelineCI.pStages = stages;
+    pipelineCI.pVertexInputState = &vertexInput;
+    pipelineCI.pInputAssemblyState = &inputAssembly;
+    pipelineCI.pViewportState = &viewportState;
+    pipelineCI.pRasterizationState = &rasterizer;
+    pipelineCI.pMultisampleState = &multisampling;
+    pipelineCI.pDepthStencilState = &depthStencil;
+    pipelineCI.pColorBlendState = &blending;
+    pipelineCI.pDynamicState = &dynState;
+    pipelineCI.layout = previewPanelPipelineLayout_;
+
+    VkResult result = vkCreateGraphicsPipelines(ctx_.device(), VK_NULL_HANDLE, 1, &pipelineCI, nullptr,
+                                               &previewPanelPipeline_);
+
+    vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+    vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create preview panel graphics pipeline.");
+    }
+}
+
+void WorldRenderer::buildPreviewPanelGeometry() {
+    const std::vector<glm::vec2> verts = {
+        glm::vec2(-1.0f, -1.0f),
+        glm::vec2( 1.0f, -1.0f),
+        glm::vec2( 1.0f,  1.0f),
+        glm::vec2(-1.0f, -1.0f),
+        glm::vec2( 1.0f,  1.0f),
+        glm::vec2(-1.0f,  1.0f),
+    };
+
+    previewPanelVertexBuffer_ = uploadBuffer(verts.data(), verts.size() * sizeof(glm::vec2),
+                                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, previewPanelVertexAlloc_);
+    previewPanelVertexCount_ = static_cast<uint32_t>(verts.size());
 }

@@ -17,6 +17,32 @@
 			<div><span id="enemy-count-value">0</span><small>ENEMIES</small></div>
 		</section>
 
+		<section id="tower-loadout-top" class="tower-loadout-top hidden">
+			<div class="tower-loadout-top-row">
+				<div id="tower-slot-label-0" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-1" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-2" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-3" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-4" class="tower-loadout-slot-name">EMPTY</div>
+			</div>
+		</section>
+
+		<section id="tower-loadout-prices" class="tower-loadout-prices hidden">
+			<div class="tower-loadout-prices-row">
+				<div id="tower-slot-price-0" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-1" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-2" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-3" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-4" class="tower-loadout-slot-price">$0</div>
+			</div>
+		</section>
+
+		<button id="tower-preview-hitbox-0" class="tower-preview-hitbox hidden" title="Select tower slot 1"></button>
+		<button id="tower-preview-hitbox-1" class="tower-preview-hitbox hidden" title="Select tower slot 2"></button>
+		<button id="tower-preview-hitbox-2" class="tower-preview-hitbox hidden" title="Select tower slot 3"></button>
+		<button id="tower-preview-hitbox-3" class="tower-preview-hitbox hidden" title="Select tower slot 4"></button>
+		<button id="tower-preview-hitbox-4" class="tower-preview-hitbox hidden" title="Select tower slot 5"></button>
+
 		<section id="tower-profile" class="tower-profile hidden">
 			<div id="tower-profile-drag-handle" class="profile-heading">
 				<div><h2 id="tower-profile-name">Tower</h2></div>

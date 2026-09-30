@@ -264,11 +264,16 @@ class WorldRenderer {
     VkPipeline            highlightPipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout      groundCirclePipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline            groundCirclePipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout      previewPanelPipelineLayout_ = VK_NULL_HANDLE;
+    VkPipeline            previewPanelPipeline_ = VK_NULL_HANDLE;
     // Unit disc (radius 1, centered at origin, XZ plane) built once; per-circle placement is
     // done entirely via the model matrix in the push constants, no per-circle geometry needed.
     VkBuffer              groundCircleVertexBuffer_ = VK_NULL_HANDLE;
     VmaAllocation         groundCircleVertexAlloc_  = nullptr;
     uint32_t              groundCircleVertexCount_  = 0;
+    VkBuffer              previewPanelVertexBuffer_ = VK_NULL_HANDLE;
+    VmaAllocation         previewPanelVertexAlloc_  = nullptr;
+    uint32_t              previewPanelVertexCount_  = 0;
     std::vector<GroundCircle> groundCircles_;
 
     // Textures
@@ -404,6 +409,8 @@ class WorldRenderer {
     void buildHighlightPipeline();
     void buildGroundCirclePipeline();
     void buildGroundCircleGeometry();
+    void buildPreviewPanelPipeline();
+    void buildPreviewPanelGeometry();
     void createSamplerLayoutAndPool();
     WorldTexture    uploadRGBAImage(const uint8_t* pixels, uint32_t w, uint32_t h);
     VkDescriptorSet makeTextureDescSet(VkImageView baseColorView,

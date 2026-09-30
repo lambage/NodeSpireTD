@@ -216,6 +216,91 @@ header
 	display: none;
 }
 
+.tower-loadout-top
+{
+	position: absolute;
+	left: 50%;
+	width: 840dp;
+	margin-left: -420dp;
+	pointer-events: none;
+}
+
+.tower-loadout-top-row
+{
+	display: flex;
+	flex-direction: row;
+	gap: 6dp;
+	width: 100%;
+}
+
+.tower-loadout-slot-name
+{
+	flex: 1 1 0;
+	box-sizing: border-box;
+	padding: 4dp 8dp;
+	font-family: "Times New Roman";
+	font-size: 16dp;
+	font-weight: bold;
+	text-align: center;
+	color: #e9ece6;
+	background-color: #080d0df2;
+	border: 1dp #4f5f57;
+	border-bottom: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.tower-loadout-prices
+{
+	position: absolute;
+	left: 50%;
+	width: 840dp;
+	margin-left: -420dp;
+	pointer-events: none;
+}
+
+.tower-loadout-prices-row
+{
+	display: flex;
+	flex-direction: row;
+	gap: 6dp;
+	width: 100%;
+}
+
+.tower-loadout-slot-price
+{
+	flex: 1 1 0;
+	box-sizing: border-box;
+	padding: 4dp 8dp;
+	font-size: 13dp;
+	text-align: center;
+	color: #e1bd67;
+	background-color: #080d0df2;
+	border: 1dp #4f5f57;
+	border-top: 0;
+}
+
+.tower-preview-hitbox
+{
+	position: absolute;
+	margin: 0;
+	padding: 0;
+	background-color: transparent;
+	border: 1dp transparent;
+	color: transparent;
+}
+
+.tower-preview-hitbox:hover
+{
+	border-color: #b7dacb;
+}
+
+.tower-preview-hitbox.is-selected
+{
+	border-color: #e1846e;
+}
+
 .tower-profile
 {
 	position: absolute;
