@@ -1177,6 +1177,10 @@ void PlayLevelScene::refreshTowerProfile() {
         } else {
             setText(document_, "tower-tech-tree", "<p class=\"empty-tree\">No upgrades available.</p>");
         }
+        panel->SetClass("tree-first-layout", document_->GetElementById("tech-tree-overlay-title") != nullptr);
+        if (Rml::Element* overlayTitle = document_->GetElementById("tech-tree-overlay-title")) {
+            overlayTitle->SetInnerRML(Rml::StringUtilities::EncodeRml(archetype->displayName));
+        }
         for (const auto& node : archetype->upgradeNodes) {
             if (Rml::Element* button = document_->GetElementById("upgrade-" + node.id)) {
                 button->AddEventListener(Rml::EventId::Click, this);

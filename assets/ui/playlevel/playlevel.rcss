@@ -506,7 +506,34 @@ header
 
 .tower-tech-tree-canvas .archer-tree
 {
+	transform-origin: top;
+	position: relative;
 	transform: scale(0.94);
+}
+
+.tower-profile.tree-first-layout
+{
+	padding-top: 14dp;
+}
+
+.tower-profile.tree-first-layout #tower-profile-drag-handle
+{
+	position: absolute;
+	left: 18dp;
+	right: 18dp;
+	top: 14dp;
+	z-index: 3;
+}
+
+.tower-profile.tree-first-layout #tower-profile-drag-handle > div
+{
+	display: none;
+}
+
+.tower-profile.tree-first-layout .tower-tech-tree
+{
+	margin-top: 0;
+	height: 558dp;
 }
 .enemy-profile
 {
@@ -593,44 +620,45 @@ header
 .tech-tree { position: relative; display: block; width: 100%; box-sizing: border-box; background-color: rgba(7, 13, 16, 0.42); border: 1dp rgba(47, 70, 71, 0.85); }
 .constellation-field { position: relative; display: block; width: 100%; box-sizing: border-box; height: 552dp; overflow: hidden; background-color: rgba(9, 14, 17, 0.18); }
 .constellation-field .tree-art { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.96; }
+.tree-overlay-title { position: absolute; left: 14dp; top: 8dp; z-index: 2; padding: 4dp 10dp; font-family: "Times New Roman"; font-size: 15dp; color: #f1dfaa; background-color: rgba(8, 13, 13, 0.66); border: 1dp rgba(118, 131, 107, 0.7); }
 .spire-node { position: absolute; left: 50%; width: 68dp; margin-left: -34dp; }
 .spire-node-top { top: 42dp; }
 .spire-node-base { top: 128dp; }
 .constellation-branches { position: absolute; left: 0; top: 228dp; width: 100%; height: 300dp; display: flex; flex-direction: row; }
 .constellation-branch { position: relative; width: 33.333%; height: 300dp; padding-top: 0; }
-.branch-label { height: 12dp; margin: 0; font-size: 7dp; line-height: 12dp; text-align: center; color: #91a09a; }
+.branch-label { height: 12dp; margin: 0; font-size: 10dp; line-height: 12dp; text-align: center; color: #91a09a; }
 .branch-sigil { margin-right: 2dp; }
 .stone-branch .branch-label { color: #d1a878; }
 .metal-branch .branch-label { color: #c1cdd2; }
 .electric-branch .branch-label { color: #75d5e3; }
-.discipline-node { position: absolute; left: 50%; top: 18dp; width: 68dp; margin-left: -34dp; }
-.rune-node { position: absolute; width: 68dp; min-height: 68dp; margin-left: -34dp; }
+.discipline-node { position: absolute; left: 50%; top: 18dp; width: 84dp; margin-left: -34dp; }
+.rune-node { position: absolute; width: 84dp; min-height: 84dp; margin-left: -34dp; }
 .node-left { left: 25%; }
 .node-right { left: 75%; }
 .tier-three { top: 124dp; }
 .tier-four { top: 235dp; }
 .tech-node
 {
-	min-height: 68dp;
+	min-height: 84dp;
 	box-sizing: border-box;
 	padding: 0;
-	font-size: 8dp;
+	font-size: 10dp;
 	color: #dce9e5;
 	background-color: #050808fa;
 	border: 2dp #58736d;
 }
-.tech-node img { width: 64dp; height: 64dp; margin: 0 auto; display: block; }
+.tech-node img { width: 84dp; height: 84dp; margin: 0 auto; display: block; }
 .tech-node span { display: none; }
 .node-rank
 {
 	position: absolute;
 	right: -5dp;
 	bottom: -3dp;
-	min-width: 20dp;
-	height: 11dp;
+	min-width: 28dp;
+	height: 14dp;
 	padding: 1dp 2dp;
-	font-size: 7dp;
-	line-height: 9dp;
+	font-size: 10dp;
+	line-height: 12dp;
 	text-align: center;
 	color: #f4f3df;
 	background-color: #020303;
@@ -650,6 +678,13 @@ header
 .metal-node { border-color: #9eabb0; }
 .electric-node { border-color: #4fb7c9; }
 .hybrid-node { border-color: #c69765; background-color: #282018f2; }
+
+.archer-tree .constellation-field { height: 592dp; }
+.archer-tree .spire-node-top { top: 38dp; }
+.archer-tree .spire-node-base { top: 136dp; }
+.archer-tree .constellation-branches { top: 242dp; }
+.archer-tree .tier-three { top: 132dp; }
+.archer-tree .tier-four { top: 248dp; }
 .talent-inspector
 {
 	position: absolute;

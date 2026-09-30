@@ -1,5 +1,6 @@
 <div class="tech-tree archer-tree">
 	<div class="constellation-field">
+		<div id="tech-tree-overlay-title" class="tree-overlay-title">ARCHER HUT</div>
 		<img class="tree-art" src="../../images/talents/archer/archer_tree_background.png"/>
 		<button id="upgrade-quickdraw_rig" class="tech-node core-node spire-node spire-node-top"><img src="../../images/talents/archer/archer_quickdraw_rig.png"/><span>Quickdraw Rig</span><small id="rank-quickdraw_rig" class="node-rank">0/2</small></button>
 		<button id="upgrade-hardened_draw" class="tech-node core-node spire-node spire-node-base"><img src="../../images/talents/archer/archer_hardened_draw.png"/><span>Hardened Draw</span><small id="rank-hardened_draw" class="node-rank">0/1</small></button>
