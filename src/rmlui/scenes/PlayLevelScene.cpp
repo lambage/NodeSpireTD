@@ -60,6 +60,32 @@ constexpr float kGroundCircleYOffset = 0.22f;
 constexpr float kSettingsPollIntervalSeconds = 0.5f;
 constexpr float kGameplayTuningPollIntervalSeconds = 0.5f;
 
+struct TowerPreviewHitboxSlot {
+    const char* id;
+    int slot;
+};
+
+constexpr TowerPreviewHitboxSlot kTowerPreviewHitboxSlots[] = {
+    {"tower-preview-hitbox-0", 0},
+    {"tower-preview-hitbox-1", 1},
+    {"tower-preview-hitbox-2", 2},
+    {"tower-preview-hitbox-3", 3},
+    {"tower-preview-hitbox-4", 4},
+};
+
+std::optional<int> towerPreviewSlotFromElementId(const Rml::String& id) {
+    for (const auto& hitbox : kTowerPreviewHitboxSlots) {
+        if (id == hitbox.id) {
+            return hitbox.slot;
+        }
+    }
+    return std::nullopt;
+}
+
+const char* boolToString(bool value) {
+    return value ? "true" : "false";
+}
+
 std::optional<std::filesystem::file_time_type> tryGetLastWriteTime(const std::filesystem::path& path) {
     std::error_code error;
     if (!std::filesystem::exists(path, error)) {
@@ -568,6 +594,10 @@ SceneTransition PlayLevelScene::onKeyDown(Rml::Input::KeyIdentifier key) {
             selectedTowerSlot_ = selectedTowerSlot_ == slot ? -1 : slot;
             towerPlacementPreviewResolver_.reset();
             placementReason_.clear();
+            suppressHudPointerForPlacement_ = true;
+            Rml::Log::Message(Rml::Log::LT_INFO,
+                              "[LoadoutSelect] source=keyboard slot=%d tower=%s selectedTowerSlot=%d money=%.1f cost=%d",
+                              slot, tower->id.c_str(), selectedTowerSlot_, gameplayState_.playerMoney, tower->cost);
             refreshLoadout();
         }
     }
@@ -619,13 +649,17 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
         submitChat();
         return;
     }
-    if (id.starts_with("tower-preview-hitbox-") && event == Rml::EventId::Mouseover) {
-        refreshTowerSlotInspector(std::stoi(id.substr(20)));
-        return;
+    if (event == Rml::EventId::Mouseover) {
+        if (const auto slot = towerPreviewSlotFromElementId(id)) {
+            refreshTowerSlotInspector(*slot);
+            return;
+        }
     }
-    if (id.starts_with("tower-preview-hitbox-") && event == Rml::EventId::Mouseout) {
-        refreshTowerSlotInspector(-1);
-        return;
+    if (event == Rml::EventId::Mouseout) {
+        if (towerPreviewSlotFromElementId(id)) {
+            refreshTowerSlotInspector(-1);
+            return;
+        }
     }
     if (id.starts_with("upgrade-") && event == Rml::EventId::Mouseover) {
         refreshTalentInspector(id.substr(8), target);
@@ -658,18 +692,30 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
         return;
     }
 
-    if (id.starts_with("tower-preview-hitbox-")) {
-        const int slot = std::stoi(id.substr(20));
-        const TowerArchetype* tower = towerLoadController_ ? towerLoadController_->archetypeAtLoadoutSlot(slot) : nullptr;
+    if (const auto slot = towerPreviewSlotFromElementId(id)) {
+        const TowerArchetype* tower = towerLoadController_ ? towerLoadController_->archetypeAtLoadoutSlot(*slot) : nullptr;
         if (!tower) {
+            Rml::Log::Message(Rml::Log::LT_INFO,
+                              "[LoadoutSelect] source=mouse slot=%d hasTower=false selectedTowerSlot=%d",
+                              *slot, selectedTowerSlot_);
             return;
         }
         if (gameplayState_.playerMoney < static_cast<float>(tower->cost)) {
             placementReason_ = "Not enough credits for " + tower->displayName + ".";
+            Rml::Log::Message(
+                Rml::Log::LT_INFO,
+                "[LoadoutSelect] source=mouse slot=%d tower=%s selectedTowerSlot=%d blocked=insufficient_funds money=%.1f cost=%d",
+                *slot, tower->id.c_str(), selectedTowerSlot_, gameplayState_.playerMoney, tower->cost);
         } else {
-            selectedTowerSlot_ = selectedTowerSlot_ == slot ? -1 : slot;
+            selectedTowerSlot_ = selectedTowerSlot_ == *slot ? -1 : *slot;
             towerPlacementPreviewResolver_.reset();
             placementReason_.clear();
+            suppressHudPointerForPlacement_ = true;
+            Rml::Log::Message(
+                Rml::Log::LT_INFO,
+                "[LoadoutSelect] source=mouse slot=%d tower=%s selectedTowerSlot=%d money=%.1f cost=%d ignoreHudNextFrame=%s",
+                *slot, tower->id.c_str(), selectedTowerSlot_, gameplayState_.playerMoney, tower->cost,
+                boolToString(suppressHudPointerForPlacement_));
         }
         refreshLoadout();
         return;
@@ -828,7 +874,13 @@ bool PlayLevelScene::pointerIsOverHud() const {
         return false;
     }
     Rml::Element* hovered = context_->GetHoverElement();
-    return hovered && hovered != document_ && hovered->GetId() != "playlevel-root";
+    if (!hovered || hovered == document_ || hovered->GetId() == "playlevel-root") {
+        return false;
+    }
+    if (suppressHudPointerForPlacement_ && hovered->GetId().starts_with("tower-preview-hitbox-")) {
+        return false;
+    }
+    return true;
 }
 
 void PlayLevelScene::appendChatLine(const Rml::String& author, const Rml::String& text, bool systemMessage,
@@ -886,6 +938,8 @@ void PlayLevelScene::updateTowerPlacement() {
     const bool leftMouseDown = (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
     const bool leftClicked = leftMouseDown && !leftMouseDown_;
     leftMouseDown_ = leftMouseDown;
+    const bool ignoreHudPointer = suppressHudPointerForPlacement_;
+    suppressHudPointerForPlacement_ = false;
 
     const TowerArchetype* tower = selectedTower();
     updateWorldHover();
@@ -929,7 +983,15 @@ void PlayLevelScene::updateTowerPlacement() {
     placementSample_.worldPosition = resolved.worldPos;
     placementReason_ = resolved.hasHit ? resolved.reason : "Cursor is not over valid terrain.";
 
-    if (leftClicked && !pointerIsOverHud() && placementSample_.hit && placementReason_.empty()) {
+    const bool placementPointerOverHud = ignoreHudPointer ? false : pointerIsOverHud();
+    if (leftClicked) {
+        Rml::Log::Message(
+            Rml::Log::LT_INFO,
+            "[PlacementClick] tower=%s selectedTowerSlot=%d ignoreHudPointer=%s pointerOverHud=%s sampleHit=%s placementReason=%s",
+            tower->id.c_str(), selectedTowerSlot_, boolToString(ignoreHudPointer), boolToString(placementPointerOverHud),
+            boolToString(placementSample_.hit), placementReason_.empty() ? "<empty>" : placementReason_.c_str());
+    }
+    if (leftClicked && !placementPointerOverHud && placementSample_.hit && placementReason_.empty()) {
         const std::string finalReason = TowerPlacementRules::validatePlacement(
             placementContext, *tower, placementSample_.worldPosition, 8, placementSample_, gameplayState_.playerMoney);
         if (finalReason.empty()) {
@@ -942,12 +1004,21 @@ void PlayLevelScene::updateTowerPlacement() {
                 placementSample_ = {};
                 towerPlacementPreviewResolver_.reset();
                 placementReason_ = tower->displayName + " deployed.";
+                Rml::Log::Message(Rml::Log::LT_INFO,
+                                  "[PlacementSubmit] accepted=true tower=%s selectedTowerSlot=%d",
+                                  tower->id.c_str(), selectedTowerSlot_);
                 refreshHud();
             } else {
                 placementReason_ = "Tower placement was rejected by the host.";
+                Rml::Log::Message(Rml::Log::LT_WARNING,
+                                  "[PlacementSubmit] accepted=false reason=host_rejected tower=%s",
+                                  tower->id.c_str());
             }
         } else {
             placementReason_ = finalReason;
+            Rml::Log::Message(Rml::Log::LT_WARNING,
+                              "[PlacementSubmit] accepted=false reason=validation_failed tower=%s details=%s",
+                              tower->id.c_str(), finalReason.c_str());
         }
     }
     syncTowerInstances();

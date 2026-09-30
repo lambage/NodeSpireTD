@@ -289,6 +289,8 @@ header
 	background-color: transparent;
 	border: 1dp transparent;
 	color: transparent;
+	cursor: pointer;
+	pointer-events: auto;
 }
 
 .tower-preview-hitbox:hover

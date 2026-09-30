@@ -126,6 +126,7 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     std::uint64_t hoveredEnemyRuntimeId_ = 0;
     std::string placementReason_;
     bool leftMouseDown_ = false;
+    bool suppressHudPointerForPlacement_ = false;
     PlayLevelUiSnapshot snapshot_;
     SceneTransition pendingTransition_;
     glm::vec3 cameraPosition_{0.0f, 5.0f, 20.0f};
