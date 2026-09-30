@@ -1,0 +1,9 @@
+{
+    "enemyHealthMultiplier": 1.0,
+    "enemySpeedMultiplier": 1.0,
+    "enemyRewardMultiplier": 1.0,
+    "enemyBaseDamageMultiplier": 1.0,
+    "hostMoneyOverride": null,
+    "baseHealthOverride": null,
+    "waveCountdownSecondsOverride": null
+}

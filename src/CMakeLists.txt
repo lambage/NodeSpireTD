@@ -138,6 +138,7 @@ add_executable(NodeSpireTD
     RmlUiApp.cpp
     RmlUiFontLoader.cpp
     SettingsManager.cpp
+    GameplayTuningManager.cpp
     AudioEngine.cpp
     multiplayer/ChatCommandDispatcher.cpp
     multiplayer/FixedTickClock.cpp
@@ -179,6 +180,7 @@ target_compile_definitions(NodeSpireTD PRIVATE
     RMLUI_SDL_VERSION_MAJOR=3
     VMA_STATIC_VULKAN_FUNCTIONS=0
     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
+    NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING=$<BOOL:${NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING}>
 )
 
 target_include_directories(NodeSpireTD PRIVATE

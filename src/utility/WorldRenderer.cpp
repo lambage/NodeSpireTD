@@ -1631,7 +1631,7 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
 
     for (std::size_t panelIdx = 0; panelIdx < panels.size(); ++panelIdx) {
         const TowerPreviewPanel& panel = panels[panelIdx];
-        if (panel.prototypeIndex < 0 || panel.width <= 1.0f || panel.height <= 1.0f) {
+        if (panel.width <= 1.0f || panel.height <= 1.0f) {
             continue;
         }
 
@@ -1658,30 +1658,46 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
             continue;
         }
 
-        glm::vec3 targetCenter(0.0f);
-        float targetRadius = 0.5f;
-        if (!computeTowerPrototypeBounds(panel.prototypeIndex, targetCenter, targetRadius)) {
-            continue;
-        }
+        const bool emptyPreview = panel.prototypeIndex < 0;
 
         VkClearAttachment clears[2]{};
-        clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        clears[0].colorAttachment = 0;
-        clears[0].clearValue.color.float32[0] = 0.16f;
-        clears[0].clearValue.color.float32[1] = 0.26f;
-        clears[0].clearValue.color.float32[2] = 0.36f;
-        clears[0].clearValue.color.float32[3] = 1.0f;
+        uint32_t clearCount = 1;
+        if (emptyPreview) {
+            // Empty slots keep an authored fallback color panel.
+            clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            clears[0].colorAttachment = 0;
+            clears[0].clearValue.color.float32[0] = 0.16f;
+            clears[0].clearValue.color.float32[1] = 0.26f;
+            clears[0].clearValue.color.float32[2] = 0.36f;
+            clears[0].clearValue.color.float32[3] = 1.0f;
 
-        clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        clears[1].clearValue.depthStencil.depth = 1.0f;
-        clears[1].clearValue.depthStencil.stencil = 0;
+            clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            clears[1].clearValue.depthStencil.depth = 1.0f;
+            clears[1].clearValue.depthStencil.stencil = 0;
+            clearCount = 2;
+        } else {
+            // For populated slots, clear depth only so the existing world color stays visible.
+            clears[0].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            clears[0].clearValue.depthStencil.depth = 1.0f;
+            clears[0].clearValue.depthStencil.stencil = 0;
+        }
 
         VkClearRect clearRect{};
         clearRect.rect.offset = {x, y};
         clearRect.rect.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
         clearRect.baseArrayLayer = 0;
         clearRect.layerCount = 1;
-        vkCmdClearAttachments(cmd, 2, clears, 1, &clearRect);
+        vkCmdClearAttachments(cmd, clearCount, clears, 1, &clearRect);
+
+        if (emptyPreview) {
+            continue;
+        }
+
+        glm::vec3 targetCenter(0.0f);
+        float targetRadius = 0.5f;
+        if (!computeTowerPrototypeBounds(panel.prototypeIndex, targetCenter, targetRadius)) {
+            continue;
+        }
 
         VkViewport viewport{};
         viewport.x = static_cast<float>(x);

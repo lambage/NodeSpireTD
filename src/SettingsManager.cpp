@@ -47,6 +47,10 @@ AppSettings settingsFromJson(const nlohmann::json& json) {
 SettingsManager::SettingsManager(std::filesystem::path settingsFilePath)
     : settingsFilePath_(std::move(settingsFilePath)) {}
 
+const std::filesystem::path& SettingsManager::settingsFilePath() const {
+    return settingsFilePath_;
+}
+
 AppSettings SettingsManager::loadOrCreateDefaults() const {
     AppSettings defaults;
 

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -37,8 +38,7 @@ constexpr const char* kDocumentPath = "assets/ui/playlevel/playlevel.rml";
 constexpr const char* kInteractiveIds[] = {"retry-button", "start-match-button", "resume-button", "back-to-lobby-button",
                                             "end-replay-button", "end-lobby-button",
                                             "master-volume-slider", "music-volume-slider", "sfx-volume-slider",
-                                            "tower-slot-0", "tower-slot-1", "tower-slot-2", "tower-slot-3",
-                                            "tower-slot-4", "close-tower-profile", "close-enemy-profile",
+                                            "close-tower-profile", "close-enemy-profile",
                                             "match-chat-send-button", "sell-tower-button"};
 constexpr const char* kTowerProfilePanelId = "tower-profile";
 constexpr const char* kTowerProfileDragHandleId = "tower-profile-drag-handle";
@@ -55,6 +55,26 @@ constexpr glm::vec4 kOtherPlayerRangeOutline{1.0f, 0.82f, 0.28f, 0.9f};
 constexpr glm::vec4 kHoverRangeFill{1.0f, 0.78f, 0.18f, 0.22f};
 constexpr glm::vec4 kHoverOtherPlayerRangeFill{0.95f, 0.235f, 0.235f, 0.22f};
 constexpr float kGroundCircleYOffset = 0.22f;
+constexpr float kSettingsPollIntervalSeconds = 0.5f;
+constexpr float kGameplayTuningPollIntervalSeconds = 0.5f;
+
+std::optional<std::filesystem::file_time_type> tryGetLastWriteTime(const std::filesystem::path& path) {
+    std::error_code error;
+    if (!std::filesystem::exists(path, error)) {
+        return std::nullopt;
+    }
+    const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(path, error);
+    if (error) {
+        return std::nullopt;
+    }
+    return writeTime;
+}
+
+bool audioSettingsDiffer(const AppSettings& lhs, const AppSettings& rhs) {
+    return std::abs(lhs.masterVolume - rhs.masterVolume) > 0.0001f ||
+           std::abs(lhs.musicVolume - rhs.musicVolume) > 0.0001f ||
+           std::abs(lhs.sfxVolume - rhs.sfxVolume) > 0.0001f || lhs.audioDevice != rhs.audioDevice;
+}
 
 glm::vec3 cameraForward(float yaw, float pitch) {
     return glm::normalize(glm::vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch),
@@ -198,6 +218,26 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     localPlayerId_ = session_.localPlayerId() == 0 ? 1 : session_.localPlayerId();
     context_ = &context;
     matchSimulation_.reset();
+#if NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING
+    gameplayTuningEnabled_ = gameplayTuningManager_.isRuntimeTuningEnabled();
+    gameplayTuning_ = gameplayTuningManager_.loadOrCreateDefaults();
+    gameplayTuningPollAccumulator_ = 0.0f;
+    gameplayTuningLastWriteTime_ =
+        tryGetLastWriteTime(gameplayTuningManager_.tuningFilePath()).value_or(std::filesystem::file_time_type{});
+    if (gameplayTuningEnabled_) {
+        if (gameplayTuning_.hostMoneyOverride >= 0.0f) {
+            gameplayState_.playerMoney = gameplayTuning_.hostMoneyOverride;
+        }
+        if (gameplayTuning_.baseHealthOverride >= 0.0f) {
+            gameplayState_.baseHealth = gameplayTuning_.baseHealthOverride;
+        }
+        if (gameplayTuning_.waveCountdownSecondsOverride >= 0.0f) {
+            gameplayState_.waveCountdownDurationSeconds = gameplayTuning_.waveCountdownSecondsOverride;
+        }
+    }
+#else
+    gameplayTuningEnabled_ = false;
+#endif
     localMatchHost_ = multiplayer::LocalMatchHost{};
     if (!session_.isClient()) {
         matchSimulation_.registerPlayer(localPlayerId_, gameplayState_.playerMoney);
@@ -217,12 +257,13 @@ void PlayLevelScene::onEnter(Rml::Context& context, AudioEngine& audio) {
     leftMouseDown_ = false;
     audio_ = &audio;
     settings_ = settingsManager_.loadOrCreateDefaults();
+    settingsPollAccumulator_ = 0.0f;
+    settingsLastWriteTime_ = tryGetLastWriteTime(settingsManager_.settingsFilePath()).value_or(std::filesystem::file_time_type{});
     document_ = context.LoadDocument(kDocumentPath);
     if (!document_) {
         Rml::Log::Message(Rml::Log::LT_ERROR, "Failed to load document: %s", kDocumentPath);
         return;
     }
-
     for (const char* id : kInteractiveIds) {
         if (Rml::Element* element = document_->GetElementById(id)) {
             element->AddEventListener(Rml::EventId::Click, this);
@@ -303,7 +344,6 @@ void PlayLevelScene::onExit(Rml::Context& context) {
         context.UnloadDocument(document_);
         document_ = nullptr;
     }
-
     vulkanContext_.waitIdle();
     worldRenderer_.reset();
     towerLoadController_.reset();
@@ -365,6 +405,9 @@ SceneTransition PlayLevelScene::update(float dt) {
     }
     removeChatFocusKey_ = false;
     normalizeSlashPrefix_ = false;
+
+    pollExternalSettings(dt);
+    pollGameplayTuning(dt);
 
     if (!pauseMenuVisible_) {
         towerPreviewSpinRadians_ = std::fmod(towerPreviewSpinRadians_ + dt * 0.55f, 6.2831853071795864769f);
@@ -605,6 +648,7 @@ void PlayLevelScene::ProcessEvent(Rml::Event& event) {
         }
         audio_->setEffectiveSettings(settings_);
         settingsManager_.save(settings_);
+        settingsLastWriteTime_ = tryGetLastWriteTime(settingsManager_.settingsFilePath()).value_or(settingsLastWriteTime_);
         return;
     }
 
@@ -1630,13 +1674,22 @@ void PlayLevelScene::updateWaveSimulation(float dt) {
                 prototypeIndex = static_cast<int>(std::distance(launchConfig_.animatedTemplateModelPaths.begin(), found));
             }
         }
-        activeEnemies_.push_back(EnemySpawnFactory::create(id, archetype, matchSimulation_.nextEnemyRuntimeId()++,
-                                                           prototypeIndex));
+        playlevel::ActiveEnemy enemy =
+            EnemySpawnFactory::create(id, archetype, matchSimulation_.nextEnemyRuntimeId()++, prototypeIndex);
+        if (gameplayTuningEnabled_) {
+            enemy.health = std::max(1.0f, enemy.health * gameplayTuning_.enemyHealthMultiplier);
+            enemy.maxHealth = std::max(enemy.health, enemy.maxHealth * gameplayTuning_.enemyHealthMultiplier);
+            enemy.moveSpeed = std::max(0.01f, enemy.moveSpeed * gameplayTuning_.enemySpeedMultiplier);
+            enemy.rewardMoney = std::max(0.0f, enemy.rewardMoney * gameplayTuning_.enemyRewardMultiplier);
+            enemy.baseDamage = std::max(0.0f, enemy.baseDamage * gameplayTuning_.enemyBaseDamageMultiplier);
+        }
+        activeEnemies_.push_back(std::move(enemy));
     });
 
     PlayLevelCombatController& combat = matchSimulation_.combatController();
     combat.advanceEnemies(dt, routeLength(), activeEnemies_, [this](float damage) {
-        gameplayState_.baseHealth = std::max(0.0f, gameplayState_.baseHealth - damage);
+        const float scaledDamage = gameplayTuningEnabled_ ? damage * gameplayTuning_.enemyBaseDamageMultiplier : damage;
+        gameplayState_.baseHealth = std::max(0.0f, gameplayState_.baseHealth - scaledDamage);
     });
     combat.updateEnemyStatusEffects(dt, placedTowers_, activeEnemies_);
     combat.updateTowerAttacks(
@@ -2063,6 +2116,103 @@ void PlayLevelScene::populateAudioControls() {
     }
 }
 
+void PlayLevelScene::pollExternalSettings(float dt) {
+    settingsPollAccumulator_ += dt;
+    if (settingsPollAccumulator_ < kSettingsPollIntervalSeconds) {
+        return;
+    }
+    settingsPollAccumulator_ = 0.0f;
+
+    const auto writeTime = tryGetLastWriteTime(settingsManager_.settingsFilePath());
+    if (!writeTime || *writeTime <= settingsLastWriteTime_) {
+        return;
+    }
+
+    const AppSettings fileSettings = settingsManager_.loadOrCreateDefaults();
+    const bool applyAudio = audio_ && audioSettingsDiffer(settings_, fileSettings);
+    settings_ = fileSettings;
+    settingsLastWriteTime_ = *writeTime;
+
+    if (document_) {
+        populateAudioControls();
+    }
+    if (applyAudio) {
+        audio_->setEffectiveSettings(settings_);
+    }
+}
+
+void PlayLevelScene::pollGameplayTuning(float dt) {
+#if !NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING
+    (void)dt;
+    return;
+#else
+    if (session_.isClient()) {
+        return;
+    }
+
+    gameplayTuningPollAccumulator_ += dt;
+    if (gameplayTuningPollAccumulator_ < kGameplayTuningPollIntervalSeconds) {
+        return;
+    }
+    gameplayTuningPollAccumulator_ = 0.0f;
+
+    const bool enabledNow = gameplayTuningManager_.isRuntimeTuningEnabled();
+    if (enabledNow != gameplayTuningEnabled_) {
+        gameplayTuningEnabled_ = enabledNow;
+        if (gameplayTuningEnabled_) {
+            gameplayTuning_ = gameplayTuningManager_.loadOrCreateDefaults();
+            gameplayTuningLastWriteTime_ =
+                tryGetLastWriteTime(gameplayTuningManager_.tuningFilePath()).value_or(gameplayTuningLastWriteTime_);
+            applyGameplayTuning();
+        }
+    }
+
+    if (!gameplayTuningEnabled_) {
+        return;
+    }
+
+    const auto writeTime = tryGetLastWriteTime(gameplayTuningManager_.tuningFilePath());
+    if (!writeTime || *writeTime <= gameplayTuningLastWriteTime_) {
+        return;
+    }
+
+    gameplayTuning_ = gameplayTuningManager_.loadOrCreateDefaults();
+    gameplayTuningLastWriteTime_ = *writeTime;
+    applyGameplayTuning();
+#endif
+}
+
+void PlayLevelScene::applyGameplayTuning() {
+#if !NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING
+    return;
+#else
+    if (!gameplayTuningEnabled_ || session_.isClient()) {
+        return;
+    }
+
+    if (gameplayTuning_.baseHealthOverride >= 0.0f) {
+        gameplayState_.baseHealth = gameplayTuning_.baseHealthOverride;
+    }
+    if (gameplayTuning_.waveCountdownSecondsOverride >= 0.0f) {
+        gameplayState_.waveCountdownDurationSeconds = gameplayTuning_.waveCountdownSecondsOverride;
+        if (gameplayState_.waveCountdownActive) {
+            gameplayState_.waveCountdownRemainingSeconds =
+                std::min(gameplayState_.waveCountdownRemainingSeconds, gameplayState_.waveCountdownDurationSeconds);
+        }
+    }
+    if (gameplayTuning_.hostMoneyOverride >= 0.0f && matchSimulation_.hasPlayer(localPlayerId_)) {
+        const float current = matchSimulation_.playerBalance(localPlayerId_);
+        const float target = gameplayTuning_.hostMoneyOverride;
+        if (target > current) {
+            matchSimulation_.creditPlayer(localPlayerId_, target - current);
+        } else if (target < current) {
+            matchSimulation_.debitPlayer(localPlayerId_, current - target);
+        }
+        gameplayState_.playerMoney = matchSimulation_.playerBalance(localPlayerId_);
+    }
+#endif
+}
+
 void PlayLevelScene::beginTowerProfileDrag() {
     if (!document_) {
         return;
@@ -2225,71 +2375,43 @@ void PlayLevelScene::refreshHud() {
 }
 
 void PlayLevelScene::refreshLoadout() {
-    if (!document_ || !towerLoadController_) {
+    towerPreviewPanels_.clear();
+    if (!towerLoadController_ || !snapshot_.loadoutVisible) {
         return;
     }
-    if (Rml::Element* bar = document_->GetElementById("tower-loadout")) {
-        bar->SetClass("hidden", !snapshot_.loadoutVisible);
+
+    const VkExtent2D extent = vulkanContext_.extent();
+    if (extent.width == 0 || extent.height == 0) {
+        return;
     }
-    towerPreviewPanels_.clear();
-    for (int slot = 0; slot < 5; ++slot) {
-        Rml::Element* button = document_->GetElementById("tower-slot-" + std::to_string(slot));
-        if (!button) {
-            continue;
-        }
+
+    constexpr float kLoadoutWidth = 840.0f;
+    constexpr float kLoadoutBottom = 18.0f;
+    constexpr float kFeedbackHeight = 22.0f;
+    constexpr float kSlotHeight = 144.0f;
+    constexpr float kPreviewTopInset = 18.0f;
+    constexpr float kPreviewHeight = 94.0f;
+    constexpr float kPanelInset = 1.0f;
+    constexpr float kPreviewGap = 6.0f;
+    constexpr int kSlotCount = 5;
+
+    const float panelLeft = (static_cast<float>(extent.width) - kLoadoutWidth) * 0.5f;
+    const float slotWidth =
+        (kLoadoutWidth - (static_cast<float>(kSlotCount - 1) * kPreviewGap)) / static_cast<float>(kSlotCount);
+    const float panelTop = static_cast<float>(extent.height) - kLoadoutBottom - kFeedbackHeight -
+                           kSlotHeight + kPreviewTopInset;
+
+    for (int slot = 0; slot < kSlotCount; ++slot) {
         const TowerArchetype* tower = towerLoadController_->archetypeAtLoadoutSlot(slot);
-        if (!tower) {
-            button->SetInnerRML("<span class=\"slot-key\">" + std::to_string(slot + 1) +
-                                "</span><span class=\"slot-preview-space\"></span><span class=\"slot-name\">EMPTY</span>");
-            button->SetAttribute("disabled", "");
-            button->SetClass("is-selected", false);
-            button->SetClass("is-unaffordable", false);
-            continue;
-        }
-        button->SetInnerRML("<span class=\"slot-key\">" + std::to_string(slot + 1) +
-                            "</span><span class=\"slot-preview-space\"></span><span class=\"slot-name\">" +
-                            Rml::StringUtilities::EncodeRml(tower->displayName) +
-                            "</span><span class=\"slot-cost\">$" + std::to_string(tower->cost) + "</span>");
-        if (snapshot_.loadoutVisible) {
-            const int prototypeIndex = towerLoadController_->templatePrototypeIndex(tower->id);
-            const Rml::Vector2f offset = button->GetAbsoluteOffset(Rml::BoxArea::Border);
-            const float previewHeight = std::min(92.0f, button->GetOffsetHeight() - 42.0f);
-            if (prototypeIndex >= 0 && previewHeight > 1.0f) {
-                towerPreviewPanels_.push_back({prototypeIndex, offset.x + 1.0f, offset.y + 1.0f,
-                                               button->GetOffsetWidth() - 2.0f, previewHeight});
-            }
-        }
-        button->RemoveAttribute("disabled");
-        button->SetClass("is-unaffordable", gameplayState_.playerMoney < static_cast<float>(tower->cost));
-        button->SetClass("is-selected", selectedTowerSlot_ == slot);
-    }
-    if (Rml::Element* feedback = document_->GetElementById("placement-feedback")) {
-        feedback->SetInnerRML(Rml::StringUtilities::EncodeRml(placementReason_));
-        feedback->SetClass("valid", selectedTower() && placementSample_.hit && placementReason_.empty());
+        const int prototypeIndex = tower ? towerLoadController_->templatePrototypeIndex(tower->id) : -1;
+        const float x = panelLeft + static_cast<float>(slot) * (slotWidth + kPreviewGap) + kPanelInset;
+        const float width = slotWidth - 2.0f * kPanelInset;
+        towerPreviewPanels_.push_back({prototypeIndex, x, panelTop, width, kPreviewHeight});
     }
 }
 
 void PlayLevelScene::refreshTowerSlotInspector(int slot) {
-    if (!document_) return;
-    Rml::Element* inspector = document_->GetElementById("tower-slot-inspector");
-    if (!inspector) return;
-    const TowerArchetype* tower = slot >= 0 && slot < 5 && towerLoadController_
-                                          ? towerLoadController_->archetypeAtLoadoutSlot(slot)
-                                          : nullptr;
-    if (!tower) {
-        inspector->SetClass("hidden", true);
-        return;
-    }
-
-    std::ostringstream details;
-    details << "<strong>" << Rml::StringUtilities::EncodeRml(tower->displayName) << " &nbsp; $" << tower->cost
-            << "</strong><p>" << Rml::StringUtilities::EncodeRml(tower->bio) << "</p>"
-            << "<p class=\"preview-stats\">Damage " << std::fixed << std::setprecision(1) << tower->attackDamage
-            << " &nbsp; | &nbsp; Range " << tower->attackRange
-            << " &nbsp; | &nbsp; Rate " << tower->attackSpeed << "/s"
-            << " &nbsp; | &nbsp; AP " << tower->armorPiercing << "</p>";
-    inspector->SetInnerRML(details.str());
-    inspector->SetClass("hidden", false);
+    (void)slot;
 }
 
 } // namespace NodeSpireUi

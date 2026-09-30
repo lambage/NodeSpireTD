@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.31.6)
 project(NodeSpireTD)
 
+option(NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING
+    "Enable host-side gameplay tuning hooks intended for local dev/testing via MCP"
+    OFF)
+
 if(POLICY CMP0207)
     cmake_policy(SET CMP0207 NEW)
 endif()

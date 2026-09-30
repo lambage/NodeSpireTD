@@ -171,10 +171,10 @@ int main(int /*argc*/, char** /*argv*/)
 
             VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(frameIndex, imageIndex);
             sceneManager.renderWorld(commandBuffer, vulkanContext->extent());
+            sceneManager.renderOverlay(commandBuffer, vulkanContext->extent());
             Backend::BeginFrame(commandBuffer, static_cast<uint32_t>(frameIndex));
             context->Render();
             Backend::PresentFrame();
-            sceneManager.renderOverlay(commandBuffer, vulkanContext->extent());
             vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
             if (vulkanContext->present(imageIndex))
             {

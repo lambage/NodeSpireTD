@@ -17,19 +17,6 @@
 			<div><span id="enemy-count-value">0</span><small>ENEMIES</small></div>
 		</section>
 
-		<section id="tower-loadout" class="tower-loadout hidden">
-			<div class="loadout-title">TOWER LOADOUT</div>
-			<div class="tower-slots">
-				<button id="tower-slot-0" class="tower-slot"></button>
-				<button id="tower-slot-1" class="tower-slot"></button>
-				<button id="tower-slot-2" class="tower-slot"></button>
-				<button id="tower-slot-3" class="tower-slot"></button>
-				<button id="tower-slot-4" class="tower-slot"></button>
-			</div>
-			<div id="placement-feedback" class="placement-feedback"></div>
-		</section>
-		<div id="tower-slot-inspector" class="tower-slot-inspector hidden"></div>
-
 		<section id="tower-profile" class="tower-profile hidden">
 			<div id="tower-profile-drag-handle" class="profile-heading">
 				<div><h2 id="tower-profile-name">Tower</h2></div>
