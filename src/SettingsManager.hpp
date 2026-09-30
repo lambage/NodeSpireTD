@@ -10,6 +10,7 @@ class SettingsManager {
 
     AppSettings loadOrCreateDefaults() const;
     bool save(const AppSettings& settings) const;
+    const std::filesystem::path& settingsFilePath() const;
 
   private:
     std::filesystem::path settingsFilePath_;

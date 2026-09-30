@@ -100,12 +100,16 @@ if(GLSLC_EXECUTABLE)
             "${SHADER_SRC}/highlight.frag.spv"
             "${SHADER_SRC}/groundCircle.vert.spv"
             "${SHADER_SRC}/groundCircle.frag.spv"
+            "${SHADER_SRC}/previewPanel.vert.spv"
+            "${SHADER_SRC}/previewPanel.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.vert" -o "${SHADER_SRC}/mesh.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.frag" -o "${SHADER_SRC}/mesh.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.vert" -o "${SHADER_SRC}/highlight.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.frag" -o "${SHADER_SRC}/highlight.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/groundCircle.vert" -o "${SHADER_SRC}/groundCircle.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/groundCircle.frag" -o "${SHADER_SRC}/groundCircle.frag.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/previewPanel.vert" -o "${SHADER_SRC}/previewPanel.vert.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/previewPanel.frag" -o "${SHADER_SRC}/previewPanel.frag.spv"
         DEPENDS
             "${SHADER_SRC}/mesh.vert"
             "${SHADER_SRC}/mesh.frag"
@@ -113,6 +117,8 @@ if(GLSLC_EXECUTABLE)
             "${SHADER_SRC}/highlight.frag"
             "${SHADER_SRC}/groundCircle.vert"
             "${SHADER_SRC}/groundCircle.frag"
+            "${SHADER_SRC}/previewPanel.vert"
+            "${SHADER_SRC}/previewPanel.frag"
         COMMENT "Compiling mesh shaders"
     )
     add_custom_target(MeshShaders DEPENDS
@@ -122,6 +128,8 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/highlight.frag.spv"
         "${SHADER_SRC}/groundCircle.vert.spv"
         "${SHADER_SRC}/groundCircle.frag.spv"
+        "${SHADER_SRC}/previewPanel.vert.spv"
+        "${SHADER_SRC}/previewPanel.frag.spv"
     )
     # NodeSpireTD depends on MeshShaders below because its native PlayLevel scene
     # renders WorldRenderer before the RmlUi HUD in the shared command buffer.
@@ -138,6 +146,7 @@ add_executable(NodeSpireTD
     RmlUiApp.cpp
     RmlUiFontLoader.cpp
     SettingsManager.cpp
+    GameplayTuningManager.cpp
     AudioEngine.cpp
     multiplayer/ChatCommandDispatcher.cpp
     multiplayer/FixedTickClock.cpp
@@ -179,6 +188,7 @@ target_compile_definitions(NodeSpireTD PRIVATE
     RMLUI_SDL_VERSION_MAJOR=3
     VMA_STATIC_VULKAN_FUNCTIONS=0
     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
+    NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING=$<BOOL:${NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING}>
 )
 
 target_include_directories(NodeSpireTD PRIVATE

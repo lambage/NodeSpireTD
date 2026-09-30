@@ -5,16 +5,6 @@
 </head>
 <body>
 	<div id="playlevel-root">
-		<header>
-			<div class="mission-title">
-				<div class="eyebrow">ACTIVE DEPLOYMENT</div>
-				<div id="level-name" class="level-name">Battlefield</div>
-			</div>
-			<div class="match-resources">
-				<div id="money-value" class="money-value">$250</div>
-			</div>
-		</header>
-
 		<section id="wave-hud" class="wave-hud hidden">
 			<div id="wave-label" class="wave-label">Next wave in</div>
 			<div id="wave-seconds" class="wave-seconds">5</div>
@@ -27,39 +17,68 @@
 			<div><span id="enemy-count-value">0</span><small>ENEMIES</small></div>
 		</section>
 
-		<section id="tower-loadout" class="tower-loadout hidden">
-			<div class="loadout-title">TOWER LOADOUT</div>
-			<div class="tower-slots">
-				<button id="tower-slot-0" class="tower-slot"></button>
-				<button id="tower-slot-1" class="tower-slot"></button>
-				<button id="tower-slot-2" class="tower-slot"></button>
-				<button id="tower-slot-3" class="tower-slot"></button>
-				<button id="tower-slot-4" class="tower-slot"></button>
+		<section id="tower-loadout-top" class="tower-loadout-top hidden">
+			<div class="tower-loadout-top-row">
+				<div id="tower-slot-label-0" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-1" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-2" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-3" class="tower-loadout-slot-name">EMPTY</div>
+				<div id="tower-slot-label-4" class="tower-loadout-slot-name">EMPTY</div>
 			</div>
-			<div id="placement-feedback" class="placement-feedback"></div>
 		</section>
-		<div id="tower-slot-inspector" class="tower-slot-inspector hidden"></div>
+
+		<section id="tower-loadout-prices" class="tower-loadout-prices hidden">
+			<div class="tower-loadout-prices-row">
+				<div id="tower-slot-price-0" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-1" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-2" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-3" class="tower-loadout-slot-price">$0</div>
+				<div id="tower-slot-price-4" class="tower-loadout-slot-price">$0</div>
+			</div>
+		</section>
+
+		<button id="tower-preview-hitbox-0" class="tower-preview-hitbox hidden" title="Select tower slot 1"></button>
+		<button id="tower-preview-hitbox-1" class="tower-preview-hitbox hidden" title="Select tower slot 2"></button>
+		<button id="tower-preview-hitbox-2" class="tower-preview-hitbox hidden" title="Select tower slot 3"></button>
+		<button id="tower-preview-hitbox-3" class="tower-preview-hitbox hidden" title="Select tower slot 4"></button>
+		<button id="tower-preview-hitbox-4" class="tower-preview-hitbox hidden" title="Select tower slot 5"></button>
 
 		<section id="tower-profile" class="tower-profile hidden">
 			<div id="tower-profile-drag-handle" class="profile-heading">
-				<div><div class="section-kicker">TOWER PROFILE</div><h2 id="tower-profile-name">Tower</h2></div>
+				<div><h2 id="tower-profile-name">Tower</h2></div>
 				<button id="close-tower-profile" class="icon-button" title="Close tower profile">&#x00d7;</button>
 			</div>
-			<p id="tower-profile-bio" class="tower-bio"></p>
-			<div class="tower-stats">
-				<div><small>DAMAGE</small><span id="tower-damage">0</span></div>
-				<div><small>RANGE</small><span id="tower-range">0</span></div>
-				<div><small>RATE</small><span id="tower-rate">0</span></div>
-				<div><small>SPENT</small><span id="tower-spent">$0</span></div>
-			</div>
-			<div class="tower-details">
-				<span id="tower-damage-type">Physical damage</span>
-				<span id="tower-armor-piercing">Armor piercing: 0</span>
-				<span id="tower-projectile">Projectile: 0 speed, x1</span>
-				<span id="tower-area-stats">Splash: 0 | Chain: 0 | Ricochet: 0</span>
-				<span id="tower-effect-stats">Burn: 0 | Slow: 0 | Freeze: 0 | Crit: 0</span>
-			</div>
 			<div id="tower-tech-tree" class="tower-tech-tree"></div>
+			<div class="tower-combat-summary">
+				<div class="summary-row primary-stats">
+					<span><small>DAMAGE</small><strong id="tower-damage">0</strong></span>
+					<span><small>RANGE</small><strong id="tower-range">0</strong></span>
+					<span><small>RATE</small><strong id="tower-rate">0</strong></span>
+					<span><small>SPENT</small><strong id="tower-spent">$0</strong></span>
+				</div>
+				<div class="summary-row damage-meta">
+					<span id="tower-damage-type-icon" class="damage-type-icon">PHY</span>
+					<span id="tower-ap-chip" class="combat-chip">AP 0.0</span>
+				</div>
+				<div class="combat-tags">
+					<span id="tower-burn-chip" class="combat-chip hidden">Burn 0.0/s 0.0s</span>
+					<span id="tower-slow-chip" class="combat-chip hidden">Slow 0% 0.0s</span>
+					<span id="tower-freeze-chip" class="combat-chip hidden">Freeze 0% 0.0s</span>
+					<span id="tower-crit-chip" class="combat-chip hidden">Crit 0% x1.00</span>
+					<span id="tower-splash-chip" class="combat-chip hidden">Splash 0.0</span>
+					<span id="tower-chain-chip" class="combat-chip hidden">Chain 0.0 x0</span>
+					<span id="tower-ricochet-chip" class="combat-chip hidden">Ricochet 0.0 x0</span>
+				</div>
+			</div>
+			<div class="tower-footer">
+				<p id="tower-profile-bio" class="tower-bio"></p>
+				<button id="sell-tower-button" class="sell-tower-button">Sell for $0</button>
+			</div>
+		</section>
+
+		<section class="player-gold-plaque">
+			<small>GOLD</small>
+			<div id="money-value" class="money-value">$250</div>
 		</section>
 
 		<section id="enemy-profile" class="enemy-profile hidden">

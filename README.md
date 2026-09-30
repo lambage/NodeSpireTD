@@ -39,6 +39,41 @@ Run from the build tree or install it first:
 The default log level is `info`; `-v`/`--verbose` enables debug and
 `--extra-verbose` enables trace. Logs rotate at `logs/nodespiretd.log` (5 MB x 3 files).
 
+## MCP: Live Gameplay Settings
+
+The repository includes an MCP server at `tools/mcp_game_settings_server.py` for
+analyzing and tweaking `config/settings.json` and host-side gameplay tuning values.
+
+- `settings_get`: Returns current settings.
+- `settings_analyze`: Returns derived audio gain and quality warnings.
+- `settings_patch`: Applies a partial settings patch.
+- `settings_reset_defaults`: Restores default values.
+- `gameplay_tuning_status`: Shows gameplay tuning status and current values.
+- `gameplay_tuning_set_enabled`: Turns gameplay tuning on/off in `config/devtools.json`.
+- `gameplay_tuning_patch`: Applies a partial patch to `config/gameplay_tuning.json`.
+- `gameplay_tuning_reset`: Restores gameplay tuning defaults.
+
+Run it as a stdio MCP server:
+
+```bash
+python tools/mcp_game_settings_server.py
+```
+
+`PlayLevelScene` polls the settings file and applies external audio changes at runtime,
+so MCP updates to `masterVolume`, `musicVolume`, and `sfxVolume` take effect during a match.
+
+Gameplay tuning anti-cheat gates are intentionally layered:
+
+1. Build-time gate: gameplay tuning hooks are compiled only when
+	`-DNODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING=ON` is set.
+2. Runtime gate: `config/devtools.json` must contain
+	`"enableGameplayMcpTuning": true`.
+3. MCP write lock: gameplay tuning writes are rejected unless the MCP server process
+	is launched with environment variable `NODESPIRE_ENABLE_DEV_MCP_TUNING=1`.
+
+This keeps gameplay tuning off by default for live builds/runs while preserving a
+simple opt-in path for local dev and balancing sessions.
+
 
 # Known Issues
 

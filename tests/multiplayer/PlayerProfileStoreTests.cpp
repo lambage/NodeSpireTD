@@ -20,6 +20,7 @@ TEST(PlayerProfileStore, GeneratesUuidAndDefaultNameWhenFileMissing) {
     multiplayer::PlayerProfileStore store(path);
     EXPECT_FALSE(store.profile().playerUuid.empty());
     EXPECT_EQ(store.profile().displayName, "Player");
+    EXPECT_TRUE(store.profile().lastPlayedLevelId.empty());
 
     std::filesystem::remove(path);
 }
@@ -60,6 +61,31 @@ TEST(PlayerProfileStore, SetDisplayNameRejectsEmptyOrTooLong) {
     multiplayer::PlayerProfileStore store(path);
     EXPECT_FALSE(store.setDisplayName("   "));
     EXPECT_FALSE(store.setDisplayName(std::string(64, 'x')));
+
+    std::filesystem::remove(path);
+}
+
+TEST(PlayerProfileStore, SetLastPlayedLevelIdPersists) {
+    const auto path = makeTempProfilePath();
+    std::filesystem::remove(path);
+
+    multiplayer::PlayerProfileStore store(path);
+    EXPECT_TRUE(store.setLastPlayedLevelId("mesa_canyon"));
+    EXPECT_EQ(store.profile().lastPlayedLevelId, "mesa_canyon");
+
+    multiplayer::PlayerProfileStore reloaded(path);
+    EXPECT_EQ(reloaded.profile().lastPlayedLevelId, "mesa_canyon");
+
+    std::filesystem::remove(path);
+}
+
+TEST(PlayerProfileStore, SetLastPlayedLevelIdRejectsEmpty) {
+    const auto path = makeTempProfilePath();
+    std::filesystem::remove(path);
+
+    multiplayer::PlayerProfileStore store(path);
+    EXPECT_FALSE(store.setLastPlayedLevelId(""));
+    EXPECT_TRUE(store.profile().lastPlayedLevelId.empty());
 
     std::filesystem::remove(path);
 }

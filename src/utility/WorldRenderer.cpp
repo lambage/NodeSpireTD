@@ -159,8 +159,8 @@ void WorldRenderer::createSamplerLayoutAndPool() {
         throw std::runtime_error("Failed to create texture sampler.");
     }
 
-    // Descriptor set layout: binding 0 = base color sampler, binding 1 = skin matrices
-    VkDescriptorSetLayoutBinding bindings[2]{};
+    // Descriptor set layout: base/normal/ORM/emissive samplers + skin matrices
+    VkDescriptorSetLayoutBinding bindings[5]{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[0].descriptorCount = 1;
@@ -171,18 +171,33 @@ void WorldRenderer::createSamplerLayoutAndPool() {
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[4].binding = 4;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[4].descriptorCount = 1;
+    bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
     VkDescriptorSetLayoutCreateInfo li{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    li.bindingCount = 2;
+    li.bindingCount = 5;
     li.pBindings = bindings;
     if (vkCreateDescriptorSetLayout(ctx_.device(), &li, nullptr, &textureDescLayout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create texture descriptor set layout.");
     }
 
     // Private descriptor pool (freed wholesale in release())
-    VkDescriptorPoolSize poolSizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512},
-                                         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 512}};
+    VkDescriptorPoolSize poolSizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096},
+                                         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1024}};
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pi.maxSets = 513;
+    pi.maxSets = 1024;
     pi.poolSizeCount = 2;
     pi.pPoolSizes = poolSizes;
     if (vkCreateDescriptorPool(ctx_.device(), &pi, nullptr, &ownDescPool_) != VK_SUCCESS) {
@@ -312,7 +327,10 @@ WorldTexture WorldRenderer::uploadRGBAImage(const uint8_t* pixels, uint32_t w, u
     return tex;
 }
 
-VkDescriptorSet WorldRenderer::makeTextureDescSet(VkImageView view) {
+VkDescriptorSet WorldRenderer::makeTextureDescSet(VkImageView baseColorView,
+                                                  VkImageView normalView,
+                                                  VkImageView ormView,
+                                                  VkImageView emissiveView) {
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     ai.descriptorPool = ownDescPool_;
     ai.descriptorSetCount = 1;
@@ -322,23 +340,38 @@ VkDescriptorSet WorldRenderer::makeTextureDescSet(VkImageView view) {
         return VK_NULL_HANDLE;
     }
 
-    VkDescriptorImageInfo ii{};
-    ii.sampler = sampler_;
-    ii.imageView = view;
-    ii.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo baseColorInfo{};
+    baseColorInfo.sampler = sampler_;
+    baseColorInfo.imageView = baseColorView;
+    baseColorInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkDescriptorImageInfo normalInfo{};
+    normalInfo.sampler = sampler_;
+    normalInfo.imageView = normalView;
+    normalInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkDescriptorImageInfo ormInfo{};
+    ormInfo.sampler = sampler_;
+    ormInfo.imageView = ormView;
+    ormInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkDescriptorImageInfo emissiveInfo{};
+    emissiveInfo.sampler = sampler_;
+    emissiveInfo.imageView = emissiveView;
+    emissiveInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     VkDescriptorBufferInfo bi{};
     bi.buffer = skinPaletteBuffer_;
     bi.offset = 0;
     bi.range = sizeof(glm::mat4) * kMaxSkinJoints;
 
-    VkWriteDescriptorSet writes[2]{};
+    VkWriteDescriptorSet writes[5]{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = set;
     writes[0].dstBinding = 0;
     writes[0].descriptorCount = 1;
     writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[0].pImageInfo = &ii;
+    writes[0].pImageInfo = &baseColorInfo;
 
     writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[1].dstSet = set;
@@ -347,14 +380,50 @@ VkDescriptorSet WorldRenderer::makeTextureDescSet(VkImageView view) {
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     writes[1].pBufferInfo = &bi;
 
-    vkUpdateDescriptorSets(ctx_.device(), 2, writes, 0, nullptr);
+    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[2].dstSet = set;
+    writes[2].dstBinding = 2;
+    writes[2].descriptorCount = 1;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[2].pImageInfo = &normalInfo;
+
+    writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[3].dstSet = set;
+    writes[3].dstBinding = 3;
+    writes[3].descriptorCount = 1;
+    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[3].pImageInfo = &ormInfo;
+
+    writes[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[4].dstSet = set;
+    writes[4].dstBinding = 4;
+    writes[4].descriptorCount = 1;
+    writes[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[4].pImageInfo = &emissiveInfo;
+
+    vkUpdateDescriptorSets(ctx_.device(), 5, writes, 0, nullptr);
     return set;
 }
 
 void WorldRenderer::createFallbackTexture() {
     const uint8_t white[4] = {255, 255, 255, 255};
-    fallbackTexture_ = uploadRGBAImage(white, 1, 1);
-    fallbackDescSet_ = fallbackTexture_.valid() ? makeTextureDescSet(fallbackTexture_.view) : VK_NULL_HANDLE;
+    const uint8_t flatNormal[4] = {128, 128, 255, 255};
+    // R=AO, G=roughness, B=metallic packed fallback for legacy assets without PBR maps.
+    const uint8_t ormDefault[4] = {255, 255, 0, 255};
+    const uint8_t black[4] = {0, 0, 0, 255};
+
+    fallbackBaseColorTexture_ = uploadRGBAImage(white, 1, 1);
+    fallbackNormalTexture_ = uploadRGBAImage(flatNormal, 1, 1);
+    fallbackOrmTexture_ = uploadRGBAImage(ormDefault, 1, 1);
+    fallbackEmissiveTexture_ = uploadRGBAImage(black, 1, 1);
+
+    if (fallbackBaseColorTexture_.valid() && fallbackNormalTexture_.valid() && fallbackOrmTexture_.valid() &&
+        fallbackEmissiveTexture_.valid()) {
+        fallbackDescSet_ = makeTextureDescSet(fallbackBaseColorTexture_.view, fallbackNormalTexture_.view,
+                                              fallbackOrmTexture_.view, fallbackEmissiveTexture_.view);
+    } else {
+        fallbackDescSet_ = VK_NULL_HANDLE;
+    }
 }
 
 WorldRenderer::WorldRenderer(lua_State* L, VulkanContext& ctx) : L_(L), ctx_(ctx) {}
@@ -682,7 +751,7 @@ void WorldRenderer::tickLoad() {
             wm.debugGroup = sm.debugGroup;
             wm.debugLabel = sm.debugLabel;
             meshes_.push_back(std::move(wm));
-            meshImgIdx_.push_back(sm.imageIndex);
+            meshMaterialRefs_.push_back(sm.materialTextures);
             totalVertices_ += static_cast<int>(sm.vertices.size());
             totalIndices_ += static_cast<int>(sm.indices.size());
             ++gpuMeshCursor_;
@@ -707,7 +776,7 @@ void WorldRenderer::tickLoad() {
             wm.debugGroup = sm.debugGroup;
             wm.debugLabel = sm.debugLabel;
             enemyTemplateMeshes_.push_back(std::move(wm));
-            enemyMeshImgIdx_.push_back(sm.imageIndex);
+            enemyMeshMaterialRefs_.push_back(sm.materialTextures);
             ++gpuEnemyMeshCursor_;
         }
         progress_.store(0.75f, std::memory_order_relaxed);
@@ -730,7 +799,7 @@ void WorldRenderer::tickLoad() {
             wm.debugGroup = sm.debugGroup;
             wm.debugLabel = sm.debugLabel;
             towerTemplateMeshes_.push_back(std::move(wm));
-            towerMeshImgIdx_.push_back(sm.imageIndex);
+            towerMeshMaterialRefs_.push_back(sm.materialTextures);
             ++gpuTowerMeshCursor_;
         }
         progress_.store(0.77f, std::memory_order_relaxed);
@@ -747,10 +816,7 @@ void WorldRenderer::tickLoad() {
 
         WorldTexture wt = uploadRGBAImage(st.pixels.data(), st.width, st.height);
         if (wt.valid()) {
-            texDescSetCache_[st.imageIndex] = makeTextureDescSet(wt.view);
             textureCache_[st.imageIndex] = wt;
-        } else {
-            texDescSetCache_[st.imageIndex] = fallbackDescSet_;
         }
         ++gpuTexCursor_;
         progress_.store(0.73f + 0.20f * ((float)gpuTexCursor_ / (float)std::max(std::size_t{1}, total)),
@@ -760,20 +826,51 @@ void WorldRenderer::tickLoad() {
 
     // ── Assign descriptor sets to meshes ──────────────────────────────────
     if (!gpuDescsDone_) {
+        auto resolveView = [this](std::size_t imageIndex, const WorldTexture& fallbackTexture) -> VkImageView {
+            if (imageIndex != SIZE_MAX) {
+                auto it = textureCache_.find(imageIndex);
+                if (it != textureCache_.end() && it->second.valid()) {
+                    return it->second.view;
+                }
+            }
+            return fallbackTexture.view;
+        };
+
+        auto resolveDescriptorSet =
+            [this, &resolveView](const WorldStagedMesh::MaterialTextureRefs& refs) -> VkDescriptorSet {
+            auto it = materialDescSetCache_.find(refs);
+            if (it != materialDescSetCache_.end()) {
+                return it->second;
+            }
+
+            const VkImageView baseColorView = resolveView(refs.baseColorImageIndex, fallbackBaseColorTexture_);
+            const VkImageView normalView = resolveView(refs.normalImageIndex, fallbackNormalTexture_);
+            const VkImageView ormView = resolveView(refs.ormImageIndex, fallbackOrmTexture_);
+            const VkImageView emissiveView = resolveView(refs.emissiveImageIndex, fallbackEmissiveTexture_);
+
+            VkDescriptorSet set =
+                makeTextureDescSet(baseColorView, normalView, ormView, emissiveView);
+            if (set == VK_NULL_HANDLE) {
+                set = fallbackDescSet_;
+            }
+            materialDescSetCache_.emplace(refs, set);
+            return set;
+        };
+
         for (std::size_t i = 0; i < meshes_.size(); ++i) {
-            const std::size_t imgIdx = (i < meshImgIdx_.size()) ? meshImgIdx_[i] : SIZE_MAX;
-            auto it = (imgIdx != SIZE_MAX) ? texDescSetCache_.find(imgIdx) : texDescSetCache_.end();
-            meshes_[i].descriptorSet = (it != texDescSetCache_.end()) ? it->second : fallbackDescSet_;
+            const WorldStagedMesh::MaterialTextureRefs refs =
+                (i < meshMaterialRefs_.size()) ? meshMaterialRefs_[i] : WorldStagedMesh::MaterialTextureRefs{};
+            meshes_[i].descriptorSet = resolveDescriptorSet(refs);
         }
         for (std::size_t i = 0; i < enemyTemplateMeshes_.size(); ++i) {
-            const std::size_t imgIdx = (i < enemyMeshImgIdx_.size()) ? enemyMeshImgIdx_[i] : SIZE_MAX;
-            auto it = (imgIdx != SIZE_MAX) ? texDescSetCache_.find(imgIdx) : texDescSetCache_.end();
-            enemyTemplateMeshes_[i].descriptorSet = (it != texDescSetCache_.end()) ? it->second : fallbackDescSet_;
+            const WorldStagedMesh::MaterialTextureRefs refs =
+                (i < enemyMeshMaterialRefs_.size()) ? enemyMeshMaterialRefs_[i] : WorldStagedMesh::MaterialTextureRefs{};
+            enemyTemplateMeshes_[i].descriptorSet = resolveDescriptorSet(refs);
         }
         for (std::size_t i = 0; i < towerTemplateMeshes_.size(); ++i) {
-            const std::size_t imgIdx = (i < towerMeshImgIdx_.size()) ? towerMeshImgIdx_[i] : SIZE_MAX;
-            auto it = (imgIdx != SIZE_MAX) ? texDescSetCache_.find(imgIdx) : texDescSetCache_.end();
-            towerTemplateMeshes_[i].descriptorSet = (it != texDescSetCache_.end()) ? it->second : fallbackDescSet_;
+            const WorldStagedMesh::MaterialTextureRefs refs =
+                (i < towerMeshMaterialRefs_.size()) ? towerMeshMaterialRefs_[i] : WorldStagedMesh::MaterialTextureRefs{};
+            towerTemplateMeshes_[i].descriptorSet = resolveDescriptorSet(refs);
         }
         gpuDescsDone_ = true;
     }
@@ -786,6 +883,8 @@ void WorldRenderer::tickLoad() {
             buildHighlightPipeline();
             buildGroundCirclePipeline();
             buildGroundCircleGeometry();
+            buildPreviewPanelPipeline();
+            buildPreviewPanelGeometry();
         } catch (const std::exception& ex) {
             loadFailed_ = true;
             status_ = std::string("Pipeline build failed: ") + ex.what();
@@ -1530,11 +1629,23 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
         return;
     }
 
+    float referenceRadius = 0.5f;
+    for (const TowerPreviewPanel& panel : panels) {
+        if (panel.prototypeIndex < 0) {
+            continue;
+        }
+        glm::vec3 center(0.0f);
+        float radius = 0.5f;
+        if (computeTowerPrototypeBounds(panel.prototypeIndex, center, radius)) {
+            referenceRadius = std::max(referenceRadius, radius);
+        }
+    }
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
 
     for (std::size_t panelIdx = 0; panelIdx < panels.size(); ++panelIdx) {
         const TowerPreviewPanel& panel = panels[panelIdx];
-        if (panel.prototypeIndex < 0 || panel.width <= 1.0f || panel.height <= 1.0f) {
+        if (panel.width <= 1.0f || panel.height <= 1.0f) {
             continue;
         }
 
@@ -1561,30 +1672,7 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
             continue;
         }
 
-        glm::vec3 targetCenter(0.0f);
-        float targetRadius = 0.5f;
-        if (!computeTowerPrototypeBounds(panel.prototypeIndex, targetCenter, targetRadius)) {
-            continue;
-        }
-
-        VkClearAttachment clears[2]{};
-        clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        clears[0].colorAttachment = 0;
-        clears[0].clearValue.color.float32[0] = 0.16f;
-        clears[0].clearValue.color.float32[1] = 0.26f;
-        clears[0].clearValue.color.float32[2] = 0.36f;
-        clears[0].clearValue.color.float32[3] = 1.0f;
-
-        clears[1].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        clears[1].clearValue.depthStencil.depth = 1.0f;
-        clears[1].clearValue.depthStencil.stencil = 0;
-
-        VkClearRect clearRect{};
-        clearRect.rect.offset = {x, y};
-        clearRect.rect.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
-        clearRect.baseArrayLayer = 0;
-        clearRect.layerCount = 1;
-        vkCmdClearAttachments(cmd, 2, clears, 1, &clearRect);
+        const bool emptyPreview = panel.prototypeIndex < 0;
 
         VkViewport viewport{};
         viewport.x = static_cast<float>(x);
@@ -1600,18 +1688,57 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
         scissor.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+        VkClearAttachment clearDepth{};
+        clearDepth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        clearDepth.clearValue.depthStencil.depth = 1.0f;
+        clearDepth.clearValue.depthStencil.stencil = 0;
+
+        VkClearRect clearRect{};
+        clearRect.rect = scissor;
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+        vkCmdClearAttachments(cmd, 1, &clearDepth, 1, &clearRect);
+
+        if (previewPanelPipeline_ != VK_NULL_HANDLE && previewPanelVertexBuffer_ != VK_NULL_HANDLE) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, previewPanelPipeline_);
+            const VkDeviceSize quadOffset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &previewPanelVertexBuffer_, &quadOffset);
+            const glm::vec4 panelColor{0.16f, 0.26f, 0.36f, 0.35f};
+            vkCmdPushConstants(cmd, previewPanelPipelineLayout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(glm::vec4), &panelColor);
+            vkCmdDraw(cmd, previewPanelVertexCount_, 1, 0, 0);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        }
+
         const float aspect = static_cast<float>(w) / static_cast<float>(h);
         glm::mat4 proj = glm::perspective(glm::radians(35.0f), aspect, 0.01f, 500.0f);
         proj[1][1] *= -1.0f;
 
+        glm::vec3 targetCenter(0.0f);
+        float targetRadius = referenceRadius;
+        bool canDrawModel = !emptyPreview;
+        if (canDrawModel && !computeTowerPrototypeBounds(panel.prototypeIndex, targetCenter, targetRadius)) {
+            canDrawModel = false;
+            targetCenter = glm::vec3(0.0f);
+            targetRadius = referenceRadius;
+        }
+
         const float phase = static_cast<float>(panelIdx) * 0.47f;
         const float yaw = spinRadians + phase;
-        const float camDistance = targetRadius * 1.75f + 0.52f;
-        const float camHeight = targetRadius * 0.40f + 0.15f;
+        const float frameRadius = std::max(referenceRadius, targetRadius);
+        constexpr float kPreviewZoom = 1.4f;
+        const float camDistance = (frameRadius * 3.3f + 0.2f) / kPreviewZoom;
+        const float camHeight = (frameRadius * 0.62f + 0.22f) / kPreviewZoom;
         const glm::vec3 camPos =
             targetCenter + glm::vec3(std::sin(yaw) * camDistance, camHeight, std::cos(yaw) * camDistance);
-        const glm::vec3 lookAtPoint = targetCenter + glm::vec3(0.0f, targetRadius * 0.10f, 0.0f);
+        const glm::vec3 lookAtPoint = targetCenter + glm::vec3(0.0f, frameRadius * 0.12f, 0.0f);
         const glm::mat4 view = glm::lookAt(camPos, lookAtPoint, glm::vec3(0.0f, 1.0f, 0.0f));
+
+
+        if (!canDrawModel) {
+            continue;
+        }
 
         TemplateAnimator* previewAnimator = towerAnimatorForPrototype(panel.prototypeIndex);
         int activePreviewSkinIndex = -2;
@@ -1702,12 +1829,26 @@ void WorldRenderer::release() {
         groundCircleVertexAlloc_ = nullptr;
         groundCircleVertexCount_ = 0;
     }
+    if (previewPanelPipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(ctx_.device(), previewPanelPipeline_, nullptr);
+        previewPanelPipeline_ = VK_NULL_HANDLE;
+    }
+    if (previewPanelPipelineLayout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(ctx_.device(), previewPanelPipelineLayout_, nullptr);
+        previewPanelPipelineLayout_ = VK_NULL_HANDLE;
+    }
+    if (previewPanelVertexBuffer_ != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(ctx_.allocator(), previewPanelVertexBuffer_, previewPanelVertexAlloc_);
+        previewPanelVertexBuffer_ = VK_NULL_HANDLE;
+        previewPanelVertexAlloc_ = nullptr;
+        previewPanelVertexCount_ = 0;
+    }
 
     if (ownDescPool_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(ctx_.device(), ownDescPool_, nullptr);
         ownDescPool_ = VK_NULL_HANDLE;
         fallbackDescSet_ = VK_NULL_HANDLE;
-        texDescSetCache_.clear();
+        materialDescSetCache_.clear();
     }
     if (textureDescLayout_ != VK_NULL_HANDLE) {
         vkDestroyDescriptorSetLayout(ctx_.device(), textureDescLayout_, nullptr);
@@ -1736,7 +1877,10 @@ void WorldRenderer::release() {
         }
         t = {};
     };
-    destroyTex(fallbackTexture_);
+    destroyTex(fallbackBaseColorTexture_);
+    destroyTex(fallbackNormalTexture_);
+    destroyTex(fallbackOrmTexture_);
+    destroyTex(fallbackEmissiveTexture_);
     for (auto& [idx, tex] : textureCache_) {
         destroyTex(tex);
     }
@@ -1769,9 +1913,9 @@ void WorldRenderer::release() {
     meshes_.clear();
     enemyTemplateMeshes_.clear();
     towerTemplateMeshes_.clear();
-    meshImgIdx_.clear();
-    enemyMeshImgIdx_.clear();
-    towerMeshImgIdx_.clear();
+    meshMaterialRefs_.clear();
+    enemyMeshMaterialRefs_.clear();
+    towerMeshMaterialRefs_.clear();
     animatedEntityInstances_.clear();
     towerInstances_.clear();
     hoveredEntityKind_ = WorldEntityKind::None;
@@ -2252,4 +2396,137 @@ void WorldRenderer::buildGroundCircleGeometry() {
     groundCircleVertexBuffer_ = uploadBuffer(verts.data(), verts.size() * sizeof(glm::vec3),
                                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, groundCircleVertexAlloc_);
     groundCircleVertexCount_ = static_cast<uint32_t>(verts.size());
+}
+
+void WorldRenderer::buildPreviewPanelPipeline() {
+    VkShaderModule vert = loadSpirv("assets/shaders/previewPanel.vert.spv");
+    VkShaderModule frag = loadSpirv("assets/shaders/previewPanel.frag.spv");
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag;
+    stages[1].pName = "main";
+
+    VkVertexInputBindingDescription binding{};
+    binding.binding = 0;
+    binding.stride = sizeof(glm::vec2);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription attrib{};
+    attrib = {0, 0, VK_FORMAT_R32G32_SFLOAT, 0};
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &binding;
+    vertexInput.vertexAttributeDescriptionCount = 1;
+    vertexInput.pVertexAttributeDescriptions = &attrib;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(glm::vec4);
+
+    VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layoutInfo.setLayoutCount = 0;
+    layoutInfo.pSetLayouts = nullptr;
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushRange;
+
+    if (vkCreatePipelineLayout(ctx_.device(), &layoutInfo, nullptr, &previewPanelPipelineLayout_) != VK_SUCCESS) {
+        vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+        vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+        throw std::runtime_error("Failed to create preview panel pipeline layout.");
+    }
+
+    VkPipelineViewportStateCreateInfo viewportState{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencil.depthTestEnable = VK_FALSE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+
+    VkPipelineColorBlendAttachmentState blendAttach{};
+    blendAttach.blendEnable = VK_TRUE;
+    blendAttach.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttach.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.colorBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blendAttach.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blendAttach.alphaBlendOp = VK_BLEND_OP_ADD;
+    blendAttach.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blending.attachmentCount = 1;
+    blending.pAttachments = &blendAttach;
+
+    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynState{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynState.dynamicStateCount = 2;
+    dynState.pDynamicStates = dynStates;
+
+    const VkFormat colorFmt = ctx_.swapchainColorFormat();
+    const VkFormat depthFmt = ctx_.depthFormat();
+    VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachmentFormats = &colorFmt;
+    renderingInfo.depthAttachmentFormat = depthFmt;
+
+    VkGraphicsPipelineCreateInfo pipelineCI{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipelineCI.pNext = &renderingInfo;
+    pipelineCI.stageCount = 2;
+    pipelineCI.pStages = stages;
+    pipelineCI.pVertexInputState = &vertexInput;
+    pipelineCI.pInputAssemblyState = &inputAssembly;
+    pipelineCI.pViewportState = &viewportState;
+    pipelineCI.pRasterizationState = &rasterizer;
+    pipelineCI.pMultisampleState = &multisampling;
+    pipelineCI.pDepthStencilState = &depthStencil;
+    pipelineCI.pColorBlendState = &blending;
+    pipelineCI.pDynamicState = &dynState;
+    pipelineCI.layout = previewPanelPipelineLayout_;
+
+    VkResult result = vkCreateGraphicsPipelines(ctx_.device(), VK_NULL_HANDLE, 1, &pipelineCI, nullptr,
+                                               &previewPanelPipeline_);
+
+    vkDestroyShaderModule(ctx_.device(), vert, nullptr);
+    vkDestroyShaderModule(ctx_.device(), frag, nullptr);
+
+    if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create preview panel graphics pipeline.");
+    }
+}
+
+void WorldRenderer::buildPreviewPanelGeometry() {
+    const std::vector<glm::vec2> verts = {
+        glm::vec2(-1.0f, -1.0f),
+        glm::vec2( 1.0f, -1.0f),
+        glm::vec2( 1.0f,  1.0f),
+        glm::vec2(-1.0f, -1.0f),
+        glm::vec2( 1.0f,  1.0f),
+        glm::vec2(-1.0f,  1.0f),
+    };
+
+    previewPanelVertexBuffer_ = uploadBuffer(verts.data(), verts.size() * sizeof(glm::vec2),
+                                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, previewPanelVertexAlloc_);
+    previewPanelVertexCount_ = static_cast<uint32_t>(verts.size());
 }

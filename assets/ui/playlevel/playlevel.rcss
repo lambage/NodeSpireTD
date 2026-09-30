@@ -59,26 +59,26 @@ header
 {
 	margin-right: 0;
 	font-family: "Times New Roman";
-	font-size: 20dp;
+	font-size: 24dp;
 	font-weight: bold;
-	color: #e1bd67;
+	color: #e7c878;
 }
 
 .wave-hud
 {
 	position: absolute;
 	left: 50%;
-	top: 98dp;
-	width: 220dp;
-	margin-left: -110dp;
-	padding: 10dp 16dp 12dp 16dp;
+	top: 16dp;
+	width: 170dp;
+	margin-left: -85dp;
+	padding: 8dp 10dp 9dp 10dp;
 	text-align: center;
-	background-color: #080d0de8;
-	border: 1dp #7b6b39;
+	background-color: #070b0ce8;
+	border: 1dp #8a7541;
 }
 
-.wave-label { font-size: 10dp; color: #d8c88e; }
-.wave-seconds { font-family: "Times New Roman"; font-size: 34dp; color: #fff3bd; }
+.wave-label { font-size: 9dp; color: #d8c88e; }
+.wave-seconds { font-family: "Times New Roman"; font-size: 26dp; color: #fff3bd; }
 .countdown-track { height: 4dp; background-color: #2b2a20; }
 .countdown-progress { width: 100%; height: 100%; background-color: #d6b953; }
 
@@ -86,11 +86,31 @@ header
 {
 	position: absolute;
 	right: 34dp;
-	top: 98dp;
+	top: 16dp;
 	display: flex;
 	flex-direction: row;
 	background-color: #080d0de8;
 	border: 1dp #526057;
+}
+
+.player-gold-plaque
+{
+	position: absolute;
+	right: 34dp;
+	bottom: 20dp;
+	min-width: 180dp;
+	padding: 8dp 14dp 10dp 14dp;
+	text-align: right;
+	background-color: #080d0de8;
+	border: 1dp #8a7541;
+	border-top: 2dp #cdaa5d;
+}
+
+.player-gold-plaque small
+{
+	display: block;
+	font-size: 9dp;
+	color: #9fb5a9;
 }
 
 .battle-stats div { width: 84dp; padding: 9dp; text-align: center; }
@@ -196,162 +216,105 @@ header
 	display: none;
 }
 
-.tower-loadout
+.tower-loadout-top
 {
 	position: absolute;
 	left: 50%;
-	bottom: 18dp;
 	width: 840dp;
 	margin-left: -420dp;
-	box-sizing: border-box;
-	padding: 10dp 12dp 8dp 12dp;
-	background-color: #080d0de8;
-	border: 1dp #526057;
+	pointer-events: none;
 }
 
-.loadout-title
-{
-	margin-bottom: 6dp;
-	padding: 3dp 0;
-	font-size: 11dp;
-	text-align: center;
-	color: #83b9a4;
-	background-color: #080d0df2;
-}
-
-.tower-slots
+.tower-loadout-top-row
 {
 	display: flex;
 	flex-direction: row;
+	gap: 6dp;
 	width: 100%;
 }
 
-.tower-slot
+.tower-loadout-slot-name
 {
-	position: relative;
-	display: block;
-	flex-grow: 1;
-	flex-basis: 0dp;
+	flex: 1 1 0;
 	box-sizing: border-box;
-	height: 144dp;
-	margin: 0;
-	padding: 7dp 8dp;
-	color: #dce4de;
-	background-color: transparent;
-	border: 1dp #4f5f57;
-}
-
-.tower-slot:hover
-{
-	background-color: #20302a66;
-	border-color: #b7dacb;
-}
-
-.tower-slot.is-selected
-{
-	background-color: #63312773;
-	border-color: #e1846e;
-}
-
-.tower-slot:disabled
-{
-	color: #626a65;
-	background-color: #10141280;
-	border-color: #303833;
-}
-
-.tower-slot.is-unaffordable
-{
-	color: #8b918d;
-	border-color: #4b4038;
-}
-
-.tower-slot.is-unaffordable .slot-cost { color: #d98774; }
-
-.slot-key, .slot-name, .slot-cost
-{
-	display: block;
-}
-
-.slot-preview-space { display: block; height: 88dp; }
-
-.slot-key
-{
-	float: left;
-	font-size: 11dp;
-	color: #83b9a4;
-}
-
-.slot-name
-{
-	margin-top: 1dp;
-	padding-top: 2dp;
+	padding: 4dp 8dp;
 	font-family: "Times New Roman";
-	font-size: 15dp;
+	font-size: 16dp;
 	font-weight: bold;
 	text-align: center;
+	color: #e9ece6;
 	background-color: #080d0df2;
-}
-
-.slot-cost
-{
-	margin-top: 3dp;
-	padding-bottom: 2dp;
-	font-size: 12dp;
-	text-align: center;
-	color: #e1bd67;
-	background-color: #080d0df2;
-}
-
-.placement-feedback
-{
-	width: 100%;
-	height: 22dp;
-	min-height: 22dp;
-	max-height: 22dp;
-	box-sizing: border-box;
-	margin-top: 5dp;
-	padding: 3dp 0;
+	border: 1dp #4f5f57;
+	border-bottom: 0;
 	overflow: hidden;
-	font-size: 12dp;
-	line-height: 16dp;
-	text-align: center;
-	color: #d98774;
-	background-color: #080d0df2;
+	white-space: nowrap;
+	text-overflow: ellipsis;
 }
 
-.tower-slot-inspector
+.tower-loadout-prices
 {
 	position: absolute;
 	left: 50%;
-	bottom: 221dp;
-	width: 300dp;
-	margin-left: -150dp;
-	padding: 10dp 12dp;
-	background-color: #0b1110f2;
-	border: 1dp #526057;
-	border-bottom: 2dp #d0aa4f;
+	width: 840dp;
+	margin-left: -420dp;
+	pointer-events: none;
 }
-.tower-slot-inspector strong { display: block; font-family: "Times New Roman"; font-size: 17dp; color: #f3f0df; }
-.tower-slot-inspector p { margin: 4dp 0 0 0; font-size: 11dp; color: #aeb9b2; }
-.tower-slot-inspector .preview-stats { color: #8dd9af; }
 
-.placement-feedback.valid
+.tower-loadout-prices-row
 {
-	color: #69d89e;
+	display: flex;
+	flex-direction: row;
+	gap: 6dp;
+	width: 100%;
+}
+
+.tower-loadout-slot-price
+{
+	flex: 1 1 0;
+	box-sizing: border-box;
+	padding: 4dp 8dp;
+	font-size: 13dp;
+	text-align: center;
+	color: #e1bd67;
+	background-color: #080d0df2;
+	border: 1dp #4f5f57;
+	border-top: 0;
+}
+
+.tower-preview-hitbox
+{
+	position: absolute;
+	margin: 0;
+	padding: 0;
+	background-color: transparent;
+	border: 1dp transparent;
+	color: transparent;
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+.tower-preview-hitbox:hover
+{
+	border-color: #b7dacb;
+}
+
+.tower-preview-hitbox.is-selected
+{
+	border-color: #e1846e;
 }
 
 .tower-profile
 {
 	position: absolute;
 	right: 34dp;
-	top: 168dp;
-	width: 520dp;
-	max-height: 790dp;
+	top: 120dp;
+	width: 760dp;
+	max-height: 748dp;
 	padding: 18dp;
 	background-color: #080d0df2;
 	border: 1dp #526057;
 	border-top: 3dp #d0aa4f;
+	overflow: hidden;
 }
 
 .profile-heading { display: flex; flex-direction: row; align-items: center; }
@@ -372,15 +335,206 @@ header
 	border: 1dp transparent;
 }
 .icon-button:hover { color: #fff3bd; background-color: #27312d; border-color: #66786e; }
-.tower-bio { margin: 10dp 0; font-size: 13dp; color: #aeb9b2; }
-.tower-stats { display: flex; flex-direction: row; border-top: 1dp #38453f; border-bottom: 1dp #38453f; }
-.tower-stats div { width: 25%; padding: 8dp 3dp; text-align: center; }
-.tower-stats small, .tower-stats span { display: block; }
-.tower-stats small { font-size: 9dp; color: #83b9a4; }
-.tower-stats span { margin-top: 3dp; font-size: 14dp; color: #f3f0df; }
-.tower-details { padding: 8dp 0; }
-.tower-details span { display: block; margin: 2dp 0; font-size: 11dp; color: #9eaaa2; }
-.tower-tech-tree { margin-top: 10dp; }
+.tower-footer
+{
+	display: flex;
+	flex-direction: row;
+	align-items: flex-start;
+	gap: 12dp;
+	margin-top: 8dp;
+}
+
+.tower-bio {
+	display: block;
+	flex: 1 1 auto;
+	margin: 0;
+	padding: 0;
+	font-size: 10dp;
+	line-height: 13dp;
+	color: #aeb9b2;
+}
+
+.tower-combat-summary
+{
+	display: block;
+	margin-top: 6dp;
+	padding: 6dp 7dp;
+	background-color: #0b1110b8;
+	border-top: 1dp #34443f;
+	border-bottom: 1dp #34443f;
+}
+
+.summary-row
+{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+}
+
+.primary-stats
+{
+	border-bottom: 1dp #2f3e39;
+	padding-bottom: 4dp;
+}
+
+.primary-stats span
+{
+	width: 25%;
+	text-align: center;
+}
+
+.primary-stats small
+{
+	display: block;
+	font-size: 8dp;
+	color: #8faaa0;
+}
+
+.primary-stats strong
+{
+	display: block;
+	margin-top: 2dp;
+	font-family: "Times New Roman";
+	font-size: 16dp;
+	color: #f3f0df;
+}
+
+.damage-meta
+{
+	margin-top: 4dp;
+}
+
+.damage-type-icon
+{
+	display: inline-block;
+	margin-left: 0;
+	padding: 2dp 5dp;
+	font-size: 8dp;
+	line-height: 10dp;
+	color: #0f1815;
+	background-color: #d8be76;
+	border: 1dp #f0d79c;
+}
+
+.damage-type-label
+{
+	display: inline-block;
+	margin-left: 6dp;
+	font-size: 10dp;
+	color: #9db7ac;
+}
+
+.combat-tags
+{
+	display: flex;
+	flex-wrap: wrap;
+	margin-top: 4dp;
+}
+
+.combat-chip
+{
+	display: inline-block;
+	margin: 2dp 4dp 2dp 0;
+	padding: 2dp 5dp;
+	font-size: 8dp;
+	color: #d4ddd7;
+	background-color: #111919;
+	border: 1dp #2f403b;
+}
+
+.combat-chip.hidden
+{
+	display: none;
+}
+
+.tower-actions
+{
+	display: none;
+}
+.sell-tower-button
+{
+	display: block;
+	width: 122dp;
+	margin: 0;
+	padding: 8dp 10dp;
+	font-size: 10dp;
+	font-weight: bold;
+	color: #102019;
+	background-color: #d9b86b;
+	border: 1dp #f4d89d;
+	flex: 0 0 auto;
+}
+.sell-tower-button:hover { background-color: #ebd28d; border-color: #fff0bd; }
+.tower-tech-tree
+{
+	display: block;
+	margin-top: 0;
+	height: 520dp;
+	height: 524dp;
+	width: 100%;
+	box-sizing: border-box;
+	background-color: rgba(9, 15, 17, 0.48);
+	border: 1dp rgba(78, 102, 96, 0.65);
+	overflow: hidden;
+}
+
+.tower-tech-tree-canvas
+{
+	display: block;
+	width: 100%;
+}
+
+.tower-tech-tree-canvas .tech-tree
+{
+	display: block;
+	width: 100%;
+	background-color: rgba(7, 12, 14, 0.36);
+}
+
+.tower-tech-tree-canvas .constellation-field
+{
+	display: block;
+	width: 100%;
+	background-color: rgba(9, 14, 17, 0.18);
+}
+
+/* Mage tree is taller than Archer; scale it down to fit the same no-scroll viewport. */
+.tower-tech-tree-canvas .mage-tree
+{
+	transform: scale(0.70);
+}
+
+.tower-tech-tree-canvas .archer-tree
+{
+	transform-origin: top;
+	position: relative;
+	transform: scale(0.94);
+}
+
+.tower-profile.tree-first-layout
+{
+	padding-top: 14dp;
+}
+
+.tower-profile.tree-first-layout #tower-profile-drag-handle
+{
+	position: absolute;
+	left: 18dp;
+	right: 18dp;
+	top: 14dp;
+	z-index: 3;
+}
+
+.tower-profile.tree-first-layout #tower-profile-drag-handle > div
+{
+	display: none;
+}
+
+.tower-profile.tree-first-layout .tower-tech-tree
+{
+	margin-top: 0;
+	height: 558dp;
+}
 .enemy-profile
 {
 	position: absolute;
@@ -463,77 +617,48 @@ header
 .tree-subtitle { margin-top: 2dp; font-size: 10dp; color: #7f918d; }
 .tree-legend { margin-left: auto; font-size: 9dp; color: #809c98; }
 .legend-rune { color: #7ed4dc; }
-.tech-tree { position: relative; background-color: #070d10f5; border: 1dp #2f4647; }
-.constellation-field { position: relative; height: 552dp; overflow: hidden; }
-.spire-halo { position: absolute; left: 50%; top: 13dp; border: 1dp #33565e; }
-.halo-outer { width: 206dp; height: 126dp; margin-left: -103dp; }
-.halo-inner { top: 27dp; width: 148dp; height: 98dp; margin-left: -74dp; border-color: #5e765d; }
-.spire-crown { position: absolute; left: 50%; top: 3dp; width: 20dp; margin-left: -10dp; font-size: 19dp; text-align: center; color: #f0cf6b; }
-.rune-mark { position: absolute; width: 18dp; height: 18dp; font-size: 15dp; text-align: center; color: #47777d; }
-.rune-mark-left { left: 52dp; top: 55dp; }
-.rune-mark-right { right: 52dp; top: 55dp; }
-.rune-mark-low-left { left: 111dp; top: 117dp; color: #6c714c; }
-.rune-mark-low-right { right: 111dp; top: 117dp; color: #6c714c; }
-.spire-beam, .nexus-drop, .branch-rail, .branch-drop { position: absolute; width: 2dp; background-color: #638e88; }
-.beam-upper { left: 50%; top: 22dp; height: 22dp; margin-left: -1dp; }
-.beam-lower { left: 50%; top: 108dp; height: 22dp; margin-left: -1dp; }
+.tech-tree { position: relative; display: block; width: 100%; box-sizing: border-box; background-color: rgba(7, 13, 16, 0.42); border: 1dp rgba(47, 70, 71, 0.85); }
+.constellation-field { position: relative; display: block; width: 100%; box-sizing: border-box; height: 552dp; overflow: hidden; background-color: rgba(9, 14, 17, 0.18); }
+.constellation-field .tree-art { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.96; }
+.tree-overlay-title { position: absolute; left: 14dp; top: 8dp; z-index: 2; padding: 4dp 10dp; font-family: "Times New Roman"; font-size: 15dp; color: #f1dfaa; background-color: rgba(8, 13, 13, 0.66); border: 1dp rgba(118, 131, 107, 0.7); }
 .spire-node { position: absolute; left: 50%; width: 68dp; margin-left: -34dp; }
 .spire-node-top { top: 42dp; }
 .spire-node-base { top: 128dp; }
-.nexus-line { position: absolute; top: 216dp; height: 2dp; background-color: #638e88; }
-.nexus-left { left: 16.5%; width: 33.5%; }
-.nexus-right { left: 50%; width: 33.5%; }
-.nexus-drop { top: 216dp; height: 26dp; }
-.drop-stone { left: 16.5%; }
-.drop-metal { left: 50%; }
-.drop-electric { left: 83.5%; }
-.nexus-rune { position: absolute; left: 50%; top: 205dp; width: 24dp; height: 24dp; margin-left: -12dp; font-size: 19dp; text-align: center; color: #f0cf6b; background-color: #101b1c; }
-.constellation-branches { position: absolute; left: 0; top: 237dp; width: 100%; height: 310dp; display: flex; flex-direction: row; }
-.constellation-branch { position: relative; width: 33.333%; height: 310dp; }
-.branch-label { height: 14dp; font-size: 7dp; text-align: center; color: #91a09a; }
+.constellation-branches { position: absolute; left: 0; top: 228dp; width: 100%; height: 300dp; display: flex; flex-direction: row; }
+.constellation-branch { position: relative; width: 33.333%; height: 300dp; padding-top: 0; }
+.branch-label { height: 12dp; margin: 0; font-size: 10dp; line-height: 12dp; text-align: center; color: #91a09a; }
 .branch-sigil { margin-right: 2dp; }
 .stone-branch .branch-label { color: #d1a878; }
 .metal-branch .branch-label { color: #c1cdd2; }
 .electric-branch .branch-label { color: #75d5e3; }
-.discipline-node { position: absolute; left: 50%; top: 24dp; width: 68dp; margin-left: -34dp; }
-.branch-rail { left: 50%; margin-left: -1dp; }
-.rail-a { top: 92dp; height: 19dp; }
-.rail-b { left: 25%; top: 192dp; height: 30dp; }
-.branch-bar { position: absolute; left: 25%; width: 50%; height: 1dp; background-color: #557c77; }
-.bar-a { top: 110dp; }
-.bar-b { top: 221dp; }
-.branch-drop { height: 15dp; }
-.drop-a-left { left: 25%; top: 110dp; }
-.drop-a-right { left: 75%; top: 110dp; }
-.drop-b-left { left: 25%; top: 221dp; }
-.drop-b-right { left: 75%; top: 221dp; }
-.rune-node { position: absolute; width: 68dp; min-height: 68dp; margin-left: -34dp; }
+.discipline-node { position: absolute; left: 50%; top: 18dp; width: 84dp; margin-left: -34dp; }
+.rune-node { position: absolute; width: 84dp; min-height: 84dp; margin-left: -34dp; }
 .node-left { left: 25%; }
 .node-right { left: 75%; }
 .tier-three { top: 124dp; }
 .tier-four { top: 235dp; }
 .tech-node
 {
-	min-height: 68dp;
+	min-height: 84dp;
 	box-sizing: border-box;
 	padding: 0;
-	font-size: 8dp;
+	font-size: 10dp;
 	color: #dce9e5;
 	background-color: #050808fa;
 	border: 2dp #58736d;
 }
-.tech-node img { width: 64dp; height: 64dp; margin: 0 auto; display: block; }
+.tech-node img { width: 84dp; height: 84dp; margin: 0 auto; display: block; }
 .tech-node span { display: none; }
 .node-rank
 {
 	position: absolute;
 	right: -5dp;
-	bottom: -5dp;
-	min-width: 20dp;
-	height: 11dp;
+	bottom: -3dp;
+	min-width: 28dp;
+	height: 14dp;
 	padding: 1dp 2dp;
-	font-size: 7dp;
-	line-height: 9dp;
+	font-size: 10dp;
+	line-height: 12dp;
 	text-align: center;
 	color: #f4f3df;
 	background-color: #020303;
@@ -553,23 +678,32 @@ header
 .metal-node { border-color: #9eabb0; }
 .electric-node { border-color: #4fb7c9; }
 .hybrid-node { border-color: #c69765; background-color: #282018f2; }
+
+.archer-tree .constellation-field { height: 592dp; }
+.archer-tree .spire-node-top { top: 38dp; }
+.archer-tree .spire-node-base { top: 136dp; }
+.archer-tree .constellation-branches { top: 242dp; }
+.archer-tree .tier-three { top: 132dp; }
+.archer-tree .tier-four { top: 248dp; }
 .talent-inspector
 {
 	position: absolute;
-	right: 530dp;
-	top: 150dp;
-	width: 310dp;
+	right: auto;
+	top: 0dp;
+	left: 0dp;
+	width: 330dp;
 	min-height: 72dp;
-	padding: 11dp 13dp;
-	background-color: #0b1110f5;
+	padding: 11dp 13dp 12dp 13dp;
+	background-color: #0a1111fa;
 	border-top: 1dp #526057;
 	border-right: 1dp #526057;
 	border-bottom: 1dp #526057;
-	border-left: 2dp #d0aa4f;
+	border-left: 3dp #d0aa4f;
 }
 .talent-inspector strong { display: block; font-family: "Times New Roman"; font-size: 15dp; color: #f3f0df; }
-.talent-inspector p { margin: 3dp 0; font-size: 11dp; color: #aeb9b2; }
-.talent-inspector .talent-effect { color: #8dd9af; }
+.talent-inspector .talent-level { display: block; margin-top: 1dp; font-size: 9dp; color: #9fb3a8; }
+.talent-inspector p { margin: 4dp 0; font-size: 11dp; color: #aeb9b2; }
+.talent-inspector .talent-effect { color: #8dd9af; border-top: 1dp #354741; padding-top: 5dp; }
 .talent-inspector .talent-lock { color: #d98774; }
 .empty-tree { font-size: 10dp; color: #7f8a83; text-align: center; }
 
@@ -718,7 +852,7 @@ header
 .hud-edge
 {
 	position: absolute;
-	top: 84dp;
+	top: 0;
 	width: 1dp;
 	height: 38%;
 	background-color: #83b9a455;
@@ -764,9 +898,10 @@ header
    without the panel growing past .tower-profile's max-height. */
 .mage-field {
 	height: 735dp;
-	overflow-y: auto;
-	overflow-x: hidden;
+	overflow: hidden;
 }
+
+/* Keep talent trees on a stable internal canvas so absolute nodes do not collapse left. */
 
 .convergence-heading {
 	position: absolute;

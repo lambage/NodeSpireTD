@@ -11,6 +11,7 @@ namespace multiplayer {
 struct PlayerProfile {
     std::string playerUuid;
     std::string displayName = "Player";
+    std::string lastPlayedLevelId;
 };
 
 } // namespace multiplayer

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AppSettings.hpp"
+#include "GameplayTuningManager.hpp"
 #include "SettingsManager.hpp"
 #include "multiplayer/IMatchTransport.hpp"
 #include "multiplayer/LocalMatchHost.hpp"
@@ -13,6 +14,7 @@
 
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Vector2.h>
+#include <filesystem>
 #include <glm/vec3.hpp>
 #include <memory>
 #include <optional>
@@ -84,10 +86,15 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     float routeLength() const;
     bool pointerIsOverHud() const;
     const TowerArchetype* selectedTower() const;
-    glm::mat4 buildTowerTransform(const TowerArchetype& tower, const glm::vec3& position) const;
+    glm::mat4 buildTowerTransform(const glm::vec3& position,
+                    float facingYawOffsetDegrees,
+                    float renderScale) const;
     void setPauseMenuVisible(bool visible);
     void populateAudioControls();
     void setAudioValueLabel(const char* id, float value);
+    void pollExternalSettings(float dt);
+    void pollGameplayTuning(float dt);
+    void applyGameplayTuning();
     void beginTowerProfileDrag();
     void updateTowerProfileDrag();
     void endTowerProfileDrag();
@@ -119,6 +126,7 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     std::uint64_t hoveredEnemyRuntimeId_ = 0;
     std::string placementReason_;
     bool leftMouseDown_ = false;
+    bool suppressHudPointerForPlacement_ = false;
     PlayLevelUiSnapshot snapshot_;
     SceneTransition pendingTransition_;
     glm::vec3 cameraPosition_{0.0f, 5.0f, 20.0f};
@@ -144,6 +152,13 @@ class PlayLevelScene final : public IScene, public Rml::EventListener {
     AudioEngine* audio_ = nullptr;
     SettingsManager settingsManager_;
     AppSettings settings_;
+    std::filesystem::file_time_type settingsLastWriteTime_{};
+    float settingsPollAccumulator_ = 0.0f;
+    GameplayTuningManager gameplayTuningManager_;
+    GameplayTuningConfig gameplayTuning_;
+    bool gameplayTuningEnabled_ = false;
+    std::filesystem::file_time_type gameplayTuningLastWriteTime_{};
+    float gameplayTuningPollAccumulator_ = 0.0f;
 };
 
 } // namespace NodeSpireUi
