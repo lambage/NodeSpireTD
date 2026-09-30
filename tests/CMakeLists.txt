@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_executable(NodeSpireMatchProtocolTests
+    SettingsStartupTests.cpp
     rmlui/PlayLevelUiContractTests.cpp
     multiplayer/ContentHashTests.cpp
     multiplayer/ChatCommandDispatcherTests.cpp

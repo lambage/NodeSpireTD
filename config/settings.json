@@ -8,7 +8,7 @@
     "masterVolume": 0.2800000011920929,
     "musicVolume": 0.14000000059604645,
     "muteWhenUnfocused": true,
-    "refreshRate": 30,
+    "refreshRate": 60,
     "sfxVolume": 1.0,
     "vSyncEnabled": true
 }

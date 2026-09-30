@@ -84,10 +84,10 @@ bool ProcessKeyDownShortcuts(Rml::Context* /*context*/, Rml::Input::KeyIdentifie
 
 int main(int /*argc*/, char** /*argv*/)
 {
-    const int windowWidth = 1024;
-    const int windowHeight = 768;
+    const AppSettings startupSettings = SettingsManager().loadOrCreateDefaults();
+    const auto startupWindow = resolveStartupWindowConfig(startupSettings);
 
-    if (!Backend::Initialize("NodeSpireTD", windowWidth, windowHeight, true))
+    if (!Backend::Initialize("NodeSpireTD", startupWindow.width, startupWindow.height, true))
         return -1;
 
     auto vulkanContext = std::make_unique<VulkanContext>(Backend::GetWindow());
@@ -127,12 +127,15 @@ int main(int /*argc*/, char** /*argv*/)
 
     Rml::Debugger::Initialise(context);
 
+    Backend::ApplyDisplaySettings(*context, startupWindow.fullscreen, startupWindow.exclusiveFullscreen,
+        startupWindow.width, startupWindow.height, startupWindow.refreshRate);
+    Backend::SetVSyncEnabled(startupSettings.vSyncEnabled);
+
     if (!RmlUiFontLoader::LoadAll("assets/fonts")) {
         Rml::Log::Message(Rml::Log::LT_WARNING, "One or more fonts failed to load from %s", "assets/fonts");
-    }    
+    }
 
     {
-        const AppSettings startupSettings = SettingsManager().loadOrCreateDefaults();
         AudioEngine audioEngine(startupSettings.audioDevice);
         audioEngine.setEffectiveSettings(startupSettings);
         multiplayer::MultiplayerSession multiplayerSession;
