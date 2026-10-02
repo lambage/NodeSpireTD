@@ -16,6 +16,7 @@
 #include "multiplayer/PlayerProfileStore.hpp"
 
 #include <LambUI/UIManager.h>
+#include <LambUI/UILog.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -56,6 +57,12 @@ SDL_Window* createWindow(const StartupWindowConfig& startupWindow) {
 
 int main(int /*argc*/, char** /*argv*/) {
   try {
+        LambUI::Log::SetCallback([](LambUI::LogLevel, const char* tag, const std::string& message) {
+            std::fprintf(stderr, "LambUI [%s]: %s\n", tag, message.c_str());
+                std::fflush(stderr);
+        });
+        LambUI::Log::SetMinLevel(LambUI::LogLevel::Debug);
+
     const AppSettings startupSettings = SettingsManager().loadOrCreateDefaults();
     const auto startupWindow = resolveStartupWindowConfig(startupSettings);
 
