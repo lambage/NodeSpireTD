@@ -92,6 +92,8 @@ if(GLSLC_EXECUTABLE)
             "${SHADER_SRC}/groundCircle.frag.spv"
             "${SHADER_SRC}/previewPanel.vert.spv"
             "${SHADER_SRC}/previewPanel.frag.spv"
+            "${SHADER_SRC}/ui.vert.spv"
+            "${SHADER_SRC}/ui.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.vert" -o "${SHADER_SRC}/mesh.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.frag" -o "${SHADER_SRC}/mesh.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.vert" -o "${SHADER_SRC}/highlight.vert.spv"
@@ -100,6 +102,8 @@ if(GLSLC_EXECUTABLE)
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/groundCircle.frag" -o "${SHADER_SRC}/groundCircle.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/previewPanel.vert" -o "${SHADER_SRC}/previewPanel.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/previewPanel.frag" -o "${SHADER_SRC}/previewPanel.frag.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/ui.vert" -o "${SHADER_SRC}/ui.vert.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/ui.frag" -o "${SHADER_SRC}/ui.frag.spv"
         DEPENDS
             "${SHADER_SRC}/mesh.vert"
             "${SHADER_SRC}/mesh.frag"
@@ -109,6 +113,8 @@ if(GLSLC_EXECUTABLE)
             "${SHADER_SRC}/groundCircle.frag"
             "${SHADER_SRC}/previewPanel.vert"
             "${SHADER_SRC}/previewPanel.frag"
+            "${SHADER_SRC}/ui.vert"
+            "${SHADER_SRC}/ui.frag"
         COMMENT "Compiling mesh shaders"
     )
     add_custom_target(MeshShaders DEPENDS
@@ -120,6 +126,8 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/groundCircle.frag.spv"
         "${SHADER_SRC}/previewPanel.vert.spv"
         "${SHADER_SRC}/previewPanel.frag.spv"
+        "${SHADER_SRC}/ui.vert.spv"
+        "${SHADER_SRC}/ui.frag.spv"
     )
     # NodeSpireTD depends on MeshShaders below because its native PlayLevel scene
     # renders WorldRenderer before the RmlUi HUD in the shared command buffer.
@@ -152,12 +160,18 @@ add_executable(NodeSpireTD
     multiplayer/PlayerAccounts.cpp
     multiplayer/PlayerProfileStore.cpp
     lambui/SceneManager.cpp
+    lambui/AppControl.cpp
+    lambui/LuaUiScene.cpp
+    lambui/LuaAudioBindings.cpp
+    lambui/LuaSceneBindings.cpp
     lambui/playlevel/PlayLevelUiContract.cpp
     lambui/scenes/PlayLevelScene.cpp
     lambui/scenes/SplashScene.cpp
     lambui/scenes/MainMenuScene.cpp
     lambui/scenes/LobbyScene.cpp
     lambui/scenes/OptionsScene.cpp
+    lambui_backend/VulkanUiRenderer.cpp
+    lambui_backend/SdlUiInputBridge.cpp
     scenes/EnemyLoadController.cpp
     scenes/EnemySpawnFactory.cpp
     scenes/PlayLevelCombatController.cpp

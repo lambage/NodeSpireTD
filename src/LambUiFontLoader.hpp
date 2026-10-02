@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -8,6 +9,7 @@
 namespace LambUI {
 class FontAtlas;
 class FontAtlasTextMeasurer;
+class ITextMeasurer;
 }
 
 // Loads every font referenced by fontsDirectory/fonts.json (see
@@ -24,6 +26,9 @@ class FontAtlasTextMeasurer;
 // handle is null/unknown.
 class LambUiFontLoader {
   public:
+    LambUiFontLoader();
+    ~LambUiFontLoader();
+
     // Loads every .ttf/.otf/.otc under fontsDirectory at the given SDF bake
     // size. Returns false if any font failed to load or the directory is
     // missing; individual failures are logged to stderr and do not stop the
@@ -35,10 +40,18 @@ class LambUiFontLoader {
     // default atlas).
     void* getFontHandle(const std::string& name) const;
 
-    LambUI::FontAtlasTextMeasurer* textMeasurer() const { return textMeasurer_.get(); }
+    // shared_ptr because LambUI::UIManager's constructor takes
+    // std::shared_ptr<ITextMeasurer> (it may outlive this loader in theory,
+    // though in practice LambUiApp keeps both alive for the whole process).
+    std::shared_ptr<LambUI::ITextMeasurer> textMeasurer() const;
+
+    // Invokes callback(fontHandle, atlas) for every loaded font, so a
+    // renderer (e.g. lambui_backend::VulkanUiRenderer) can upload each
+    // atlas's SDF bitmap under the same handle the measurer already knows.
+    void forEachFont(const std::function<void(void*, const LambUI::FontAtlas&)>& callback) const;
 
   private:
     std::unordered_map<std::string, std::unique_ptr<LambUI::FontAtlas>> atlases_;
-    std::unique_ptr<LambUI::FontAtlasTextMeasurer> textMeasurer_;
+    std::shared_ptr<LambUI::FontAtlasTextMeasurer> textMeasurer_;
 };
 

@@ -115,6 +115,25 @@ add_library(Lua::Library INTERFACE IMPORTED GLOBAL)
 target_link_libraries(Lua::Library INTERFACE lua)
 
 FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG        11.2.0
+    GIT_SHALLOW    ON
+)
+
+FetchContent_MakeAvailable(fmt)
+
+# Declared before spdlog (and forced to use the fmt fetched above) so every
+# translation unit -- including spdlog's own compiled library -- agrees on a
+# single fmt::v11 ABI. Without this, spdlog defaults to its own bundled fmt
+# copy (a different version/inline-namespace tag), and any TU that also
+# transitively includes the external fmt headers before spdlog.h (e.g.
+# LambUiApp.cpp via LambUI/UIManager.h) silently resolves spdlog's logging
+# templates to the external fmt::v11 types instead, producing LNK2019s
+# against the already-compiled spdlog DLL's fmt::v12 symbols.
+set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG        v1.17.0
@@ -131,15 +150,6 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(nlohmann_json)
-
-FetchContent_Declare(
-    fmt
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG        11.2.0
-    GIT_SHALLOW    ON
-)
-
-FetchContent_MakeAvailable(fmt)
 
 # Header-only; no CMakeLists.txt of its own, so FetchContent_MakeAvailable just
 # populates the source and skips add_subdirectory. Used by LambUI_Renderer_VK's

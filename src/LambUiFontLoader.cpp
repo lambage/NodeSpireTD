@@ -26,6 +26,9 @@ bool isFontFile(const std::filesystem::path& path) {
 
 } // namespace
 
+LambUiFontLoader::LambUiFontLoader() = default;
+LambUiFontLoader::~LambUiFontLoader() = default;
+
 bool LambUiFontLoader::loadAll(const std::filesystem::path& fontsDirectory, int pixelHeight) {
     if (!std::filesystem::is_directory(fontsDirectory)) {
         std::fprintf(stderr, "LambUiFontLoader: font directory does not exist: %s\n", fontsDirectory.string().c_str());
@@ -84,7 +87,7 @@ bool LambUiFontLoader::loadAll(const std::filesystem::path& fontsDirectory, int 
         return false;
     }
 
-    textMeasurer_ = std::make_unique<LambUI::FontAtlasTextMeasurer>(*atlases_.at(fallbackName));
+    textMeasurer_ = std::make_shared<LambUI::FontAtlasTextMeasurer>(*atlases_.at(fallbackName));
     for (const auto& [name, atlas] : atlases_) {
         textMeasurer_->RegisterFont(atlas.get(), *atlas);
     }
@@ -95,5 +98,15 @@ bool LambUiFontLoader::loadAll(const std::filesystem::path& fontsDirectory, int 
 void* LambUiFontLoader::getFontHandle(const std::string& name) const {
     const auto it = atlases_.find(name);
     return it != atlases_.end() ? it->second.get() : nullptr;
+}
+
+std::shared_ptr<LambUI::ITextMeasurer> LambUiFontLoader::textMeasurer() const {
+    return textMeasurer_;
+}
+
+void LambUiFontLoader::forEachFont(const std::function<void(void*, const LambUI::FontAtlas&)>& callback) const {
+    for (const auto& [name, atlas] : atlases_) {
+        callback(atlas.get(), *atlas);
+    }
 }
 
