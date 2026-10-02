@@ -23,6 +23,7 @@ local function text(parent, name, value)
     label:SetText(value)
     label:SetColor(0xEBEDEAFF)
     label:SetMouseEnabled(false)
+    label:SetFont("Inter-Regular", 20)
     return label
 end
 
@@ -74,15 +75,17 @@ local function row(pageName, name, caption, index)
     local content = pages[pageName]:GetContent()
     local label = text(content, name .. "Caption", caption)
     label:SetPoint("TOPLEFT", content, "TOPLEFT", 0, index * 88)
+    label:SetFont("Inter-Regular", 20)
     return content, index * 88 + 28
 end
 
 local function choice(pageName, name, caption, index, options, selected, select)
     local content, offset = row(pageName, name, caption, index)
     local control = UI.CreateFrame("DropDownBox", name, content)
-    control:SetSize(136, 40)
+    control:SetSize(136, 36)
     control:SetPoint("TOPLEFT", content, "TOPLEFT", 0, offset)
     control:SetPoint("TOPRIGHT", content, "TOPRIGHT", -20, offset)
+    control:SetFont("Inter-Regular", 24)
     local labels = {}
     for optionIndex, option in ipairs(options) do labels[optionIndex] = option.label end
     control:SetOptions(labels)

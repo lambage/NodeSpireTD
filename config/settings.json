@@ -5,10 +5,10 @@
     "exclusiveFullscreen": false,
     "fullscreen": true,
     "graphicsQuality": 0,
-    "masterVolume": 1.0,
-    "musicVolume": 1.0,
+    "masterVolume": 0.5277777910232544,
+    "musicVolume": 0.2957516312599182,
     "muteWhenUnfocused": false,
     "refreshRate": 60,
-    "sfxVolume": 1.0,
+    "sfxVolume": 0.9901960492134094,
     "vSyncEnabled": true
 }

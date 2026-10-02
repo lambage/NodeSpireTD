@@ -2,7 +2,7 @@
     "//": "LambUI preloads each font at these pixel sizes once at startup.",
     "//2": "Lua selects the filename stem and size: label:SetFont('Inter-Bold', 32).",
     "//3": "'fallback' selects the default face. Omitting size uses the app's default size.",
-    "sizes": [20, 32],
+    "sizes": [16, 20, 24, 32],
     "fonts": [
         { "file": "Inter-Regular.ttf" },
         { "file": "Inter-SemiBold.ttf" },
