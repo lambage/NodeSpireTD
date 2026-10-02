@@ -67,9 +67,9 @@ int main(int /*argc*/, char** /*argv*/) {
     const auto startupWindow = resolveStartupWindowConfig(startupSettings);
 
     SdlGuard sdlGuard;
-    SDL_Window* window = createWindow(startupWindow);
+    std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)> window(createWindow(startupWindow), SDL_DestroyWindow);
 
-    auto vulkanContext = std::make_unique<VulkanContext>(window);
+    auto vulkanContext = std::make_unique<VulkanContext>(window.get());
     vulkanContext->setVSyncEnabled(startupSettings.vSyncEnabled);
     std::fprintf(stderr, "TRACE: VulkanContext ready\n"); std::fflush(stderr);
 
@@ -167,10 +167,6 @@ int main(int /*argc*/, char** /*argv*/) {
         vulkanContext->waitIdle();
         sceneManager.shutdown();
     }
-
-    renderer.reset();
-    vulkanContext.reset();
-    SDL_DestroyWindow(window);
 
     return 0;
   } catch (const std::exception& e) {

@@ -11,11 +11,23 @@ Cross-platform C++20 tower defense project using SDL3, RmlUi, and a Vulkan-first
 
 - CMake >= 3.24
 - Git
+- Git LFS (required for fonts, images, audio, and models)
 - Ninja
 - C++ toolchain:
 	- Windows: Visual Studio 2022 Build Tools (MSVC). Run the Ninja configure and build commands
 	  from **Developer PowerShell for VS 2022** so MSVC's standard-library include paths are set.
 	- Linux: GCC or Clang
+
+After syncing the repository, download its LFS assets from the NodeSpireTD directory:
+
+```bash
+git lfs pull
+```
+
+For repo-tool checkouts whose remote is named `github`, use `git lfs pull github`.
+Run this before installing the game. A checkout with LFS downloads skipped contains
+small text pointers instead of usable assets; fonts are typically hundreds of KB,
+not roughly 130 bytes. After fetching assets, rerun `cmake --install build`.
 
 ### Option 1: Through CMake target
 

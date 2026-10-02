@@ -18,7 +18,7 @@ LuaUiScene::~LuaUiScene() = default;
 
 void LuaUiScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
     pendingTransition_.reset();
-    ui.GetRoot().DestroyChildren();
+    ui.Clear();
 
     lua_ = luaL_newstate();
     luaL_openlibs(lua_);
@@ -38,12 +38,12 @@ void LuaUiScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
 }
 
 void LuaUiScene::onExit(LambUI::UIManager& ui) {
+    ui.Clear();
     bindings_.reset();
     if (lua_) {
         lua_close(lua_);
         lua_ = nullptr;
     }
-    ui.GetRoot().DestroyChildren();
 }
 
 SceneTransition LuaUiScene::update(float dt) {
