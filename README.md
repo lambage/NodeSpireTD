@@ -22,7 +22,7 @@ Cross-platform C++20 tower defense project using SDL3, RmlUi, and a Vulkan-first
 Configure your project once:
 
 ```bash
-cmake -S . -B build -G Ninja
+cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug
 ```
 
 Then run:
