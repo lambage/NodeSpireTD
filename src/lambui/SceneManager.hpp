@@ -1,13 +1,13 @@
 #pragma once
 
-#include "rmlui/IScene.hpp"
-#include "rmlui/SceneTypes.hpp"
+#include "lambui/IScene.hpp"
+#include "lambui/SceneTypes.hpp"
 
-#include <RmlUi/Core/Input.h>
+#include <cstdint>
 #include <memory>
 
-namespace Rml {
-class Context;
+namespace LambUI {
+class UIManager;
 }
 
 class AudioEngine;
@@ -21,11 +21,11 @@ class PlayerProfileStore;
 namespace NodeSpireUi {
 
 // Owns the currently active scene and switches between scenes on request.
-// Only one scene (and its RmlUi document) exists at a time; scenes are
-// constructed lazily on entry and destroyed on exit.
+// Only one scene (and its LambUI widget subtree) exists at a time; scenes
+// are constructed lazily on entry and destroyed on exit.
 class SceneManager {
   public:
-    SceneManager(Rml::Context& context, SceneId initialScene, AudioEngine& audio,
+    SceneManager(LambUI::UIManager& ui, SceneId initialScene, AudioEngine& audio,
           VulkanContext& vulkanContext,
            multiplayer::MultiplayerSession& multiplayerSession,
            multiplayer::PlayerProfileStore& playerProfileStore);
@@ -33,8 +33,13 @@ class SceneManager {
     void update(float dt);
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent);
     void renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent);
-    bool handleKeyDown(Rml::Input::KeyIdentifier key);
+    bool handleKeyDown(uint32_t scanCode);
     void shutdown();
+
+    // Tears down and rebuilds the active scene in place (same scene id), so
+    // a Lua-scripted scene's UI gets rebuilt from its .lua script from
+    // scratch. Driven by the app-level /reload dev hotkey.
+    void reloadActiveScene();
 
     SceneId activeSceneId() const { return activeSceneId_; }
 
@@ -42,7 +47,7 @@ class SceneManager {
     void enterScene(SceneId id);
     void applyTransition(const SceneTransition& transition);
 
-    Rml::Context& context_;
+    LambUI::UIManager& ui_;
     AudioEngine& audio_;
     VulkanContext& vulkanContext_;
     multiplayer::MultiplayerSession& multiplayerSession_;

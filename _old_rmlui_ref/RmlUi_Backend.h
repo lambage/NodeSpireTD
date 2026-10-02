@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // Forked from RmlUi's Backends/RmlUi_Backend.h (SDL_VK sample backend, MIT
 // licensed, see build/_deps/rmlui-src/LICENSE.txt) to add live display/vsync

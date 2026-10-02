@@ -20,32 +20,6 @@ endif()
 include(CTest)
 include(FetchContent)
 
-FetchContent_Declare(
-    Freetype
-    GIT_REPOSITORY https://github.com/freetype/freetype.git
-    GIT_TAG        VER-2-14-3
-    GIT_SHALLOW    ON
-)
-
-FetchContent_MakeAvailable(Freetype)
-
-# RmlUi builds a shared librmlui on Linux, which links against the vendored
-# FreeType target. Ensure the static FreeType archive is built with PIC so that
-# link succeeds when used by shared libraries.
-if(TARGET freetype)
-    set_target_properties(freetype PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
-
-# FreeType's own CMakeLists.txt only exposes the "Freetype::Freetype" name via
-# EXPORT_NAME after install(EXPORT ...); consumed in-tree via FetchContent (no
-# install step) the real target is "freetype-interface". RmlUi's
-# find_package("Freetype") + report_dependency_found_or_error() only checks
-# for the "Freetype::Freetype" target's existence, so alias it ourselves
-# (same pattern as the Lua::Lua alias below).
-if(NOT TARGET Freetype::Freetype)
-    add_library(Freetype::Freetype ALIAS freetype-interface)
-endif()
-
 # Pinned to 3.4.16 (not 3.2.20): SDL_mixer 3.2.4 requires the SDL_ALIGNED()
 # macro and newer SDL_*AudioStream() signatures that 3.2.20's SDL_begin_code.h
 # doesn't have yet, which fails to compile against the older SDL3.
@@ -131,36 +105,14 @@ if(UNIX)
     target_link_libraries(lua PRIVATE m dl)
 endif()
 
-# Satisfies RmlUi's "if(NOT TARGET Lua::Lua)" check in CMake/Dependencies.cmake,
-# so its Lua bindings link against our vendored Lua instead of find_package(Lua).
-# Must be a real (IMPORTED) target, not an ALIAS: RmlUi in turn does
-# `add_library(RmlUi::External::Lua ALIAS Lua::Lua)`, and CMake disallows an
-# ALIAS target pointing at another ALIAS target.
+# Satisfies LambUI's lua/CMakeLists.txt "if(NOT TARGET Lua::Library)" check,
+# so its Lua bindings link against our vendored Lua instead of fetching
+# walterschell/Lua themselves. Must be a real (IMPORTED) target, not an ALIAS
+# pointing at another ALIAS target (same reasoning as the Lua::Lua alias above).
 add_library(Lua::Lua INTERFACE IMPORTED GLOBAL)
 target_link_libraries(Lua::Lua INTERFACE lua)
-
-# RmlUi provides the application UI.
-set(RMLUI_LUA_BINDINGS ON CACHE BOOL "" FORCE)
-# NodeSpireTD installs one application-level runtime dependency set below. Letting RmlUi install
-# its own set as well scans rmlui.dll outside the staged application directory and cannot resolve
-# our separately fetched freetype.dll on Windows.
-set(RMLUI_INSTALL_RUNTIME_DEPENDENCIES OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    rmlui
-    GIT_REPOSITORY https://github.com/mikke89/RmlUi.git
-    GIT_TAG        6.3
-    GIT_SHALLOW    ON
-)
-
-FetchContent_MakeAvailable(rmlui)
-
-# The vendored FreeType compiles its autohint
-# code against HarfBuzz whenever HarfBuzz is available, but doesn't always add
-# the static link dependency itself (it assumes dynamic loading in that case).
-# Link it explicitly so rmlui_core resolves the hb_* symbols at link time.
-if(TARGET HarfBuzz::HarfBuzz)
-    target_link_libraries(rmlui_core PRIVATE HarfBuzz::HarfBuzz)
-endif()
+add_library(Lua::Library INTERFACE IMPORTED GLOBAL)
+target_link_libraries(Lua::Library INTERFACE lua)
 
 FetchContent_Declare(
     spdlog
@@ -190,9 +142,10 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(fmt)
 
 # Header-only; no CMakeLists.txt of its own, so FetchContent_MakeAvailable just
-# populates the source and skips add_subdirectory. Used by our forked
-# RenderInterface_VK::LoadTexture (src/rmlui_backend/RmlUi_Renderer_VK.cpp) to
-# decode PNG/JPEG/BMP/etc., replacing RmlUi's original TGA-only sample parser.
+# populates the source and skips add_subdirectory. Used by LambUI_Renderer_VK's
+# texture loader (src/lambui_backend/LambUI_Renderer_VK.cpp) to decode
+# PNG/JPEG/BMP/etc. for UITextureWidget images; also reused by LambUI's own
+# FontAtlas.cpp for stb_truetype SDF baking (see LambUI/src/CMakeLists.txt).
 # stb doesn't tag releases, so this floats on master rather than a pinned
 # version like the other dependencies above.
 FetchContent_Declare(
@@ -238,6 +191,26 @@ set(BOOST_INCLUDE_LIBRARIES asio system)
 set(BOOST_ENABLE_CMAKE ON)
 
 FetchContent_MakeAvailable(Boost)
+
+# LambUI provides the application UI (replaces RmlUi). Declared after fmt/stb/Boost
+# above so LambUI's own re-declarations of those same FetchContent names (its
+# src/ and lua/ CMakeLists.txt) reuse our already-populated copies instead of
+# fetching separate ones.
+# Boost is a soft, bring-your-own dependency for LambUI (LAMBUI_USE_BOOST):
+# left OFF so its public optional/clamp usage is std::optional + an internal
+# helper instead, needing no extra Boost components beyond asio/system above.
+set(LAMBUI_USE_BOOST OFF CACHE BOOL "" FORCE)
+set(LAMBUI_BUILD_LUA_BINDINGS ON CACHE BOOL "" FORCE)
+set(LAMBUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LAMBUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LAMBUI_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    LambUI
+    GIT_REPOSITORY git@github.com:lambage/LambUI.git
+    GIT_TAG        3692b22c38dac85a18fcaa68f8ddb694f9295234
+)
+
+FetchContent_MakeAvailable(LambUI)
 
 if(BUILD_TESTING)
     FetchContent_Declare(

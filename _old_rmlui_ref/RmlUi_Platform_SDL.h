@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // Forked from RmlUi's Backends/RmlUi_Platform_SDL.h (SDL_VK sample backend, MIT
 // licensed, see build/_deps/rmlui-src/LICENSE.txt). Unmodified except for this notice.

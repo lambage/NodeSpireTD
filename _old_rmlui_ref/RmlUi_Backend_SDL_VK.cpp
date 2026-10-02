@@ -1,4 +1,4 @@
-// Forked from RmlUi's Backends/RmlUi_Backend_SDL_VK.cpp (SDL_VK sample backend, MIT
+﻿// Forked from RmlUi's Backends/RmlUi_Backend_SDL_VK.cpp (SDL_VK sample backend, MIT
 // licensed, see build/_deps/rmlui-src/LICENSE.txt). Unmodified except for this notice;
 // ties together our forked RmlUi_Platform_SDL/RmlUi_Renderer_VK translation units.
 #include "RmlUi_Backend.h"

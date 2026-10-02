@@ -1,4 +1,4 @@
-// Forked from RmlUi's Backends/RmlUi_Renderer_VK.cpp (SDL_VK sample backend, MIT
+﻿// Forked from RmlUi's Backends/RmlUi_Renderer_VK.cpp (SDL_VK sample backend, MIT
 // licensed, see build/_deps/rmlui-src/LICENSE.txt). Modified by NodeSpireTD to use
 // VulkanContext-owned device/frame resources and to add multi-format texture decoding.
 #include "RmlUi_Renderer_VK.h"

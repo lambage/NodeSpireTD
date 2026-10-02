@@ -43,26 +43,16 @@ target_link_libraries(NodeSpirePartyProtocol PUBLIC protobuf::libprotobuf)
 
 function(nodespire_stage_runtime_dependencies targetName)
     if(WIN32)
-        # TARGET_RUNTIME_DLLS only resolves SHARED libraries in targetName's own
-        # link interface -- it doesn't reach freetype.dll here because rmlui
-        # links Freetype PRIVATELY and we expose it via a hand-rolled
-        # Freetype::Freetype ALIAS (see CMakeLists.txt) rather than a normal
-        # find_package() imported target, so it must be staged explicitly.
-        set(extraRuntimeFiles "")
-        if(TARGET freetype)
-            list(APPEND extraRuntimeFiles "$<TARGET_FILE:freetype>")
-        endif()
-
         add_custom_command(TARGET ${targetName} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:${targetName}>
-                    $<TARGET_RUNTIME_DLLS:${targetName}> ${extraRuntimeFiles}
+                    $<TARGET_RUNTIME_DLLS:${targetName}>
             COMMAND_EXPAND_LISTS
             COMMENT "Staging runtime dependencies for ${targetName}"
         )
     endif()
 endfunction()
 
-# SDL-native game Vulkan ownership shared by world and RmlUi rendering.
+# SDL-native game Vulkan ownership shared by world and LambUI rendering.
 add_library(NodeSpireVulkanContext STATIC
     VulkanContext.cpp
 )
@@ -139,12 +129,12 @@ else()
 endif()
 
 # ── NodeSpireTD ────────────────────────────────────────────────────────────────
-# SDL3+Vulkan RmlUi app. The renderer is forked from RmlUi's SDL_VK sample but
-# borrows VulkanContext's device, allocator, swapchain formats, and active command buffer.
+# SDL3+Vulkan LambUI app. The renderer is reconciled with VulkanContext's
+# device, allocator, swapchain formats, and active command buffer.
 
 add_executable(NodeSpireTD
-    RmlUiApp.cpp
-    RmlUiFontLoader.cpp
+    LambUiApp.cpp
+    LambUiFontLoader.cpp
     SettingsManager.cpp
     GameplayTuningManager.cpp
     AudioEngine.cpp
@@ -161,16 +151,13 @@ add_executable(NodeSpireTD
     multiplayer/PartyProtocolAdapter.cpp
     multiplayer/PlayerAccounts.cpp
     multiplayer/PlayerProfileStore.cpp
-    rmlui_backend/RmlUi_Platform_SDL.cpp
-    rmlui_backend/RmlUi_Renderer_VK.cpp
-    rmlui_backend/RmlUi_Backend_SDL_VK.cpp
-    rmlui/SceneManager.cpp
-    rmlui/playlevel/PlayLevelUiContract.cpp
-    rmlui/scenes/PlayLevelScene.cpp
-    rmlui/scenes/SplashScene.cpp
-    rmlui/scenes/MainMenuScene.cpp
-    rmlui/scenes/LobbyScene.cpp
-    rmlui/scenes/OptionsScene.cpp
+    lambui/SceneManager.cpp
+    lambui/playlevel/PlayLevelUiContract.cpp
+    lambui/scenes/PlayLevelScene.cpp
+    lambui/scenes/SplashScene.cpp
+    lambui/scenes/MainMenuScene.cpp
+    lambui/scenes/LobbyScene.cpp
+    lambui/scenes/OptionsScene.cpp
     scenes/EnemyLoadController.cpp
     scenes/EnemySpawnFactory.cpp
     scenes/PlayLevelCombatController.cpp
@@ -185,21 +172,19 @@ add_executable(NodeSpireTD
 )
 
 target_compile_definitions(NodeSpireTD PRIVATE
-    RMLUI_SDL_VERSION_MAJOR=3
     VMA_STATIC_VULKAN_FUNCTIONS=0
     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
     NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING=$<BOOL:${NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING}>
 )
 
 target_include_directories(NodeSpireTD PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/rmlui_backend"
-    "${rmlui_SOURCE_DIR}/Backends"
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${stb_SOURCE_DIR}"
 )
 
 target_link_libraries(NodeSpireTD PRIVATE
-    rmlui
+    LambUI::lambui
+    LambUI::lua
     SDL3::SDL3
     SDL3_mixer::SDL3_mixer
     spdlog::spdlog

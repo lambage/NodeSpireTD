@@ -1,10 +1,10 @@
-#include "rmlui/SceneManager.hpp"
+#include "lambui/SceneManager.hpp"
 
-#include "rmlui/scenes/LobbyScene.hpp"
-#include "rmlui/scenes/MainMenuScene.hpp"
-#include "rmlui/scenes/OptionsScene.hpp"
-#include "rmlui/scenes/PlayLevelScene.hpp"
-#include "rmlui/scenes/SplashScene.hpp"
+#include "lambui/scenes/LobbyScene.hpp"
+#include "lambui/scenes/MainMenuScene.hpp"
+#include "lambui/scenes/OptionsScene.hpp"
+#include "lambui/scenes/PlayLevelScene.hpp"
+#include "lambui/scenes/SplashScene.hpp"
 
 namespace NodeSpireUi {
 
@@ -28,11 +28,11 @@ std::unique_ptr<IScene> createScene(SceneId id, multiplayer::MultiplayerSession&
 }
 } // namespace
 
-SceneManager::SceneManager(Rml::Context& context, SceneId initialScene, AudioEngine& audio,
+SceneManager::SceneManager(LambUI::UIManager& ui, SceneId initialScene, AudioEngine& audio,
                                                      VulkanContext& vulkanContext,
                                                      multiplayer::MultiplayerSession& multiplayerSession,
                                                      multiplayer::PlayerProfileStore& playerProfileStore)
-        : context_(context), audio_(audio), vulkanContext_(vulkanContext), multiplayerSession_(multiplayerSession), playerProfileStore_(playerProfileStore),
+        : ui_(ui), audio_(audio), vulkanContext_(vulkanContext), multiplayerSession_(multiplayerSession), playerProfileStore_(playerProfileStore),
             activeSceneId_(initialScene) {
     enterScene(initialScene);
 }
@@ -40,7 +40,7 @@ SceneManager::SceneManager(Rml::Context& context, SceneId initialScene, AudioEng
 void SceneManager::enterScene(SceneId id) {
     activeSceneId_ = id;
     activeScene_ = createScene(id, multiplayerSession_, playerProfileStore_, vulkanContext_, playLevelLaunchConfig_);
-    activeScene_->onEnter(context_, audio_);
+    activeScene_->onEnter(ui_, audio_);
 }
 
 void SceneManager::applyTransition(const SceneTransition& transition) {
@@ -48,7 +48,7 @@ void SceneManager::applyTransition(const SceneTransition& transition) {
         return;
     }
 
-    activeScene_->onExit(context_);
+    activeScene_->onExit(ui_);
     enterScene(*transition);
 }
 
@@ -64,18 +64,24 @@ void SceneManager::renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D exten
     activeScene_->renderOverlay(commandBuffer, extent);
 }
 
-bool SceneManager::handleKeyDown(Rml::Input::KeyIdentifier key) {
-    const bool handled = activeScene_->handleShortcut(key);
+bool SceneManager::handleKeyDown(uint32_t scanCode) {
+    const bool handled = activeScene_->handleShortcut(scanCode);
     const SceneId previousSceneId = activeSceneId_;
-    applyTransition(activeScene_->onKeyDown(key));
+    applyTransition(activeScene_->onKeyDown(scanCode));
     return handled || activeSceneId_ != previousSceneId;
+}
+
+void SceneManager::reloadActiveScene() {
+    const SceneId id = activeSceneId_;
+    activeScene_->onExit(ui_);
+    enterScene(id);
 }
 
 void SceneManager::shutdown() {
     if (!activeScene_) {
         return;
     }
-    activeScene_->onExit(context_);
+    activeScene_->onExit(ui_);
     activeScene_.reset();
 }
 

@@ -1,4 +1,4 @@
-// Forked from RmlUi's Backends/RmlUi_Platform_SDL.cpp (SDL_VK sample backend, MIT
+﻿// Forked from RmlUi's Backends/RmlUi_Platform_SDL.cpp (SDL_VK sample backend, MIT
 // licensed, see build/_deps/rmlui-src/LICENSE.txt). Unmodified except for this notice.
 #include "RmlUi_Platform_SDL.h"
 #include <RmlUi/Core/Context.h>
