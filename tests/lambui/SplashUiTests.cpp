@@ -310,6 +310,72 @@ TEST_F(PlayUiTest, ProfilesRespectOwnershipAndRouteUpgradeActions) {
     ASSERT_TRUE(Run("assert(not snapshot.selection)"));
 }
 
+TEST_F(PlayUiTest, TalentTreeRendersBranchesArtworkAndLockedStates) {
+    int imageLoads = 0;
+    bindings->SetImageLoader([&](const std::string& path) {
+        ++imageLoads;
+        EXPECT_EQ(path.find("assets/images/talents/archer/archer_"), 0u);
+        return LambUI::UIImage{reinterpret_cast<void*>(uintptr_t{123}), 406, 406};
+    });
+    ASSERT_TRUE(Run(R"lua(
+        snapshot.phase = 'running'
+        snapshot.selection = {
+            kind = 'tower', archetype = 'archer_hut', id = 1, name = 'Archer Hut', owned = true,
+            damage = 20, range = 5, rate = 1, spent = 240, sell = 192, damageType = 'PHY', armorPiercing = 1,
+            upgrades = {
+                {id = 'quickdraw_rig', name = 'Quickdraw Rig', level = 1, maxLevel = 2, cost = 150, enabled = true},
+                {id = 'hardened_draw', name = 'Hardened Draw', level = 1, maxLevel = 1, cost = 0, enabled = false,
+                    requires = {'quickdraw_rig'}, reason = 'Maximum level reached.'},
+                {id = 'stone_specialization', name = 'Stone Specialization', level = 0, maxLevel = 1, cost = 180,
+                    enabled = true, requires = {'hardened_draw'}, minUpgradesRequired = 2},
+                {id = 'metal_specialization', name = 'Metal Specialization', level = 0, maxLevel = 1, cost = 180,
+                    enabled = false, requires = {'hardened_draw'}, reason = 'Locked by your chosen specialization.'}
+            }
+        }
+        OnUpdate(0.1)
+    )lua"));
+    manager.Update(0);
+    manager.Render();
+    EXPECT_EQ(imageLoads, 4);
+    EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+        return command.textureHandle == reinterpret_cast<void*>(uintptr_t{123}) && command.color == 0x50585FFFu;
+    }));
+    EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+        return command.type == LambUI::RenderCommandType::DrawQuad && command.color == 0xE1BD67FFu && command.width == 2;
+    }));
+    for (const auto& viewport : std::vector<LambUI::UIRect>{{0, 0, 1920, 1080}, {0, 0, 1280, 720}, {0, 0, 640, 480}}) {
+        manager.SetDisplaySize(viewport.width, viewport.height);
+        manager.Update(0);
+        ASSERT_TRUE(Run("OnUpdate(0.1)"));
+        manager.Update(0);
+        ASSERT_TRUE(Run(R"lua(
+            local _, firstY, nodeWidth, nodeHeight = frames.Upgrade1:GetRect()
+            local _, secondY = frames.Upgrade2:GetRect()
+            local thirdX, thirdY = frames.Upgrade3:GetRect()
+            local fourthX, fourthY = frames.Upgrade4:GetRect()
+            assert(nodeWidth == 52 and nodeHeight == 52)
+            assert(secondY > firstY + nodeHeight and thirdY > secondY + nodeHeight)
+            assert(thirdY == fourthY and fourthX >= thirdX + nodeWidth + 20)
+            local left, top, width, height = frames.SelectionProfile:GetRect()
+            local sellX, sellY, sellWidth, sellHeight = frames.SellTower:GetRect()
+            assert(sellX >= left and sellX + sellWidth <= left + width)
+            assert(sellY >= top and sellY + sellHeight <= top + height)
+            assert(frames.TalentLink9:IsVisible())
+        )lua"));
+    }
+    EXPECT_EQ(imageLoads, 4);
+    manager.SetDisplaySize(1920, 1080);
+    manager.Update(0);
+    ASSERT_TRUE(Run("OnUpdate(0.1)"));
+    manager.Update(0);
+    Click("Upgrade4");
+    ASSERT_TRUE(Run("assert(not upgraded)"));
+    Click("Upgrade3");
+    ASSERT_TRUE(Run("assert(upgraded == 'stone_specialization'); snapshot.selection.upgrades = {snapshot.selection.upgrades[1]}; OnUpdate(0.1)"));
+    manager.Update(0);
+    ASSERT_TRUE(Run("assert(not frames.Upgrade2:IsVisible() and not frames.TalentLink1:IsVisible())"));
+}
+
 TEST_F(PlayUiTest, ChatLoadFailureAndReturnActionsAreUsable) {
     ASSERT_TRUE(Run("snapshot.phase = 'failed'; snapshot.headline = 'Deployment failed'; OnUpdate(0.1)"));
     manager.Update(0);

@@ -72,6 +72,7 @@ class PlayLevelScene final : public LuaUiScene {
     const TowerArchetype* selectedTower() const;
     glm::mat4 buildTowerTransform(const glm::vec3& position, float facingYawOffsetDegrees, float renderScale) const;
     void setPauseMenuVisible(bool visible);
+    void pollExternalSettings(float dt);
     void pollGameplayTuning(float dt);
     void applyGameplayTuning();
 
@@ -105,7 +106,6 @@ class PlayLevelScene final : public LuaUiScene {
     std::uint64_t hoveredEnemyRuntimeId_ = 0;
     std::string placementReason_;
     bool leftMouseDown_ = false;
-    bool suppressHudPointerForPlacement_ = false;
     PlayLevelUiSnapshot snapshot_;
     SceneTransition pendingTransition_;
     glm::vec3 cameraPosition_{0.0f, 5.0f, 20.0f};
@@ -118,6 +118,8 @@ class PlayLevelScene final : public LuaUiScene {
     std::vector<TowerPreviewPanel> towerPreviewPanels_;
     std::vector<std::string> chat_;
     float towerPreviewSpinRadians_ = 0.0f;
+    std::filesystem::file_time_type settingsLastWriteTime_{};
+    float settingsPollAccumulator_ = 0.0f;
     GameplayTuningManager gameplayTuningManager_;
     GameplayTuningConfig gameplayTuning_;
     bool gameplayTuningEnabled_ = false;

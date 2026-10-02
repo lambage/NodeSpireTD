@@ -36,7 +36,6 @@ namespace NodeSpireUi {
 
 namespace {
 
-constexpr const char* kPlayLevelRootId = "playlevel-root";
 constexpr float kTowerGhostAlpha = 0.45f;
 constexpr float kTowerSellRefundRatio = 0.80f;
 constexpr multiplayer::SimulationTick kSnapshotIntervalTicks = 3;
@@ -51,10 +50,6 @@ constexpr glm::vec4 kHoverOtherPlayerRangeFill{0.95f, 0.235f, 0.235f, 0.22f};
 constexpr float kGroundCircleYOffset = 0.22f;
 constexpr float kSettingsPollIntervalSeconds = 0.5f;
 constexpr float kGameplayTuningPollIntervalSeconds = 0.5f;
-
-const char* boolToString(bool value) {
-    return value ? "true" : "false";
-}
 
 std::optional<std::filesystem::file_time_type> tryGetLastWriteTime(const std::filesystem::path& path) {
     std::error_code error;
@@ -228,6 +223,7 @@ void PlayLevelScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
 void PlayLevelScene::bindSceneApi(lua_State* lua, AudioEngine& audio) {
     lua_ = lua;
     audio_ = &audio;
+    settingsLastWriteTime_ = tryGetLastWriteTime(SettingsManager().settingsFilePath()).value_or(std::filesystem::file_time_type{});
     onlineMatch_ = session_.isInParty();
     localPlayerId_ = session_.localPlayerId() == 0 ? 1 : session_.localPlayerId();
     matchSimulation_.reset();
@@ -271,6 +267,7 @@ SceneTransition PlayLevelScene::update(float dt) {
     if ((onlineMatch_ && !session_.isInParty()) || (session_.isClient() && session_.consumeMatchEnded()))
         return SceneId::Lobby;
     consumeChat();
+    pollExternalSettings(dt);
     pollGameplayTuning(dt);
     if (worldRenderer_ && snapshot_.phase == PlayLevelUiPhase::Loading) {
         worldRenderer_->tickLoad();
@@ -396,6 +393,23 @@ void PlayLevelScene::consumeChat() {
     if (chat_.size() > 100) chat_.erase(chat_.begin(), chat_.end() - 100);
 }
 
+void PlayLevelScene::pollExternalSettings(float dt) {
+    settingsPollAccumulator_ += dt;
+    if (settingsPollAccumulator_ < kSettingsPollIntervalSeconds) return;
+    settingsPollAccumulator_ = 0.0f;
+    SettingsManager manager;
+    const auto writeTime = tryGetLastWriteTime(manager.settingsFilePath());
+    if (!writeTime || *writeTime <= settingsLastWriteTime_) return;
+    settingsLastWriteTime_ = *writeTime;
+    const auto updated = manager.loadOrCreateDefaults();
+    if (!audioSettingsDiffer(settings_, updated)) return;
+    settings_.masterVolume = updated.masterVolume;
+    settings_.musicVolume = updated.musicVolume;
+    settings_.sfxVolume = updated.sfxVolume;
+    settings_.audioDevice = updated.audioDevice;
+    audio_->setEffectiveSettings(settings_);
+}
+
 int PlayLevelScene::pushState(lua_State* lua) {
     refreshHud();
     lua_newtable(lua);
@@ -456,6 +470,7 @@ int PlayLevelScene::pushState(lua_State* lua) {
         const auto* archetype = towerLoadController_->findArchetype(selected->towerId);
         lua_newtable(lua);
         field(lua, "kind", "tower");
+        field(lua, "archetype", selected->towerId);
         field(lua, "name", archetype ? archetype->displayName : selected->towerId);
         field(lua, "bio", archetype ? archetype->bio : "");
         field(lua, "owned", selected->ownerPlayerId == localPlayerId_);
@@ -484,6 +499,14 @@ int PlayLevelScene::pushState(lua_State* lua) {
             field(lua, "id", node.id);
             field(lua, "name", node.displayName);
             field(lua, "description", node.description);
+            number(lua, "minUpgradesRequired", node.minUpgradesRequired);
+            lua_newtable(lua);
+            int requiredIndex = 1;
+            for (const auto& required : node.requiredNodeIds) {
+                lua_pushlstring(lua, required.data(), required.size());
+                lua_rawseti(lua, -2, requiredIndex++);
+            }
+            lua_setfield(lua, -2, "requires");
             const auto level = std::count(selected->unlockedUpgradeNodeIds.begin(), selected->unlockedUpgradeNodeIds.end(), node.id);
             number(lua, "level", level);
             number(lua, "maxLevel", node.upgradeLevels.size());
@@ -743,8 +766,6 @@ void PlayLevelScene::updateTowerPlacement() {
     const bool leftMouseDown = (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
     const bool leftClicked = leftMouseDown && !leftMouseDown_;
     leftMouseDown_ = leftMouseDown;
-    const bool ignoreHudPointer = suppressHudPointerForPlacement_;
-    suppressHudPointerForPlacement_ = false;
 
     const TowerArchetype* tower = selectedTower();
     updateWorldHover();
@@ -788,10 +809,7 @@ void PlayLevelScene::updateTowerPlacement() {
     placementSample_.worldPosition = resolved.worldPos;
     placementReason_ = resolved.hasHit ? resolved.reason : "Cursor is not over valid terrain.";
 
-    const bool placementPointerOverHud = ignoreHudPointer ? false : pointerIsOverHud();
-    if (leftClicked) {
-        
-    }
+    const bool placementPointerOverHud = pointerIsOverHud();
     if (leftClicked && !placementPointerOverHud && placementSample_.hit && placementReason_.empty()) {
         const std::string finalReason = TowerPlacementRules::validatePlacement(
             placementContext, *tower, placementSample_.worldPosition, 8, placementSample_, gameplayState_.playerMoney);
@@ -805,15 +823,12 @@ void PlayLevelScene::updateTowerPlacement() {
                 placementSample_ = {};
                 towerPlacementPreviewResolver_.reset();
                 placementReason_ = tower->displayName + " deployed.";
-                
                 refreshHud();
             } else {
                 placementReason_ = "Tower placement was rejected by the host.";
-                
             }
         } else {
             placementReason_ = finalReason;
-            
         }
     }
     syncTowerInstances();
