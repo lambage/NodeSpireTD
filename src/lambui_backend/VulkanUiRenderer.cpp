@@ -480,6 +480,7 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
         size_t textureIndex = 0;
         Settings settings;
         VkRect2D scissor{};
+        const UIRenderCommand* callback = nullptr;
     };
 
     std::vector<Vertex> vertices;
@@ -532,7 +533,10 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
         }
         if (item.type == RenderCommandType::CustomCallback) {
             if (item.customRenderFunc) {
-                item.customRenderFunc({item.x, item.y, item.width, item.height, item.customRenderUserData});
+                Draw draw;
+                draw.scissor = currentScissor();
+                draw.callback = &item;
+                draws.push_back(draw);
             }
             continue;
         }
@@ -621,10 +625,31 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
     }
 
     for (const Draw& draw : draws) {
-        if (draw.vertexCount == 0 || draw.scissor.extent.width == 0 || draw.scissor.extent.height == 0) {
+        if (draw.scissor.extent.width == 0 || draw.scissor.extent.height == 0) {
             continue;
         }
         vkCmdSetScissor(activeCommandBuffer_, 0, 1, &draw.scissor);
+        if (draw.callback) {
+            const auto& item = *draw.callback;
+            const CustomRenderContext context{activeCommandBuffer_, framebufferExtent_, draw.scissor};
+            customRenderContext_ = &context;
+            try {
+                item.customRenderFunc({item.x, item.y, item.width, item.height, item.customRenderUserData});
+            } catch (...) {
+                customRenderContext_ = nullptr;
+                throw;
+            }
+            customRenderContext_ = nullptr;
+            vkCmdSetViewport(activeCommandBuffer_, 0, 1, &viewport);
+            vkCmdBindPipeline(activeCommandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+            if (!vertices.empty()) {
+                vkCmdBindVertexBuffers(activeCommandBuffer_, 0, 1, &vertexBuffer.buffer, &vertexOffset);
+            }
+            continue;
+        }
+        if (draw.vertexCount == 0) {
+            continue;
+        }
         vkCmdBindDescriptorSets(activeCommandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1,
                                 &textures_[draw.textureIndex].descriptorSet, 0, nullptr);
         vkCmdPushConstants(activeCommandBuffer_, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

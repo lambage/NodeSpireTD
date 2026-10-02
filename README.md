@@ -51,6 +51,31 @@ Run from the build tree or install it first:
 The default log level is `info`; `-v`/`--verbose` enables debug and
 `--extra-verbose` enables trace. Logs rotate at `logs/nodespiretd.log` (5 MB x 3 files).
 
+## Tower Talent UI
+
+Each tower owns its talent presentation in a separate Lua module:
+[ArcherHut.lua](assets/scenes/towers/ArcherHut.lua) and
+[MageTower.lua](assets/scenes/towers/MageTower.lua). Their positions, connections,
+and artwork are authored explicitly, not inferred from the gameplay tree.
+
+To add a tower UI, register its archetype in `towerViews` in
+[PlayLevel.lua](assets/scenes/PlayLevel.lua). A module returns a factory accepting
+`(context, parent)` and creates its widgets under `parent`. The returned object
+implements `Update(selection, availableWidth)` and returns its content width and
+height. Instances are reused; updates must refresh controls from the current
+selection. The host manages visibility, scrolling, the draggable window, and the
+shared biography, stats, and sell action. The loadout remains available while inspecting.
+
+`context` supplies namespaced `frame`, `text`, and `button` helpers, `place`,
+`colors`, and `purchase(talentId)`. Purchases are checked against the current
+selection, ownership, pause state, and talent availability. The optional
+[TalentControls.lua](assets/scenes/towers/TalentControls.lua) helper provides
+`Begin(selection)`, `Node(id, left, top, artwork)`, and `Link(parentId, childId)`.
+A tower can instead build entirely different controls with the Lua UI API.
+Gameplay requirements and costs stay in the tower definition; update its UI's
+authored links when those requirements change. An unregistered tower shows an
+explicit unavailable message instead of generating a generic talent tree.
+
 ## MCP: Live Gameplay Settings
 
 The repository includes an MCP server at `tools/mcp_game_settings_server.py` for

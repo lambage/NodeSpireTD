@@ -3,6 +3,7 @@
 #include "AudioEngine.hpp"
 #include "SettingsManager.hpp"
 #include "VulkanContext.hpp"
+#include "lambui_backend/VulkanUiRenderer.hpp"
 #include "multiplayer/MatchProtocolAdapter.hpp"
 #include "multiplayer/MultiplayerSession.hpp"
 #include "scenes/EnemyLoadController.hpp"
@@ -208,7 +209,7 @@ int integerArgument(lua_State* lua, int index, int minimum, int maximum) {
 PlayLevelScene::PlayLevelScene(VulkanContext& vulkanContext, multiplayer::MultiplayerSession& session,
                                const PlayLevelLaunchConfig& launchConfig, lambui_backend::VulkanUiRenderer& renderer,
                                AppSettings& settings, SDL_Window* window)
-    : LuaUiScene("assets/scenes/PlayLevel.lua", renderer), vulkanContext_(vulkanContext), session_(session),
+    : LuaUiScene("assets/scenes/PlayLevel.lua", renderer), vulkanContext_(vulkanContext), uiRenderer_(renderer), session_(session),
       launchConfig_(launchConfig), settings_(settings), window_(window),
       gameplayState_(matchSimulation_.gameplayState()), placedTowers_(matchSimulation_.placedTowers()),
       activeEnemies_(matchSimulation_.activeEnemies()) {}
@@ -630,14 +631,24 @@ int PlayLevelScene::dispatch(lua_State* lua) {
             float values[4]{};
             for (int index = 0; index < 4; ++index) {
                 const auto value = lua_tonumber(lua, index + 2);
-                if (!lua_isnumber(lua, index + 2) || !std::isfinite(value) || value < 0 || value > 32768)
+                if (!lua_isnumber(lua, index + 2) || !std::isfinite(value) || value < -32768 || value > 32768 ||
+                    (index >= 2 && value < 0))
                     throw std::runtime_error("Invalid preview bounds.");
                 values[index] = static_cast<float>(value);
             }
-            scene.towerPreviewPanels_.resize(5);
-            const auto* tower = scene.towerLoadController_->archetypeAtLoadoutSlot(slot);
-            scene.towerPreviewPanels_[slot] = {tower ? scene.towerLoadController_->templatePrototypeIndex(tower->id) : -1,
-                values[0], values[1], values[2], values[3]};
+            const auto* context = scene.uiRenderer_.GetCustomRenderContext();
+            if (!context) throw std::runtime_error("Preview requires a canvas render callback.");
+            if (scene.worldRenderer_ && scene.worldRenderer_->isLoaded() && scene.snapshot_.loadoutVisible &&
+                !scene.pauseMenuVisible_) {
+                std::vector<TowerPreviewPanel> panels(5);
+                for (int index = 0; index < 5; ++index) {
+                    const auto* tower = scene.towerLoadController_->archetypeAtLoadoutSlot(index);
+                    panels[index].prototypeIndex = tower ? scene.towerLoadController_->templatePrototypeIndex(tower->id) : -1;
+                }
+                panels[slot] = {panels[slot].prototypeIndex, values[0], values[1], values[2], values[3]};
+                scene.worldRenderer_->renderTowerPreviewPanels(context->commandBuffer, context->framebufferExtent,
+                    panels, scene.towerPreviewSpinRadians_, &context->scissor);
+            }
         }
     } catch (const std::exception& error) {
         success = false;
@@ -738,16 +749,6 @@ void PlayLevelScene::renderWorld(VkCommandBuffer commandBuffer, VkExtent2D exten
     const glm::mat4 view = glm::lookAt(cameraPosition_, cameraPosition_ + forward, glm::vec3(0.0f, 1.0f, 0.0f));
     worldRenderer_->render(commandBuffer, extent, view);
 }
-
-void PlayLevelScene::renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent) {
-    if (!worldRenderer_ || !worldRenderer_->isLoaded() || !snapshot_.loadoutVisible || pauseMenuVisible_) {
-        return;
-    }
-    if (!towerPreviewPanels_.empty()) {
-        worldRenderer_->renderTowerPreviewPanels(commandBuffer, extent, towerPreviewPanels_, towerPreviewSpinRadians_);
-    }
-}
-
 
 const TowerArchetype* PlayLevelScene::selectedTower() const {
     return towerLoadController_ ? towerLoadController_->archetypeAtLoadoutSlot(selectedTowerSlot_) : nullptr;

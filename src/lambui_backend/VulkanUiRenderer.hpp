@@ -66,6 +66,14 @@ class VulkanUiRenderer final : public LambUI::IRenderer {
     // before recording; its vertex storage is reused only by that frame slot.
     void BeginFrame(VkCommandBuffer commandBuffer, VkExtent2D framebufferExtent, size_t frameIndex);
 
+    struct CustomRenderContext {
+        VkCommandBuffer commandBuffer;
+        VkExtent2D framebufferExtent;
+        VkRect2D scissor;
+    };
+
+    const CustomRenderContext* GetCustomRenderContext() const { return customRenderContext_; }
+
     void SubmitRenderCommands(const std::vector<LambUI::UIRenderCommand>& commands) override;
 
   private:
@@ -113,6 +121,7 @@ class VulkanUiRenderer final : public LambUI::IRenderer {
 
     VkCommandBuffer activeCommandBuffer_ = VK_NULL_HANDLE;
     VkExtent2D framebufferExtent_{};
+    const CustomRenderContext* customRenderContext_ = nullptr;
 
     VkSampler sampler_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;

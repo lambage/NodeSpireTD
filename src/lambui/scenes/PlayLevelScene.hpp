@@ -36,7 +36,6 @@ class PlayLevelScene final : public LuaUiScene {
     SceneTransition onKeyDown(uint32_t scanCode) override;
     bool handleShortcut(uint32_t scanCode) override;
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent) override;
-    void renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent) override;
 
   protected:
     void bindSceneApi(lua_State* lua, AudioEngine& audio) override;
@@ -77,6 +76,7 @@ class PlayLevelScene final : public LuaUiScene {
     void applyGameplayTuning();
 
     VulkanContext& vulkanContext_;
+    lambui_backend::VulkanUiRenderer& uiRenderer_;
     multiplayer::MultiplayerSession& session_;
     PlayLevelLaunchConfig launchConfig_;
     AppSettings& settings_;
@@ -115,7 +115,6 @@ class PlayLevelScene final : public LuaUiScene {
     bool pauseMenuVisible_ = false;
     bool onlineMatch_ = false;
     bool loadedReadySignaled_ = false;
-    std::vector<TowerPreviewPanel> towerPreviewPanels_;
     std::vector<std::string> chat_;
     float towerPreviewSpinRadians_ = 0.0f;
     std::filesystem::file_time_type settingsLastWriteTime_{};

@@ -89,19 +89,31 @@ for index = 1, 5 do
     local control = button(loadout, "TowerSlot" .. index, "", function()
         if not state.paused then command(Play.SelectSlot, index) end
     end)
+    local preview = UI.CreateFrame("Canvas", "TowerPreview" .. index, control)
+    preview:SetMouseEnabled(false)
+    preview:SetRenderCallback(function(left, top, width, height)
+        Play.Preview(index, left, top, width, height)
+    end)
     local stripe = frame(control, "SlotStripe" .. index, colors.line)
     stripe:SetMouseEnabled(false)
     local name = text(control, "SlotName" .. index, "Empty", 16)
     local price = text(control, "SlotPrice" .. index, "$0", 16, colors.gold)
     local number = text(control, "SlotNumber" .. index, tostring(index), 16, colors.muted)
-    slots[index] = {root = control, stripe = stripe, name = name, price = price, number = number}
+    slots[index] = {root = control, preview = preview, stripe = stripe, name = name, price = price, number = number}
 end
 local placement = frame(root, "PlacementStatus", colors.panel)
 local placementText = text(placement, "PlacementText", "", 16, colors.accent)
 local cancelPlacement = button(placement, "CancelPlacement", "x", function() command(Play.CancelPlacement) end)
 cancelPlacement:SetTooltip("Cancel placement")
 
-local profile = frame(root, "SelectionProfile", colors.panel)
+local profile = UI.CreateFrame("Window", "SelectionProfile", root)
+profile:SetTitle("")
+profile:SetMovable(true)
+profile:SetResizable(false)
+profile:SetButtonMode("Minimize", "Hidden")
+profile:SetButtonMode("Maximize", "Hidden")
+profile:SetButtonMode("Close", "Hidden")
+local profileViewportWidth, profileViewportHeight, profileLayoutHeight
 local profileTitle = text(profile, "ProfileTitle", "", 24, colors.ink, true)
 local profileClose = button(profile, "CloseProfile", "x", function() command(Play.ClearSelection) end)
 profileClose:SetTooltip("Close profile")
@@ -110,148 +122,55 @@ local profileContent = profileScroll:GetContent()
 local profileBio = text(profileContent, "ProfileBio", "", 16, colors.muted)
 local profileStats = text(profileContent, "ProfileStats", "", 16, colors.ink)
 local profileEffects = text(profileContent, "ProfileEffects", "", 16, colors.accent)
-local upgradeTitle = text(profileContent, "UpgradeTitle", "TALENTS", 16, colors.gold)
-local talentTree = frame(profileContent, "TalentTree", 0x0B1012FF)
-local talentLinks = frame(talentTree, "TalentLinks")
-talentLinks:SetAllPoints(talentTree)
-talentLinks:SetMouseEnabled(false)
-local upgrades = {}
-local connections = {}
+local sceneDirectory = debug.getinfo(1, "S").source:sub(2):match("^(.*[/\\])") or ""
+local towerViews = {
+    archer_hut = dofile(sceneDirectory .. "towers/ArcherHut.lua"),
+    mage_tower = dofile(sceneDirectory .. "towers/MageTower.lua")
+}
+local talentControls = dofile(sceneDirectory .. "towers/TalentControls.lua")
+local towerInstances = {}
 local sell, sellLabel = button(profile, "SellTower", "Sell", function()
     if state.selection and state.selection.owned and not state.paused then command(Play.Sell) end
 end, true)
 
-local function layoutTalents(nodes, availableWidth, archetype)
-    local artwork = ({archer_hut = "archer", mage_tower = "mage"})[archetype]
-    local byId, layers, visiting = {}, {}, {}
-    local deepest, widest, purchased = 0, 1, 0
-    for index, node in ipairs(nodes) do
-        byId[node.id] = {node = node, index = index}
-        purchased = purchased + node.level
-    end
-    local function depth(entry)
-        if entry.depth then return entry.depth end
-        if visiting[entry.node.id] then return 0 end
-        visiting[entry.node.id] = true
-        local result = 0
-        for _, required in ipairs(entry.node.requires or {}) do
-            if byId[required] then result = math.max(result, depth(byId[required]) + 1) end
-        end
-        visiting[entry.node.id] = nil
-        entry.depth = result
-        return result
-    end
-    for _, node in ipairs(nodes) do
-        local entry = byId[node.id]
-        local rank = depth(entry)
-        layers[rank] = layers[rank] or {}
-        table.insert(layers[rank], entry)
-        deepest = math.max(deepest, rank)
-        widest = math.max(widest, #layers[rank])
-    end
-    local span = math.max(availableWidth, widest * 80 + 24)
-    local treeHeight = #nodes > 0 and (deepest * 76 + 80) or 0
-    for rank = 0, deepest do
-        local layer = layers[rank] or {}
-        for _, entry in ipairs(layer) do
-            local total, count = 0, 0
-            for _, required in ipairs(entry.node.requires or {}) do
-                local parent = byId[required]
-                if parent and parent.x then total, count = total + parent.x, count + 1 end
-            end
-            entry.order = count > 0 and total / count or entry.index
-        end
-        table.sort(layer, function(left, right)
-            if left.order == right.order then return left.index < right.index end
-            return left.order < right.order
-        end)
-        for column, entry in ipairs(layer) do
-            entry.x = (span - #layer * 80) / 2 + (column - 1) * 80 + 14
-            entry.y = 12 + rank * 76
-        end
-    end
-    local linkCount = 0
-    local function segment(left, top, width, height, color)
-        linkCount = linkCount + 1
-        if not connections[linkCount] then
-            connections[linkCount] = frame(talentLinks, "TalentLink" .. linkCount)
-            connections[linkCount]:SetMouseEnabled(false)
-        end
-        local control = connections[linkCount]
-        control:SetVisible(true)
-        control:SetBackgroundColor(color)
-        place(control, talentLinks, left, top, math.max(2, width), math.max(2, height))
-    end
-    for index, node in ipairs(nodes) do
-        local entry = byId[node.id]
-        for _, required in ipairs(node.requires or {}) do
-            local parent = byId[required]
-            if parent then
-                local fromX, fromY = parent.x + 26, parent.y + 52
-                local toX, toY = entry.x + 26, entry.y
-                local middle = (fromY + toY) / 2
-                local color = parent.node.level > 0 and (node.level > 0 and colors.gold or 0x8A794AFF) or 0x394247FF
-                segment(fromX - 1, fromY, 2, middle - fromY, color)
-                segment(math.min(fromX, toX) - 1, middle, math.abs(toX - fromX) + 2, 2, color)
-                segment(toX - 1, middle, 2, toY - middle, color)
-            end
-        end
-        if not upgrades[index] then
-            local control = button(talentTree, "Upgrade" .. index, "", function()
-                local current = state.selection and state.selection.upgrades and state.selection.upgrades[index]
-                if current and current.enabled and state.selection.owned and not state.paused then
-                    command(Play.Upgrade, current.id)
+local function updateTowerView(selection, width)
+    local archetype = selection and selection.kind == "tower" and (selection.archetype or "unknown") or nil
+    for id, instance in pairs(towerInstances) do instance.root:SetVisible(id == archetype) end
+    if not archetype then return width, 0 end
+    local instance = towerInstances[archetype]
+    if not instance then
+        local content = frame(profileContent, archetype .. "_TowerContent")
+        local context = {
+            colors = colors, place = place, talentControls = talentControls,
+            frame = function(parent, name, color) return frame(parent, archetype .. "_" .. name, color) end,
+            text = function(parent, name, ...) return text(parent, archetype .. "_" .. name, ...) end,
+            button = function(parent, name, ...) return button(parent, archetype .. "_" .. name, ...) end,
+            purchase = function(id)
+                local current = state.selection
+                if not current or current.kind ~= "tower" or current.archetype ~= archetype
+                    or not current.owned or state.paused then return end
+                for _, node in ipairs(current.upgrades or {}) do
+                    if node.id == id and node.enabled then command(Play.Upgrade, id); return end
                 end
-            end)
-            local inset = frame(control, "TalentInset" .. index, 0x151C20FF)
-            inset:SetMouseEnabled(false)
-            local icon = inset:CreateImage("TalentIcon" .. index)
-            icon:SetFit("COVER")
-            icon:SetMouseEnabled(false)
-            icon:SetAllPoints(inset)
-            local symbol = text(inset, "TalentSymbol" .. index, "", 20, colors.ink, true)
-            symbol:SetWordWrap(false)
-            local badge = frame(control, "TalentRank" .. index, 0x080C0FFF)
-            badge:SetMouseEnabled(false)
-            local levelLabel = text(badge, "TalentLevel" .. index, "", 16, colors.gold)
-            levelLabel:SetWordWrap(false)
-            upgrades[index] = {root = control, inset = inset, icon = icon, symbol = symbol,
-                badge = badge, level = levelLabel}
+            end
+        }
+        local create = towerViews[archetype]
+        local view
+        if create then
+            view = create(context, content)
+        else
+            local notice = text(content, "TowerUiUnavailable", "Tower UI not configured.", 16, colors.muted)
+            view = {Update = function(_, _, availableWidth)
+                place(notice, content, 4, 0, availableWidth - 8, 44)
+                return availableWidth, 56
+            end}
         end
-        local item = upgrades[index]
-        local learned = node.level > 0
-        local border = learned and colors.gold or (node.enabled and colors.accent or 0x515A5FFF)
-        item.root:SetVisible(true)
-        item.root:SetButtonColors(border, node.enabled and 0xF4D88BFF or 0x899397FF, colors.gold)
-        place(item.root, talentTree, entry.x, entry.y, 52, 52)
-        place(item.inset, item.root, 3, 3, 46, 46)
-        place(item.symbol, item.inset, 6, 10, 40, 26)
-        place(item.badge, item.root, 19, 37, 39, 22)
-        place(item.level, item.badge, 4, 0, 35, 22)
-        local source = node.icon or (artwork and ("assets/images/talents/" .. artwork .. "/" .. artwork .. "_" .. node.id .. ".png")) or ""
-        if item.icon:GetSource() ~= source then item.icon:SetSource(source) end
-        item.icon:SetTint(learned and 0xFFFFFFFF or (node.enabled and 0xB9CED6FF or 0x50585FFF))
-        local initials = ""
-        for word in node.name:gmatch("%S+") do initials = initials .. word:sub(1, 1) end
-        item.symbol:SetText(initials:sub(1, 2):upper())
-        item.symbol:SetVisible(not item.icon:IsLoaded())
-        item.symbol:SetColor(learned and colors.gold or (node.enabled and colors.ink or colors.muted))
-        item.level:SetText(node.level .. "/" .. node.maxLevel)
-        item.level:SetColor(learned and colors.gold or colors.muted)
-        local tooltip = node.name .. "  " .. node.level .. "/" .. node.maxLevel .. "\n" .. (node.description or "")
-        if node.level < node.maxLevel then tooltip = tooltip .. "\nNext rank: $" .. node.cost end
-        if (node.minUpgradesRequired or 0) > 0 then
-            tooltip = tooltip .. "\nRequires " .. node.minUpgradesRequired .. " total talent levels"
-        end
-        if not node.enabled and (node.reason or "") ~= "" then tooltip = tooltip .. "\n" .. node.reason end
-        item.root:SetTooltip(tooltip)
+        instance = {root = content, view = view}
+        towerInstances[archetype] = instance
     end
-    for index = linkCount + 1, #connections do connections[index]:SetVisible(false) end
-    for index = #nodes + 1, #upgrades do
-        upgrades[index].root:SetVisible(false)
-    end
-    upgradeTitle:SetText("TALENTS   " .. purchased .. " RANKS")
-    return span, treeHeight
+    local contentWidth, contentHeight = instance.view:Update(selection, width)
+    place(instance.root, profileContent, 0, 0, contentWidth, contentHeight)
+    return contentWidth, contentHeight
 end
 
 local chat = frame(root, "MatchChat", colors.panel)
@@ -322,7 +241,6 @@ refresh = function()
     local _, _, width, height = UI.Root:GetRect()
     if width <= 0 or height <= 0 then refreshing = false; return end
     local compact = width < 1000
-    local inspectingTower = state.selection and state.selection.kind == "tower"
     local slotWidth = math.min(148, (width - 48) / 5)
     local slotHeight = height < 700 and 136 or 172
     local loadoutWidth = slotWidth * 5 + 32
@@ -356,7 +274,7 @@ refresh = function()
     countdownBar:SetValue(state.countdownProgress or 0)
 
     place(loadout, root, (width - loadoutWidth) / 2, loadoutTop, loadoutWidth, slotHeight)
-    loadout:SetVisible(state.loadoutVisible and not state.paused and not inspectingTower)
+    loadout:SetVisible(state.loadoutVisible and not state.paused)
     for index, slot in ipairs(slots) do
         local tower = (state.slots or {})[index] or {name = "Empty", cost = 0}
         local selected = state.selectedSlot == index
@@ -372,14 +290,12 @@ refresh = function()
         slot.stripe:SetBackgroundColor(selected and colors.accent or colors.line)
         slot.root:SetTooltip(tower.bio or tower.name)
         slot.root:SetMouseEnabled(tower.available and state.phase == "running" and not state.paused)
-        local left, top = slot.root:GetRect()
-        Play.Preview(index, math.max(0, left + 8), math.max(0, top + 44),
-            inspectingTower and 0 or slotWidth - 16, inspectingTower and 0 or slotHeight - 78)
+        place(slot.preview, slot.root, 8, 44, slotWidth - 16, slotHeight - 78)
     end
     place(placement, root, (width - math.min(460, width - 32)) / 2, loadoutTop - 46, math.min(460, width - 32), 38)
     place(placementText, placement, 12, 8, math.min(460, width - 32) - 60, 24)
     place(cancelPlacement, placement, math.min(460, width - 32) - 38, 2, 34, 34)
-    placement:SetVisible((state.selectedSlot or 0) > 0 and not state.paused and not inspectingTower and state.phase == "running")
+    placement:SetVisible((state.selectedSlot or 0) > 0 and not state.paused and state.phase == "running")
     local selectedSlot = (state.slots or {})[state.selectedSlot or 0]
     placementText:SetText(feedback ~= "" and feedback or (state.placement ~= "" and state.placement) or (selectedSlot and selectedSlot.name or ""))
     placementText:SetColor(state.canPlace and colors.accent or colors.gold)
@@ -387,24 +303,25 @@ refresh = function()
     local selection = state.selection
     profile:SetVisible(selection ~= nil and not state.paused and state.phase == "running")
     local profileWidth = math.min(560, width - 24)
-    local profileHeight = math.max(120, inspectingTower and height - 96 or loadoutTop - 104)
-    place(profile, root, width - profileWidth - 12, 84, profileWidth, profileHeight)
-    place(profileTitle, profile, 16, 12, profileWidth - 76, 36)
-    place(profileClose, profile, profileWidth - 48, 8, 36, 36)
+    local profileHeight = math.max(120, loadoutTop - 96)
+    if width ~= profileViewportWidth or height ~= profileViewportHeight or profileHeight ~= profileLayoutHeight then
+        local left, top = profile:GetRect()
+        if not profileViewportWidth then left, top = width - profileWidth - 12, 84 end
+        profile:SetBounds(math.max(0, math.min(left, width - profileWidth)),
+            math.max(0, math.min(top, height - profileHeight)), profileWidth, profileHeight)
+        profileViewportWidth, profileViewportHeight, profileLayoutHeight = width, height, profileHeight
+    end
+    place(profileTitle, profile, 12, 2, profileWidth - 60, 28)
+    place(profileClose, profile, profileWidth - 36, 2, 28, 28)
     local tower = selection and selection.kind == "tower"
-    place(profileScroll, profile, 12, 56, profileWidth - 24, profileHeight - (tower and 124 or 68))
+    place(profileScroll, profile, 12, 40, profileWidth - 24, profileHeight - (tower and 108 or 52))
+    local treeWidth, infoTop = updateTowerView(selection, profileWidth - 40)
     if selection then
-        local selectionKey = selection.kind .. tostring(selection.id)
+        local selectionKey = selection.kind .. tostring(selection.id) .. (selection.archetype or "")
         if selectionKey ~= previousSelection then profileScroll:SetScrollOffset(0, 0) end
         previousSelection = selectionKey
         profileTitle:SetText(selection.name)
         local inner = profileWidth - 48
-        local treeWidth, treeHeight = layoutTalents(selection.upgrades or {}, inner + 8, selection.archetype)
-        talentTree:SetVisible(tower)
-        upgradeTitle:SetVisible(tower)
-        place(upgradeTitle, profileContent, 4, 0, inner, 24)
-        place(talentTree, profileContent, 0, 32, treeWidth, treeHeight)
-        local infoTop = tower and treeHeight + 48 or 0
         local bioHeight = linesHeight(selection.bio or "", inner)
         place(profileBio, profileContent, 4, infoTop, inner, bioHeight)
         profileBio:SetText(selection.bio or "")

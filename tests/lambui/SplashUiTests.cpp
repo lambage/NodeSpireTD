@@ -23,6 +23,11 @@ class SplashRenderer : public LambUI::IRenderer {
 
     void SubmitRenderCommands(const std::vector<LambUI::UIRenderCommand>& bucket) override {
         commands = bucket;
+        for (const auto& command : commands) {
+            if (command.type == LambUI::RenderCommandType::CustomCallback && command.customRenderFunc) {
+                command.customRenderFunc({command.x, command.y, command.width, command.height, command.customRenderUserData});
+            }
+        }
     }
 };
 
@@ -196,7 +201,12 @@ class PlayUiTest : public SplashUiTest {
             for index = 1, 5 do snapshot.slots[index] = {name = 'Arrow tower', cost = 100, available = true} end
             Play = {
                 State = function() return snapshot end,
-                Preview = function() return true end,
+                Preview = function(slot, left, top, width, height)
+                    previews = previews or {}
+                    previews[slot] = {left, top, width, height}
+                    previewCalls = (previewCalls or 0) + 1
+                    return true
+                end,
                 Start = function() started = true; snapshot.phase = 'running'; return true end,
                 SelectSlot = function(slot) selected = slot; snapshot.selectedSlot = slot; return true end,
                 Pause = function(value) snapshot.paused = value; return true end,
@@ -233,6 +243,35 @@ class PlayUiTest : public SplashUiTest {
         manager.Update(0);
     }
 };
+
+TEST_F(PlayUiTest, TowerCanvasesRenderAtResolvedBoundsAndRespectVisibility) {
+    manager.Render();
+    ASSERT_TRUE(Run("assert(previewCalls == nil)"));
+    for (const auto& viewport : std::vector<LambUI::UIRect>{{0, 0, 1920, 1080}, {0, 0, 640, 480}}) {
+        manager.SetDisplaySize(viewport.width, viewport.height);
+        manager.Update(0);
+        ASSERT_TRUE(Run("previewCalls = 0; snapshot.phase = 'running'; snapshot.loadoutVisible = true; OnUpdate(0.1); assert(previewCalls == 0)"));
+        manager.Update(0);
+        manager.Render();
+        ASSERT_TRUE(Run(R"lua(
+            assert(previewCalls == 5)
+            for index = 1, 5 do
+                local left, top, width, height = frames['TowerPreview' .. index]:GetRect()
+                local drawn = previews[index]
+                assert(width > 0 and height > 0)
+                assert(drawn[1] == left and drawn[2] == top and drawn[3] == width and drawn[4] == height)
+            end
+        )lua"));
+        Click("TowerPreview2");
+        ASSERT_TRUE(Run("assert(selected == 2); previewCalls = 0; snapshot.paused = true; OnUpdate(0.1)"));
+        manager.Update(0);
+        manager.Render();
+        ASSERT_TRUE(Run("assert(previewCalls == 0); snapshot.paused = false; snapshot.loadoutVisible = false; OnUpdate(0.1)"));
+        manager.Update(0);
+        manager.Render();
+        ASSERT_TRUE(Run("assert(previewCalls == 0)"));
+    }
+}
 
 TEST_F(PlayUiTest, LoadingReadyRunningAndPauseRouteActions) {
     ASSERT_TRUE(Run("assert(frames.MatchStatus:IsVisible() and not frames.TowerLoadout:IsVisible()); assert(PlayPointerOverHud(500, 400))"));
@@ -277,19 +316,20 @@ TEST_F(PlayUiTest, ProfilesRespectOwnershipAndRouteUpgradeActions) {
     ASSERT_TRUE(Run(R"lua(
         snapshot.phase, snapshot.loadoutVisible = 'running', true
         snapshot.selection = {
-            kind = 'tower', id = 1, name = 'Arrow tower', bio = 'Long range defense', owned = true,
+            kind = 'tower', archetype = 'archer_hut', id = 1, name = 'Arrow tower', bio = 'Long range defense', owned = true,
             damage = 10, range = 12, rate = 1, spent = 100, sell = 80, damageType = 'PHY', armorPiercing = 0,
-            effects = 'Burn 2/s', upgrades = {{id = 'power', name = 'Power', level = 0, maxLevel = 2,
+            effects = 'Burn 2/s', upgrades = {{id = 'quickdraw_rig', name = 'Quickdraw Rig', level = 0, maxLevel = 2,
                 cost = 50, enabled = true, description = 'Extra damage', reason = ''}}
         }
         OnUpdate(0.1)
         assert(frames.SelectionProfile:IsVisible())
+        assert(frames.TowerLoadout:IsVisible() and frames.TowerPreview1:IsVisible())
     )lua"));
     manager.Update(0);
-    Click("Upgrade1");
-    ASSERT_TRUE(Run("assert(upgraded == 'power'); upgraded = nil; snapshot.selection.owned = false; snapshot.selection.upgrades[1].enabled = false; OnUpdate(0.1)"));
+    Click("archer_hut_Upgrade1");
+    ASSERT_TRUE(Run("assert(upgraded == 'quickdraw_rig'); upgraded = nil; snapshot.selection.owned = false; snapshot.selection.upgrades[1].enabled = false; OnUpdate(0.1)"));
     manager.Update(0);
-    Click("Upgrade1");
+    Click("archer_hut_Upgrade1");
     Click("SellTower");
     ASSERT_TRUE(Run("assert(not upgraded and not sold); snapshot.selection.owned = true; OnUpdate(0.1)"));
     manager.Update(0);
@@ -299,7 +339,7 @@ TEST_F(PlayUiTest, ProfilesRespectOwnershipAndRouteUpgradeActions) {
         snapshot.selection = {kind = 'enemy', id = 2, name = 'Scout', bio = 'Fast enemy', health = 25, maxHealth = 35,
             shield = 0, maxShield = 0, armor = 1, speed = 3, reward = 8, baseDamage = 5, resistances = 'FIR 20%'}
         OnUpdate(0.1)
-        assert(not frames.Upgrade1:IsVisible() and not frames.SellTower:IsVisible())
+        assert(not frames.archer_hut_TowerContent:IsVisible() and not frames.SellTower:IsVisible())
     )lua"));
     manager.Update(0);
     manager.Render();
@@ -307,7 +347,96 @@ TEST_F(PlayUiTest, ProfilesRespectOwnershipAndRouteUpgradeActions) {
         return command.text.find("HEALTH 25 / 35") != std::string::npos;
     }));
     Click("CloseProfile");
-    ASSERT_TRUE(Run("assert(not snapshot.selection)"));
+    ASSERT_TRUE(Run("assert(not snapshot.selection and frames.TowerLoadout:IsVisible() and frames.TowerPreview1:IsVisible())"));
+}
+
+TEST_F(PlayUiTest, RealTowerTreesFitAndCanScrollAtSmallSizes) {
+    const auto assetRoot = std::filesystem::path(NODESPIRE_MAINMENU_SCRIPT).parent_path().parent_path();
+    lua_pushstring(lua.get(), assetRoot.generic_string().c_str());
+    lua_setglobal(lua.get(), "assetRoot");
+    for (const char* archetype : {"archer_hut", "mage_tower", "archer_hut"}) {
+        lua_pushstring(lua.get(), archetype);
+        lua_setglobal(lua.get(), "archetype");
+        ASSERT_TRUE(Run(R"lua(
+            local definition = dofile(assetRoot .. '/models/towers/' .. archetype .. '/' .. archetype .. '.tower.lua')
+            snapshot.phase = 'running'
+            snapshot.selection = {kind = 'tower', id = archetype, archetype = archetype, name = definition.displayName,
+                owned = true, damage = 20, range = 5, rate = 1, spent = 150, sell = 120, damageType = 'PHY', armorPiercing = 1,
+                upgrades = {}}
+            for index, node in ipairs(definition.upgradeTree.nodes) do
+                snapshot.selection.upgrades[index] = {id = node.id, name = node.displayName, description = node.description,
+                    level = 0, maxLevel = #node.upgradeLevels, cost = node.upgradeLevels[1].cost,
+                    requires = node.requires, enabled = index == 1}
+            end
+        )lua"));
+        manager.SetDisplaySize(1280, 720);
+        manager.Update(0);
+        ASSERT_TRUE(Run("OnUpdate(0.1)"));
+        manager.Update(0);
+        ASSERT_TRUE(Run(R"lua(
+            local left, top, width, height = frames[archetype .. '_TalentTree']:GetRect()
+            for index in ipairs(snapshot.selection.upgrades) do
+                local nodeX, nodeY, nodeWidth, nodeHeight = frames[archetype .. '_Upgrade' .. index]:GetRect()
+                assert(nodeX >= left and nodeX + nodeWidth <= left + width)
+                assert(nodeY >= top and nodeY + nodeHeight <= top + height)
+            end
+            local other = archetype == 'archer_hut' and 'mage_tower' or 'archer_hut'
+            assert(frames[archetype .. '_TowerContent']:IsVisible())
+            assert(not frames[other .. '_TowerContent'] or not frames[other .. '_TowerContent']:IsVisible())
+            local _, profileTop, _, profileHeight = frames.SelectionProfile:GetRect()
+            local _, loadoutTop = frames.TowerLoadout:GetRect()
+            assert(profileTop + profileHeight <= loadoutTop)
+        )lua"));
+        Click((std::string(archetype) + "_Upgrade1").c_str());
+        ASSERT_TRUE(Run("assert(upgraded == snapshot.selection.upgrades[1].id); upgraded = nil"));
+        manager.SetDisplaySize(640, 480);
+        manager.Update(0);
+        ASSERT_TRUE(Run("OnUpdate(0.1)"));
+        manager.Update(0);
+        ASSERT_TRUE(Run("local _, top = frames[archetype .. '_Upgrade1']:GetRect(); beforeScroll = top; frames.ProfileScroll:SetScrollOffset(0, 150)"));
+        manager.Update(0);
+        ASSERT_TRUE(Run("local _, top = frames[archetype .. '_Upgrade1']:GetRect(); assert(top < beforeScroll - 100)"));
+    }
+}
+
+TEST_F(PlayUiTest, ProfileCanMoveWithoutHidingLoadoutOrResettingOnRefresh) {
+    ASSERT_TRUE(Run(R"lua(
+        snapshot.phase, snapshot.loadoutVisible = 'running', true
+        snapshot.selection = {kind = 'tower', archetype = 'archer_hut', id = 1, name = 'Archer Hut', owned = true,
+            damage = 20, range = 5, rate = 1, spent = 150, sell = 120, damageType = 'PHY', armorPiercing = 1,
+            upgrades = {{id = 'quickdraw_rig', name = 'Quickdraw Rig', level = 0, maxLevel = 2, cost = 50, enabled = true}}}
+        OnUpdate(0.1)
+    )lua"));
+    manager.Update(0);
+    ASSERT_TRUE(Run("beforeX, beforeY = frames.SelectionProfile:GetRect()"));
+    lua_getglobal(lua.get(), "beforeX");
+    lua_getglobal(lua.get(), "beforeY");
+    const float left = static_cast<float>(lua_tonumber(lua.get(), -2));
+    const float top = static_cast<float>(lua_tonumber(lua.get(), -1));
+    lua_pop(lua.get(), 2);
+    manager.InjectMouseMove(left + 80, top + 16);
+    manager.InjectMouseButton(LambUI::MouseButton::Left, true);
+    manager.InjectMouseMove(left - 120, top + 48);
+    manager.InjectMouseButton(LambUI::MouseButton::Left, false);
+    manager.Update(0);
+    ASSERT_TRUE(Run("OnUpdate(0.1)"));
+    manager.Update(0);
+    ASSERT_TRUE(Run(R"lua(
+        local left, top = frames.SelectionProfile:GetRect()
+        assert(math.abs(left - (beforeX - 200)) < 1 and math.abs(top - (beforeY + 32)) < 1)
+        assert(PlayPointerOverHud(left + 10, top + 10))
+        assert(frames.TowerLoadout:IsVisible() and frames.TowerPreview1:IsVisible())
+    )lua"));
+    Click("TowerSlot2");
+    ASSERT_TRUE(Run("assert(selected == 2)"));
+    manager.SetDisplaySize(640, 480);
+    manager.Update(0);
+    ASSERT_TRUE(Run("OnUpdate(0.1)"));
+    manager.Update(0);
+    ASSERT_TRUE(Run(R"lua(
+        local left, top, width, height = frames.SelectionProfile:GetRect()
+        assert(left >= 0 and top >= 0 and left + width <= 640 and top + height <= 480)
+    )lua"));
 }
 
 TEST_F(PlayUiTest, TalentTreeRendersBranchesArtworkAndLockedStates) {
@@ -349,10 +478,10 @@ TEST_F(PlayUiTest, TalentTreeRendersBranchesArtworkAndLockedStates) {
         ASSERT_TRUE(Run("OnUpdate(0.1)"));
         manager.Update(0);
         ASSERT_TRUE(Run(R"lua(
-            local _, firstY, nodeWidth, nodeHeight = frames.Upgrade1:GetRect()
-            local _, secondY = frames.Upgrade2:GetRect()
-            local thirdX, thirdY = frames.Upgrade3:GetRect()
-            local fourthX, fourthY = frames.Upgrade4:GetRect()
+            local _, firstY, nodeWidth, nodeHeight = frames.archer_hut_Upgrade1:GetRect()
+            local _, secondY = frames.archer_hut_Upgrade2:GetRect()
+            local thirdX, thirdY = frames.archer_hut_Upgrade3:GetRect()
+            local fourthX, fourthY = frames.archer_hut_Upgrade4:GetRect()
             assert(nodeWidth == 52 and nodeHeight == 52)
             assert(secondY > firstY + nodeHeight and thirdY > secondY + nodeHeight)
             assert(thirdY == fourthY and fourthX >= thirdX + nodeWidth + 20)
@@ -360,7 +489,7 @@ TEST_F(PlayUiTest, TalentTreeRendersBranchesArtworkAndLockedStates) {
             local sellX, sellY, sellWidth, sellHeight = frames.SellTower:GetRect()
             assert(sellX >= left and sellX + sellWidth <= left + width)
             assert(sellY >= top and sellY + sellHeight <= top + height)
-            assert(frames.TalentLink9:IsVisible())
+            assert(frames.archer_hut_TalentLink9:IsVisible())
         )lua"));
     }
     EXPECT_EQ(imageLoads, 4);
@@ -368,12 +497,33 @@ TEST_F(PlayUiTest, TalentTreeRendersBranchesArtworkAndLockedStates) {
     manager.Update(0);
     ASSERT_TRUE(Run("OnUpdate(0.1)"));
     manager.Update(0);
-    Click("Upgrade4");
+    Click("archer_hut_Upgrade4");
     ASSERT_TRUE(Run("assert(not upgraded)"));
-    Click("Upgrade3");
+    Click("archer_hut_Upgrade3");
     ASSERT_TRUE(Run("assert(upgraded == 'stone_specialization'); snapshot.selection.upgrades = {snapshot.selection.upgrades[1]}; OnUpdate(0.1)"));
     manager.Update(0);
-    ASSERT_TRUE(Run("assert(not frames.Upgrade2:IsVisible() and not frames.TalentLink1:IsVisible())"));
+    ASSERT_TRUE(Run("assert(not frames.archer_hut_Upgrade2:IsVisible() and not frames.archer_hut_TalentLink1:IsVisible())"));
+}
+
+TEST_F(PlayUiTest, UnregisteredTowerDoesNotInferATalentLayout) {
+    ASSERT_TRUE(Run(R"lua(
+        snapshot.phase, snapshot.loadoutVisible = 'running', true
+        snapshot.selection = {kind = 'tower', archetype = 'future_tower', id = 1, name = 'Future Tower', owned = true,
+            damage = 20, range = 5, rate = 1, spent = 150, sell = 120, damageType = 'PHY', armorPiercing = 1,
+            upgrades = {{id = 'future_power', name = 'Power', level = 0, maxLevel = 1, cost = 50, enabled = true}}}
+        OnUpdate(0.1)
+        assert(not frames.future_tower_Upgrade1 and frames.SellTower:IsVisible())
+        assert(frames.TowerLoadout:IsVisible())
+    )lua"));
+    manager.Update(0);
+    manager.Render();
+    EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+        return command.text == "Tower UI not configured.";
+    }));
+    Click("SellTower");
+    ASSERT_TRUE(Run("assert(sold)"));
+    Click("CloseProfile");
+    ASSERT_TRUE(Run("assert(not snapshot.selection and not frames.future_tower_TowerContent:IsVisible())"));
 }
 
 TEST_F(PlayUiTest, ChatLoadFailureAndReturnActionsAreUsable) {
