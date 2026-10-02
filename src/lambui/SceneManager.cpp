@@ -23,7 +23,7 @@ std::unique_ptr<IScene> createScene(SceneId id, multiplayer::MultiplayerSession&
     case SceneId::Options:
         return std::make_unique<OptionsScene>(renderer, settings, window, vulkanContext);
     case SceneId::PlayLevel:
-        return std::make_unique<PlayLevelScene>(vulkanContext, multiplayerSession, playLevelLaunchConfig);
+        return std::make_unique<PlayLevelScene>(vulkanContext, multiplayerSession, playLevelLaunchConfig, renderer, settings, window);
     }
     return nullptr;
 }

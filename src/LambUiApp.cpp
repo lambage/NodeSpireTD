@@ -166,9 +166,9 @@ int main(int /*argc*/, char** /*argv*/) {
             const VkExtent2D extent = vulkanContext->extent();
             VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(frameIndex, imageIndex);
             sceneManager.renderWorld(commandBuffer, extent);
-            sceneManager.renderOverlay(commandBuffer, extent);
             renderer->BeginFrame(commandBuffer, extent, frameIndex);
             uiManager.Render();
+            sceneManager.renderOverlay(commandBuffer, extent);
             vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
             if (vulkanContext->present(imageIndex)) {
                 vulkanContext->recreateSwapchain(extent.width, extent.height);

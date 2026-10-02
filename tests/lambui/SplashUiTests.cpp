@@ -171,6 +171,159 @@ TEST_F(SplashUiTest, MainMenuMissingArtworkKeepsClickableTextButtons) {
     ASSERT_TRUE(Run("assert(destination == 'Lobby')"));
 }
 
+class PlayUiTest : public SplashUiTest {
+  protected:
+    void SetUp() override {
+        SplashUiTest::SetUp();
+        bindings->SetFontResolver([](const std::string&, int) -> void* {
+            return reinterpret_cast<void*>(uintptr_t{456});
+        });
+        ASSERT_TRUE(Run(R"lua(
+            Audio = {Preload = function() end, Play = function() end}
+            frames = {}
+            local create = UI.CreateFrame
+            UI.CreateFrame = function(kind, name, parent)
+                local widget = create(kind, name, parent)
+                frames[name] = widget
+                return widget
+            end
+            snapshot = {
+                phase = 'loading', level = 'Grassy', headline = 'Loading Grassy', description = 'Loading assets',
+                health = 100, money = 250, wave = 1, waveCount = 5, enemies = 0, startReason = '',
+                canStart = false, paused = false, client = false, online = false, loadoutVisible = false, countdownVisible = false,
+                selectedSlot = 0, placement = '', slots = {}, chat = {}, masterVolume = 1, musicVolume = 0.5, sfxVolume = 0.8
+            }
+            for index = 1, 5 do snapshot.slots[index] = {name = 'Arrow tower', cost = 100, available = true} end
+            Play = {
+                State = function() return snapshot end,
+                Preview = function() return true end,
+                Start = function() started = true; snapshot.phase = 'running'; return true end,
+                SelectSlot = function(slot) selected = slot; snapshot.selectedSlot = slot; return true end,
+                Pause = function(value) snapshot.paused = value; return true end,
+                Lobby = function() destination = 'Lobby'; return true end,
+                CancelPlacement = function() snapshot.selectedSlot = 0; return true end,
+                ClearSelection = function() snapshot.selection = nil; return true end,
+                Upgrade = function(id) upgraded = id; return true end,
+                Sell = function() sold = true; return true end,
+                Restart = function() restarted = true; return true end,
+                Retry = function() retried = true; return true end,
+                SendChat = function(value) sent = value; return true end,
+                SetVolume = function(name, value) snapshot[name] = value; return true end
+            }
+        )lua"));
+        const auto path = std::filesystem::path(NODESPIRE_MAINMENU_SCRIPT).parent_path() / "PlayLevel.lua";
+        ASSERT_EQ(luaL_dofile(lua.get(), path.string().c_str()), LUA_OK) << lua_tostring(lua.get(), -1);
+        manager.Update(0);
+        ASSERT_TRUE(Run("OnUpdate(0.1)"));
+        manager.Update(0);
+    }
+
+    void Click(const char* name) {
+        ASSERT_TRUE(Run((std::string("clickX, clickY, clickW, clickH = frames['") + name + "']:GetRect()").c_str()));
+        lua_getglobal(lua.get(), "clickX");
+        lua_getglobal(lua.get(), "clickY");
+        lua_getglobal(lua.get(), "clickW");
+        lua_getglobal(lua.get(), "clickH");
+        const float mouseX = static_cast<float>(lua_tonumber(lua.get(), -4) + lua_tonumber(lua.get(), -2) / 2);
+        const float mouseY = static_cast<float>(lua_tonumber(lua.get(), -3) + lua_tonumber(lua.get(), -1) / 2);
+        lua_pop(lua.get(), 4);
+        manager.InjectMouseMove(mouseX, mouseY);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, true);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, false);
+        manager.Update(0);
+    }
+};
+
+TEST_F(PlayUiTest, LoadingReadyRunningAndPauseRouteActions) {
+    ASSERT_TRUE(Run("assert(frames.MatchStatus:IsVisible() and not frames.TowerLoadout:IsVisible()); assert(PlayPointerOverHud(500, 400))"));
+    ASSERT_TRUE(Run("snapshot.phase = 'ready'; snapshot.loadoutVisible = true; OnUpdate(0.1)"));
+    manager.Update(0);
+    Click("StartMatch");
+    ASSERT_TRUE(Run("assert(not started); snapshot.canStart = true; OnUpdate(0.1)"));
+    manager.Update(0);
+    Click("StartMatch");
+    ASSERT_TRUE(Run("assert(started); OnUpdate(0.1); assert(not frames.MatchStatus:IsVisible()); assert(not PlayPointerOverHud(960, 400))"));
+    manager.Update(0);
+    Click("TowerSlot2");
+    ASSERT_TRUE(Run("assert(selected == 2); assert(PlayPointerOverHud(clickX + 10, clickY + 10))"));
+    Click("MatchMenu");
+    ASSERT_TRUE(Run("assert(snapshot.paused and frames.PauseOverlay:IsVisible()); assert(PlayPointerOverHud(960,400))"));
+    Click("ResumeMatch");
+    ASSERT_TRUE(Run("assert(not snapshot.paused)"));
+}
+
+TEST_F(PlayUiTest, LayoutAndTerminalControlsRemainInsideSmallWindows) {
+    for (const auto& viewport : std::vector<LambUI::UIRect>{{0, 0, 640, 480}, {0, 0, 1280, 720}, {0, 0, 2560, 1080}}) {
+        manager.SetDisplaySize(viewport.width, viewport.height);
+        manager.Update(0);
+        ASSERT_TRUE(Run("snapshot.phase = 'running'; snapshot.loadoutVisible = true; OnUpdate(0.1)"));
+        manager.Update(0);
+        ASSERT_TRUE(Run(R"lua(
+            local _, _, width, height = UI.Root:GetRect()
+            for _, name in ipairs({'TowerLoadout', 'BattleStats', 'GoldPlaque', 'MatchMenu'}) do
+                local left, top, span, tall = frames[name]:GetRect()
+                assert(left >= 0 and top >= 0 and left + span <= width + 0.1 and top + tall <= height + 0.1, name)
+            end
+            snapshot.phase = 'victory'; snapshot.headline = 'Victory'; snapshot.loadoutVisible = false; OnUpdate(0.1)
+            assert(frames.ReplayMatch:IsVisible() and not frames.TowerLoadout:IsVisible())
+        )lua"));
+        manager.Update(0);
+        Click("ReplayMatch");
+        ASSERT_TRUE(Run("assert(restarted); restarted = false; snapshot.client = true; OnUpdate(0.1); assert(not frames.ReplayMatch:IsVisible()); snapshot.client = false"));
+    }
+}
+
+TEST_F(PlayUiTest, ProfilesRespectOwnershipAndRouteUpgradeActions) {
+    ASSERT_TRUE(Run(R"lua(
+        snapshot.phase, snapshot.loadoutVisible = 'running', true
+        snapshot.selection = {
+            kind = 'tower', id = 1, name = 'Arrow tower', bio = 'Long range defense', owned = true,
+            damage = 10, range = 12, rate = 1, spent = 100, sell = 80, damageType = 'PHY', armorPiercing = 0,
+            effects = 'Burn 2/s', upgrades = {{id = 'power', name = 'Power', level = 0, maxLevel = 2,
+                cost = 50, enabled = true, description = 'Extra damage', reason = ''}}
+        }
+        OnUpdate(0.1)
+        assert(frames.SelectionProfile:IsVisible())
+    )lua"));
+    manager.Update(0);
+    Click("Upgrade1");
+    ASSERT_TRUE(Run("assert(upgraded == 'power'); upgraded = nil; snapshot.selection.owned = false; snapshot.selection.upgrades[1].enabled = false; OnUpdate(0.1)"));
+    manager.Update(0);
+    Click("Upgrade1");
+    Click("SellTower");
+    ASSERT_TRUE(Run("assert(not upgraded and not sold); snapshot.selection.owned = true; OnUpdate(0.1)"));
+    manager.Update(0);
+    Click("SellTower");
+    ASSERT_TRUE(Run("assert(sold)"));
+    ASSERT_TRUE(Run(R"lua(
+        snapshot.selection = {kind = 'enemy', id = 2, name = 'Scout', bio = 'Fast enemy', health = 25, maxHealth = 35,
+            shield = 0, maxShield = 0, armor = 1, speed = 3, reward = 8, baseDamage = 5, resistances = 'FIR 20%'}
+        OnUpdate(0.1)
+        assert(not frames.Upgrade1:IsVisible() and not frames.SellTower:IsVisible())
+    )lua"));
+    manager.Update(0);
+    manager.Render();
+    EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+        return command.text.find("HEALTH 25 / 35") != std::string::npos;
+    }));
+    Click("CloseProfile");
+    ASSERT_TRUE(Run("assert(not snapshot.selection)"));
+}
+
+TEST_F(PlayUiTest, ChatLoadFailureAndReturnActionsAreUsable) {
+    ASSERT_TRUE(Run("snapshot.phase = 'failed'; snapshot.headline = 'Deployment failed'; OnUpdate(0.1)"));
+    manager.Update(0);
+    Click("RetryLoad");
+    ASSERT_TRUE(Run("assert(retried); snapshot.phase = 'running'; snapshot.online = true; snapshot.chat = {'Player: Ready'}; OnUpdate(0.1)"));
+    manager.Update(0);
+    ASSERT_TRUE(Run("frames.ChatInput:SetText('Ready'); assert(frames.MatchChat:IsVisible())"));
+    Click("SendChat");
+    ASSERT_TRUE(Run("assert(sent == 'Ready' and frames.ChatInput:GetText() == '')"));
+    Click("MatchMenu");
+    Click("PauseLobby");
+    ASSERT_TRUE(Run("assert(destination == 'Lobby')"));
+}
+
 class LobbyUiTest : public SplashUiTest {
   protected:
     int imageLoads = 0;
