@@ -171,6 +171,218 @@ TEST_F(SplashUiTest, MainMenuMissingArtworkKeepsClickableTextButtons) {
     ASSERT_TRUE(Run("assert(destination == 'Lobby')"));
 }
 
+class LobbyUiTest : public SplashUiTest {
+  protected:
+    int imageLoads = 0;
+
+    void SetUp() override {
+        SplashUiTest::SetUp();
+        bindings->SetImageLoader([&](const std::string&) {
+            ++imageLoads;
+            return LambUI::UIImage{reinterpret_cast<void*>(uintptr_t{123}), 640, 360};
+        });
+        bindings->SetFontResolver([](const std::string&, int) -> void* {
+            return reinterpret_cast<void*>(uintptr_t{456});
+        });
+        ASSERT_TRUE(Run(R"lua(
+        Audio = { Preload = function(...) end, Play = function(...) end }
+        Scene = { GoTo = function(scene) destination = scene end }
+        frames = {}
+        local create = UI.CreateFrame
+        UI.CreateFrame = function(kind, name, parent)
+            local frame = create(kind, name, parent)
+            frames[name] = frame
+            return frame
+        end
+        snapshot = {
+            role = 'Solo', displayName = 'Player', members = {}, chat = {},
+            levels = {
+                {id = 'test', name = 'Test level', description = 'A test mission', waves = '10', thumbnail = 'test.png'},
+                {id = 'second', name = 'Second level', description = 'Another mission', waves = '25', thumbnail = 'second.png'}
+            },
+            towers = {{id = 'arrow', name = 'Arrow', selected = true, cost = 150, portrait = 'tower.png'}},
+            selectedLevel = 1, canStart = true, ready = false, activeMatch = false, status = ''
+        }
+        Lobby = {
+            State = function() return snapshot end,
+            Host = function(name)
+                hostedName = name
+                snapshot.role, snapshot.canStart = 'Host', false
+                snapshot.members = {{id = 1, name = name, localPlayer = true, host = true, ready = false}}
+                return true
+            end,
+            Join = function(name, address) joinedName, joinedAddress = name, address; return false, 'Connection failed' end,
+            Leave = function() snapshot.role, snapshot.members, snapshot.chat = 'Solo', {}, {}; return true end,
+            Ready = function(value) snapshot.ready, snapshot.canStart = value, value; snapshot.members[1].ready = value; return true end,
+            SendChat = function(value) sentChat = value; snapshot.chat = {'Player: ' .. value}; return true end,
+            Kick = function(id) kickedId = id; return true end,
+            SelectLevel = function(index) selectedIndex = index; snapshot.selectedLevel = index; return true end,
+            ToggleTower = function(id) toggledId = id; return false, 'Loadout full' end,
+            Start = function() started = true; return true end
+        }
+        )lua"));
+        const auto script = std::filesystem::path(NODESPIRE_MAINMENU_SCRIPT).parent_path() / "Lobby.lua";
+        ASSERT_EQ(luaL_dofile(lua.get(), script.string().c_str()), LUA_OK) << lua_tostring(lua.get(), -1);
+        Layout(1920, 1080);
+    }
+
+    void Refresh() {
+        ASSERT_TRUE(Run("OnUpdate(1)"));
+        manager.Update(0);
+        manager.Render();
+    }
+
+    void Layout(float width, float height) {
+        manager.SetDisplaySize(width, height);
+        manager.Update(0);
+        Refresh();
+    }
+
+    void Click(const char* name) {
+        const auto script = std::string("local left, top, width, height = frames.") + name +
+            ":GetRect(); clickX, clickY = left + width / 2, top + height / 2";
+        ASSERT_TRUE(Run(script.c_str()));
+        lua_getglobal(lua.get(), "clickX");
+        lua_getglobal(lua.get(), "clickY");
+        manager.InjectMouseMove(static_cast<float>(lua_tonumber(lua.get(), -2)), static_cast<float>(lua_tonumber(lua.get(), -1)));
+        lua_pop(lua.get(), 2);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, true);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, false);
+        Refresh();
+    }
+
+    bool HasText(const std::string& text) {
+        return std::any_of(renderer->commands.begin(), renderer->commands.end(), [&](const auto& command) {
+            return command.type == LambUI::RenderCommandType::DrawString && command.text == text;
+        });
+    }
+};
+
+TEST_F(LobbyUiTest, RendersCoreControls) {
+    for (const auto& text : {"Match", "Start solo", "Create party", "Join", "Choose your defenses", "Test level"}) {
+        EXPECT_TRUE(HasText(text)) << text;
+    }
+    EXPECT_EQ(lua_gettop(lua.get()), 0);
+}
+
+TEST_F(LobbyUiTest, HostsReadiesChatsAndLeaves) {
+    Click("HostButton");
+    ASSERT_TRUE(Run("assert(hostedName == 'Player' and frames.ActiveParty:IsVisible() and not frames.PartySetup:IsVisible())"));
+    Click("StartButton");
+    ASSERT_TRUE(Run("assert(started == nil)"));
+    Click("ReadyToggle");
+    ASSERT_TRUE(Run("assert(snapshot.ready and snapshot.canStart)"));
+    ASSERT_TRUE(Run("frames.ChatInput:SetText('Hello party')"));
+    Click("SendButton");
+    ASSERT_TRUE(Run("assert(sentChat == 'Hello party' and frames.ChatInput:GetText() == '')"));
+    EXPECT_TRUE(HasText("Player: Hello party"));
+    Click("StartButton");
+    ASSERT_TRUE(Run("assert(started)"));
+    Click("LeaveButton");
+    ASSERT_TRUE(Run("assert(frames.PartySetup:IsVisible() and not frames.ActiveParty:IsVisible())"));
+}
+
+TEST_F(LobbyUiTest, FailedJoinAndLoadoutChangeKeepInputsAndAuthoritativeSelection) {
+    ASSERT_TRUE(Run("frames.PlayerName:SetText('Test name'); frames.JoinAddress:SetText('192.0.2.1')"));
+    Click("JoinButton");
+    ASSERT_TRUE(Run("assert(joinedName == 'Test name' and joinedAddress == '192.0.2.1')"));
+    EXPECT_TRUE(HasText("Connection failed"));
+    Click("Tower1");
+    ASSERT_TRUE(Run("assert(toggledId == 'arrow' and snapshot.towers[1].selected)"));
+    EXPECT_TRUE(HasText("Loadout full"));
+}
+
+TEST_F(LobbyUiTest, ClientCannotStartOrKickButCanRejoinAnActiveMatch) {
+    ASSERT_TRUE(Run(R"lua(
+        snapshot.role, snapshot.canStart = 'Client', false
+        snapshot.members = {{id = 7, name = 'Leader', host = true}, {id = 8, name = 'Player', localPlayer = true}}
+    )lua"));
+    Refresh();
+    EXPECT_TRUE(HasText("Awaiting host"));
+    ASSERT_TRUE(Run("assert(not frames.Kick1:IsVisible() and not frames.Kick2:IsVisible())"));
+    Click("StartButton");
+    ASSERT_TRUE(Run("assert(started == nil)"));
+    ASSERT_TRUE(Run("snapshot.activeMatch, snapshot.canStart = true, true"));
+    Refresh();
+    EXPECT_TRUE(HasText("Rejoin match"));
+    Click("StartButton");
+    ASSERT_TRUE(Run("assert(started)"));
+}
+
+TEST_F(LobbyUiTest, FooterStaysInsideSmallAndWideWindowsAndBackRoutesToMenu) {
+    for (const auto& viewport : std::vector<LambUI::UIRect>{{0, 0, 640, 480}, {0, 0, 800, 600}, {0, 0, 2560, 1080}}) {
+        Layout(viewport.width, viewport.height);
+        ASSERT_TRUE(Run(R"lua(
+            local _, _, width, height = UI.Root:GetRect()
+            for _, name in ipairs({'LobbyRoot', 'LobbyScroll', 'BackButton', 'StartButton'}) do
+                local left, top, controlWidth, controlHeight = frames[name]:GetRect()
+                assert(left >= 0 and top >= 0 and left + controlWidth <= width and top + controlHeight <= height, name)
+            end
+        )lua"));
+        EXPECT_TRUE(HasText("Match"));
+        Click("BackButton");
+        ASSERT_TRUE(Run("assert(destination == 'MainMenu')"));
+    }
+}
+
+TEST_F(LobbyUiTest, PreservesThreeRailsAndNumberedLoadout) {
+    Layout(1280, 720);
+    ASSERT_TRUE(Run(R"lua(
+        local left, top, width = frames.DeploymentRail:GetRect()
+        local center, centerTop, centerWidth = frames.BriefingRail:GetRect()
+        local right, rightTop = frames.LoadoutRail:GetRect()
+        assert(math.abs(left + width - center) < 1 and math.abs(center + centerWidth - right) < 1)
+        assert(top == centerTop and top == rightTop)
+        assert(frames.LoadoutSlot1 and frames.LoadoutSlot5)
+        assert(frames.TowerInventory and frames.PartyChat and frames.LevelSelector)
+    )lua"));
+    EXPECT_TRUE(HasText("Empty slot"));
+    EXPECT_TRUE(HasText("$150"));
+    EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+        return command.type == LambUI::RenderCommandType::DrawQuad && command.color == 0x0C1211FFu && command.height == 38;
+    }));
+    EXPECT_EQ(imageLoads, 4);
+}
+
+TEST_F(LobbyUiTest, MissionBoardPreviewsThenConfirmsOrCancelsWithoutClickThrough) {
+    Click("ChooseLevelButton");
+    ASSERT_TRUE(Run("assert(frames.LevelSelector:IsVisible())"));
+    EXPECT_TRUE(HasText("MISSION BOARD"));
+    EXPECT_TRUE(HasText("Second level"));
+    EXPECT_GE(std::count_if(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+        return command.textureHandle == reinterpret_cast<void*>(uintptr_t{123});
+    }), 4);
+    Click("LevelCard2");
+    ASSERT_TRUE(Run("assert(selectedIndex == nil and snapshot.selectedLevel == 1)"));
+    Click("HostButton");
+    ASSERT_TRUE(Run("assert(hostedName == nil)"));
+    Click("CancelLevelButton");
+    ASSERT_TRUE(Run("assert(not frames.LevelSelector:IsVisible() and snapshot.selectedLevel == 1)"));
+    Click("ChooseLevelButton");
+    Click("LevelCard2");
+    Click("ConfirmLevelButton");
+    ASSERT_TRUE(Run("assert(not frames.LevelSelector:IsVisible() and selectedIndex == 2)"));
+    EXPECT_TRUE(HasText("Second level"));
+    EXPECT_EQ(imageLoads, 4);
+}
+
+TEST_F(LobbyUiTest, SmallMissionBoardPaginatesAndFitsTheViewport) {
+    Click("ChooseLevelButton");
+    Layout(640, 480);
+    ASSERT_TRUE(Run(R"lua(
+        assert(frames.LevelCard1:IsVisible() and not frames.LevelCard2:IsVisible())
+        for _, name in ipairs({'LevelSelectorPanel', 'LevelCard1', 'ConfirmLevelButton', 'CancelLevelButton'}) do
+            local left, top, width, height = frames[name]:GetRect()
+            assert(left >= 0 and top >= 0 and left + width <= 640 and top + height <= 480, name)
+        end
+    )lua"));
+    Click("NextLevelButton");
+    ASSERT_TRUE(Run("assert(not frames.LevelCard1:IsVisible() and frames.LevelCard2:IsVisible())"));
+    Click("LevelCard2");
+    Click("ConfirmLevelButton");
+    ASSERT_TRUE(Run("assert(selectedIndex == 2)"));
+}
+
 class OptionsUiTest : public SplashUiTest {
     protected:
         void SetUp() override {
