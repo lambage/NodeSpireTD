@@ -2,7 +2,8 @@
 
 namespace NodeSpireUi {
 
-SplashScene::SplashScene() : LuaUiScene("assets/scenes/Splash.lua") {}
+SplashScene::SplashScene(lambui_backend::VulkanUiRenderer& renderer)
+    : LuaUiScene("assets/scenes/Splash.lua", renderer) {}
 
 void SplashScene::onSceneEnter(AudioEngine& /*audio*/) {
     elapsedSeconds_ = 0.0f;

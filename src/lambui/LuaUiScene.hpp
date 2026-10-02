@@ -15,6 +15,10 @@ namespace LambUILua {
 class LuaUIBindings;
 }
 
+namespace lambui_backend {
+class VulkanUiRenderer;
+}
+
 namespace NodeSpireUi {
 
 // Base for scenes whose UI is built by running a per-scene .lua script
@@ -34,7 +38,7 @@ namespace NodeSpireUi {
 // absolute root.
 class LuaUiScene : public IScene {
   public:
-    explicit LuaUiScene(std::string scriptPath);
+    LuaUiScene(std::string scriptPath, lambui_backend::VulkanUiRenderer& renderer);
     ~LuaUiScene() override;
 
     void onEnter(LambUI::UIManager& ui, AudioEngine& audio) override;
@@ -45,12 +49,6 @@ class LuaUiScene : public IScene {
     void requestTransitionFromLua(SceneId id) { requestTransition(id); }
 
   protected:
-    // Hook for subclasses to bind scene-specific native functions (audio
-    // sfx, multiplayer calls, etc.) into the script's lua_State. Called
-    // after LambUI's own UI bindings are installed and before the script
-    // file is run.
-    virtual void registerEngineBindings(lua_State* /*L*/, AudioEngine& /*audio*/) {}
-
     // Hook called once per frame, after the Lua script's optional global
     // "OnUpdate(dt)" function (if defined) has already been invoked.
     virtual void onUpdateScene(float /*dt*/) {}
@@ -64,6 +62,7 @@ class LuaUiScene : public IScene {
 
   private:
     std::string scriptPath_;
+    lambui_backend::VulkanUiRenderer& renderer_;
     lua_State* lua_ = nullptr;
     std::unique_ptr<LambUILua::LuaUIBindings> bindings_;
     SceneTransition pendingTransition_;

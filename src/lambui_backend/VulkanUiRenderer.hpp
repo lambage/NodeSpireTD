@@ -19,6 +19,7 @@
 #include <vk_mem_alloc.h>
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -41,6 +42,14 @@ class VulkanUiRenderer final : public LambUI::IRenderer {
     // Uploads an RGBA8 texture, returning an opaque handle usable as
     // LambUI::UIRenderCommand::textureHandle / UITextureWidget::SetTexture.
     void* UploadTexture(int width, int height, const uint8_t* rgbaPixels);
+
+    struct Image {
+        void* handle = nullptr;
+        int width = 0;
+        int height = 0;
+    };
+
+    Image LoadImage(const std::string& path);
 
     // Uploads a font atlas's SDF bitmap and registers it under fontHandle.
     // fontHandle must match the handle registered with the paired
@@ -106,6 +115,7 @@ class VulkanUiRenderer final : public LambUI::IRenderer {
     VkDeviceSize vertexBufferCapacity_ = 0;
 
     std::vector<Texture> textures_;
+    std::unordered_map<std::string, Image> images_;
     std::unordered_map<void*, Font> fonts_;
 };
 

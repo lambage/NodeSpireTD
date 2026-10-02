@@ -1,5 +1,9 @@
 #include "lambui_backend/VulkanUiRenderer.hpp"
 
+#include <stb_image.h>
+#include <memory>
+#include <stdexcept>
+
 #include "VulkanContext.hpp"
 
 #include <LambUI/UIFontAtlas.h>
@@ -374,6 +378,24 @@ size_t VulkanUiRenderer::uploadTexture(int width, int height, const void* pixels
 
     textures_.push_back(texture);
     return textures_.size() - 1;
+}
+
+VulkanUiRenderer::Image VulkanUiRenderer::LoadImage(const std::string& path) {
+    if (const auto found = images_.find(path); found != images_.end()) {
+        return found->second;
+    }
+
+    Image image;
+    std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> pixels(
+        stbi_load(path.c_str(), &image.width, &image.height, nullptr, STBI_rgb_alpha), stbi_image_free);
+    if (!pixels) {
+        const char* reason = stbi_failure_reason();
+        throw std::runtime_error("Unable to load UI image '" + path + "': " + (reason ? reason : "unknown error"));
+    }
+
+    image.handle = UploadTexture(image.width, image.height, pixels.get());
+    images_.emplace(path, image);
+    return image;
 }
 
 void* VulkanUiRenderer::UploadTexture(int width, int height, const uint8_t* rgbaPixels) {

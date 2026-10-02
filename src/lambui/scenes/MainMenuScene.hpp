@@ -9,7 +9,7 @@ namespace NodeSpireUi {
 // Scene.Quit) -- no scene-specific C++ glue needed.
 class MainMenuScene final : public LuaUiScene {
   public:
-    MainMenuScene();
+    explicit MainMenuScene(lambui_backend::VulkanUiRenderer& renderer);
 };
 
 } // namespace NodeSpireUi

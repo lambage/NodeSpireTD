@@ -9,7 +9,7 @@ namespace NodeSpireUi {
 // on any keypress).
 class SplashScene final : public LuaUiScene {
   public:
-    SplashScene();
+    explicit SplashScene(lambui_backend::VulkanUiRenderer& renderer);
 
     SceneTransition onKeyDown(uint32_t scanCode) override;
 
@@ -20,7 +20,7 @@ class SplashScene final : public LuaUiScene {
   private:
     float elapsedSeconds_ = 0.0f;
 
-    static constexpr float kMinimumSplashSeconds = 0.2f;
+    static constexpr float kMinimumSplashSeconds = 2.0f;
 };
 
 } // namespace NodeSpireUi

@@ -99,7 +99,7 @@ int main(int /*argc*/, char** /*argv*/) {
         std::fprintf(stderr, "TRACE: audio/multiplayer ready, entering Splash scene\n"); std::fflush(stderr);
 
         NodeSpireUi::SceneManager sceneManager(uiManager, NodeSpireUi::SceneId::Splash, audioEngine, *vulkanContext,
-                                               multiplayerSession, playerProfileStore);
+                                               multiplayerSession, playerProfileStore, *renderer);
         std::fprintf(stderr, "TRACE: Splash scene entered, starting main loop\n"); std::fflush(stderr);
 
         auto lastFrameTime = std::chrono::steady_clock::now();
@@ -133,13 +133,9 @@ int main(int /*argc*/, char** /*argv*/) {
             lastFrameTime = now;
 
             multiplayerSession.update();
-            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 before sceneManager.update\n"); std::fflush(stderr); }
             sceneManager.update(dt);
-            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 after sceneManager.update\n"); std::fflush(stderr); }
             audioEngine.update(dt);
-            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 before uiManager.Update\n"); std::fflush(stderr); }
             uiManager.Update(dt);
-            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 after uiManager.Update\n"); std::fflush(stderr); }
 
             vulkanContext->waitForFrameFence(frameIndex);
             uint32_t imageIndex = 0;
@@ -154,9 +150,7 @@ int main(int /*argc*/, char** /*argv*/) {
             sceneManager.renderWorld(commandBuffer, extent);
             sceneManager.renderOverlay(commandBuffer, extent);
             renderer->BeginFrame(commandBuffer, extent);
-            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 before uiManager.Render\n"); std::fflush(stderr); }
             uiManager.Render();
-            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 after uiManager.Render\n"); std::fflush(stderr); }
             vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
             if (vulkanContext->present(imageIndex)) {
                 vulkanContext->recreateSwapchain(extent.width, extent.height);

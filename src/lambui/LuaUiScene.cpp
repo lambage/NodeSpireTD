@@ -2,6 +2,7 @@
 
 #include "lambui/LuaAudioBindings.hpp"
 #include "lambui/LuaSceneBindings.hpp"
+#include "lambui_backend/VulkanUiRenderer.hpp"
 #include "lua.hpp"
 
 #include <LambUI/UIManager.h>
@@ -9,10 +10,12 @@
 #include <LambUILua/LuaBindings.h>
 
 #include <cstdio>
+#include <exception>
 
 namespace NodeSpireUi {
 
-LuaUiScene::LuaUiScene(std::string scriptPath) : scriptPath_(std::move(scriptPath)) {}
+LuaUiScene::LuaUiScene(std::string scriptPath, lambui_backend::VulkanUiRenderer& renderer)
+    : scriptPath_(std::move(scriptPath)), renderer_(renderer) {}
 
 LuaUiScene::~LuaUiScene() = default;
 
@@ -25,7 +28,15 @@ void LuaUiScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
     bindings_ = std::make_unique<LambUILua::LuaUIBindings>(lua_, ui);
     BindAudioEngine(lua_, audio);
     BindSceneControl(lua_, *this);
-    registerEngineBindings(lua_, audio);
+    bindings_->SetImageLoader([renderer = &renderer_](const std::string& path) -> LambUI::UIImage {
+        try {
+            const auto image = renderer->LoadImage(path);
+            return {image.handle, image.width, image.height};
+        } catch (const std::exception& error) {
+            std::fprintf(stderr, "LambUI image load failed for '%s': %s\n", path.c_str(), error.what());
+        }
+        return {};
+    });
 
     if (luaL_dofile(lua_, scriptPath_.c_str()) != LUA_OK) {
         const char* error = lua_tostring(lua_, -1);

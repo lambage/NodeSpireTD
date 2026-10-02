@@ -2,7 +2,8 @@
 
 namespace NodeSpireUi {
 
-MainMenuScene::MainMenuScene() : LuaUiScene("assets/scenes/MainMenu.lua") {}
+MainMenuScene::MainMenuScene(lambui_backend::VulkanUiRenderer& renderer)
+	: LuaUiScene("assets/scenes/MainMenu.lua", renderer) {}
 
 } // namespace NodeSpireUi
 

@@ -48,3 +48,15 @@ target_link_libraries(NodeSpireMatchProtocolTests PRIVATE
 
 nodespire_stage_runtime_dependencies(NodeSpireMatchProtocolTests)
 gtest_discover_tests(NodeSpireMatchProtocolTests)
+
+add_executable(NodeSpireSplashUiTests lambui/SplashUiTests.cpp)
+target_link_libraries(NodeSpireSplashUiTests PRIVATE
+    GTest::gtest_main
+    LambUI::lambui
+    LambUI::lua
+)
+target_compile_definitions(NodeSpireSplashUiTests PRIVATE
+    NODESPIRE_SPLASH_SCRIPT="${CMAKE_SOURCE_DIR}/assets/scenes/Splash.lua"
+)
+nodespire_stage_runtime_dependencies(NodeSpireSplashUiTests)
+gtest_discover_tests(NodeSpireSplashUiTests)
