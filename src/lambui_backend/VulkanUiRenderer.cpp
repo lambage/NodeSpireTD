@@ -227,7 +227,9 @@ void VulkanUiRenderer::createPipeline() {
     VkPipelineRenderingCreateInfo renderingInfo{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     renderingInfo.colorAttachmentCount = 1;
     renderingInfo.pColorAttachmentFormats = &colorFmt;
-    renderingInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+    // Must match the depth attachment format bound in the shared dynamic-rendering
+    // pass (WorldRenderer's depth buffer) even though depth test/write are off here.
+    renderingInfo.depthAttachmentFormat = context_.depthFormat();
 
     VkGraphicsPipelineCreateInfo pipelineCI{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pipelineCI.pNext = &renderingInfo;

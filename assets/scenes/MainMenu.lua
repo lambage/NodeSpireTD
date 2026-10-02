@@ -20,7 +20,7 @@ local function makeMenuButton(name, text, yOffset, onClick)
     local button = UI.CreateFrame("Button", name, root)
     button:SetSize(240, 48)
     button:SetPoint("CENTER", root, "CENTER", 0, yOffset)
-    button:SetButtonColors(0x3A3F4BFFu, 0x4C5566FFu, 0x2A2E38FFu)
+    button:SetButtonColors(0x3A3F4BFF, 0x4C5566FF, 0x2A2E38FF)
 
     local label = button:CreateFontString(name .. "Label")
     label:SetText(text)
@@ -40,6 +40,7 @@ makeMenuButton("PlayButton", "Play", -20, function()
     Scene.GoTo("Lobby")
 end)
 
+--[[
 makeMenuButton("OptionsButton", "Options", 40, function()
     Scene.GoTo("Options")
 end)
@@ -48,3 +49,4 @@ makeMenuButton("ExitButton", "Exit", 100, function()
     Audio.Play(CLOSE_SFX, "Sfx")
     Scene.Quit()
 end)
+--]]

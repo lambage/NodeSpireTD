@@ -20,7 +20,7 @@ class SplashScene final : public LuaUiScene {
   private:
     float elapsedSeconds_ = 0.0f;
 
-    static constexpr float kMinimumSplashSeconds = 3.0f;
+    static constexpr float kMinimumSplashSeconds = 0.2f;
 };
 
 } // namespace NodeSpireUi

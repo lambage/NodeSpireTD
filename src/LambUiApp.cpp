@@ -21,6 +21,7 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <spdlog/spdlog.h>
 
@@ -54,6 +55,7 @@ SDL_Window* createWindow(const StartupWindowConfig& startupWindow) {
 } // namespace
 
 int main(int /*argc*/, char** /*argv*/) {
+  try {
     const AppSettings startupSettings = SettingsManager().loadOrCreateDefaults();
     const auto startupWindow = resolveStartupWindowConfig(startupSettings);
 
@@ -62,29 +64,36 @@ int main(int /*argc*/, char** /*argv*/) {
 
     auto vulkanContext = std::make_unique<VulkanContext>(window);
     vulkanContext->setVSyncEnabled(startupSettings.vSyncEnabled);
+    std::fprintf(stderr, "TRACE: VulkanContext ready\n"); std::fflush(stderr);
 
     LambUiFontLoader fontLoader;
     if (!fontLoader.loadAll("assets/fonts")) {
         spdlog::warn("{}", "LambUiApp: one or more fonts failed to load from assets/fonts");
     }
+    std::fprintf(stderr, "TRACE: fonts loaded\n"); std::fflush(stderr);
 
     auto renderer = std::make_shared<lambui_backend::VulkanUiRenderer>(*vulkanContext);
+    std::fprintf(stderr, "TRACE: UI renderer created\n"); std::fflush(stderr);
     fontLoader.forEachFont([&renderer](void* fontHandle, const LambUI::FontAtlas& atlas) {
         renderer->LoadFont(atlas, fontHandle);
     });
+    std::fprintf(stderr, "TRACE: fonts uploaded to renderer\n"); std::fflush(stderr);
 
     LambUI::UIManager uiManager(renderer, fontLoader.textMeasurer());
     const VkExtent2D initialExtent = vulkanContext->extent();
     uiManager.SetDisplaySize(static_cast<float>(initialExtent.width), static_cast<float>(initialExtent.height));
+    std::fprintf(stderr, "TRACE: UIManager ready\n"); std::fflush(stderr);
 
     {
         AudioEngine audioEngine(startupSettings.audioDevice);
         audioEngine.setEffectiveSettings(startupSettings);
         multiplayer::MultiplayerSession multiplayerSession;
         multiplayer::PlayerProfileStore playerProfileStore;
+        std::fprintf(stderr, "TRACE: audio/multiplayer ready, entering Splash scene\n"); std::fflush(stderr);
 
         NodeSpireUi::SceneManager sceneManager(uiManager, NodeSpireUi::SceneId::Splash, audioEngine, *vulkanContext,
                                                multiplayerSession, playerProfileStore);
+        std::fprintf(stderr, "TRACE: Splash scene entered, starting main loop\n"); std::fflush(stderr);
 
         auto lastFrameTime = std::chrono::steady_clock::now();
         bool running = true;
@@ -117,9 +126,13 @@ int main(int /*argc*/, char** /*argv*/) {
             lastFrameTime = now;
 
             multiplayerSession.update();
+            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 before sceneManager.update\n"); std::fflush(stderr); }
             sceneManager.update(dt);
+            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 after sceneManager.update\n"); std::fflush(stderr); }
             audioEngine.update(dt);
+            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 before uiManager.Update\n"); std::fflush(stderr); }
             uiManager.Update(dt);
+            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 after uiManager.Update\n"); std::fflush(stderr); }
 
             vulkanContext->waitForFrameFence(frameIndex);
             uint32_t imageIndex = 0;
@@ -134,7 +147,9 @@ int main(int /*argc*/, char** /*argv*/) {
             sceneManager.renderWorld(commandBuffer, extent);
             sceneManager.renderOverlay(commandBuffer, extent);
             renderer->BeginFrame(commandBuffer, extent);
+            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 before uiManager.Render\n"); std::fflush(stderr); }
             uiManager.Render();
+            if (frameIndex == 0) { std::fprintf(stderr, "TRACE: frame0 after uiManager.Render\n"); std::fflush(stderr); }
             vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
             if (vulkanContext->present(imageIndex)) {
                 vulkanContext->recreateSwapchain(extent.width, extent.height);
@@ -151,4 +166,13 @@ int main(int /*argc*/, char** /*argv*/) {
     SDL_DestroyWindow(window);
 
     return 0;
+  } catch (const std::exception& e) {
+    std::fprintf(stderr, "FATAL: unhandled exception: %s\n", e.what());
+    std::fflush(stderr);
+    return 1;
+  } catch (...) {
+    std::fprintf(stderr, "FATAL: unhandled non-std exception\n");
+    std::fflush(stderr);
+    return 1;
+  }
 }
