@@ -63,10 +63,19 @@ endif()
 # SDL_begin_code.h doesn't have yet, which fails to compile against the older SDL3.
 nodespire_add_dependency(SDL)
 
-# SDL3_mixer provides AudioEngine playback for music.mp3 and sfx.ogg.
-# Vendored codec libs (ON by default) cover both formats we ship
-# (MP3, Ogg Vorbis) without needing system decoder packages; they are git
-# submodules, hence sync-s="true" on this project in the manifest.
+# SDL3_mixer provides AudioEngine playback for music.mp3 and sfx.ogg via its
+# built-in dr_mp3/stb_vorbis decoders. Everything needing its external/ git
+# submodules is off, since the manifest doesn't sync them.
+set(SDLMIXER_VENDORED OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_FLAC_LIBFLAC OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_GME OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_MOD_XMP OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_MP3_MPG123 OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_MIDI_FLUIDSYNTH OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_OPUS OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_VORBIS_VORBISFILE OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_VORBIS_TREMOR OFF CACHE BOOL "" FORCE)
+set(SDLMIXER_WAVPACK OFF CACHE BOOL "" FORCE)
 nodespire_add_dependency(SDL_mixer)
 
 # Prefer the VULKAN_SDK environment variable (set automatically by the LunarG
