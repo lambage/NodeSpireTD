@@ -12,7 +12,7 @@ namespace {
 std::unique_ptr<IScene> createScene(SceneId id, multiplayer::MultiplayerSession& multiplayerSession,
                                     multiplayer::PlayerProfileStore& playerProfileStore, VulkanContext& vulkanContext,
                                     PlayLevelLaunchConfig& playLevelLaunchConfig,
-                                    lambui_backend::VulkanUiRenderer& renderer) {
+                                    lambui_backend::VulkanUiRenderer& renderer, AppSettings& settings, SDL_Window* window) {
     switch (id) {
     case SceneId::Splash:
         return std::make_unique<SplashScene>(renderer);
@@ -21,7 +21,7 @@ std::unique_ptr<IScene> createScene(SceneId id, multiplayer::MultiplayerSession&
     case SceneId::Lobby:
         return std::make_unique<LobbyScene>(multiplayerSession, playerProfileStore, playLevelLaunchConfig);
     case SceneId::Options:
-        return std::make_unique<OptionsScene>();
+        return std::make_unique<OptionsScene>(renderer, settings, window, vulkanContext);
     case SceneId::PlayLevel:
         return std::make_unique<PlayLevelScene>(vulkanContext, multiplayerSession, playLevelLaunchConfig);
     }
@@ -33,15 +33,15 @@ SceneManager::SceneManager(LambUI::UIManager& ui, SceneId initialScene, AudioEng
                                                      VulkanContext& vulkanContext,
                                                      multiplayer::MultiplayerSession& multiplayerSession,
                                                      multiplayer::PlayerProfileStore& playerProfileStore,
-                                                     lambui_backend::VulkanUiRenderer& renderer)
-        : ui_(ui), audio_(audio), vulkanContext_(vulkanContext), renderer_(renderer), multiplayerSession_(multiplayerSession), playerProfileStore_(playerProfileStore),
+                                                     lambui_backend::VulkanUiRenderer& renderer, AppSettings& settings, SDL_Window* window)
+        : ui_(ui), audio_(audio), vulkanContext_(vulkanContext), renderer_(renderer), settings_(settings), window_(window), multiplayerSession_(multiplayerSession), playerProfileStore_(playerProfileStore),
             activeSceneId_(initialScene) {
     enterScene(initialScene);
 }
 
 void SceneManager::enterScene(SceneId id) {
     activeSceneId_ = id;
-    activeScene_ = createScene(id, multiplayerSession_, playerProfileStore_, vulkanContext_, playLevelLaunchConfig_, renderer_);
+    activeScene_ = createScene(id, multiplayerSession_, playerProfileStore_, vulkanContext_, playLevelLaunchConfig_, renderer_, settings_, window_);
     activeScene_->onEnter(ui_, audio_);
 }
 

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <set>
+#include <stdexcept>
 
 namespace {
 
@@ -37,6 +38,7 @@ bool LambUiFontLoader::loadAll(const std::filesystem::path& fontsDirectory, int 
 
     // fileName -> marked as the manifest's fallback/default face.
     std::unordered_map<std::string, bool> manifestedFiles;
+    std::set<int> sizes{pixelHeight};
 
     const std::filesystem::path manifestPath = fontsDirectory / kManifestFileName;
     if (std::filesystem::is_regular_file(manifestPath)) {
@@ -44,11 +46,18 @@ bool LambUiFontLoader::loadAll(const std::filesystem::path& fontsDirectory, int 
         nlohmann::json manifest;
         try {
             manifestStream >> manifest;
+            const auto requestedSizes = manifest.value("sizes", nlohmann::json::array());
+            if (!requestedSizes.is_array()) throw std::invalid_argument("font sizes must be an array");
+            for (const auto& size : requestedSizes) {
+                if (!size.is_number_integer() || size < 1 || size > 512)
+                    throw std::invalid_argument("font sizes must be integers from 1 to 512");
+                sizes.insert(size.get<int>());
+            }
             for (const auto& entry : manifest.value("fonts", nlohmann::json::array())) {
                 const std::string fileName = entry.at("file").get<std::string>();
                 manifestedFiles[fileName] = entry.value("fallback", false);
             }
-        } catch (const nlohmann::json::exception& e) {
+        } catch (const std::exception& e) {
             std::fprintf(stderr, "LambUiFontLoader: failed to parse font manifest %s: %s\n", manifestPath.string().c_str(), e.what());
         }
     }
@@ -68,18 +77,17 @@ bool LambUiFontLoader::loadAll(const std::filesystem::path& fontsDirectory, int 
 
     for (const auto& [fileName, isFallback] : manifestedFiles) {
         const std::filesystem::path filePath = fontsDirectory / fileName;
-        auto atlas = std::make_unique<LambUI::FontAtlas>();
-        if (!atlas->LoadFromFile(filePath.string(), pixelHeight)) {
-            std::fprintf(stderr, "LambUiFontLoader: failed to load font: %s\n", filePath.string().c_str());
-            allSucceeded = false;
-            continue;
-        }
-
         const std::string name = filePath.stem().string();
-        if (isFallback || fallbackName.empty()) {
-            fallbackName = name;
+        for (int size : sizes) {
+            auto atlas = std::make_unique<LambUI::FontAtlas>();
+            if (!atlas->LoadFromFile(filePath.string(), size)) {
+                std::fprintf(stderr, "LambUiFontLoader: failed to load font: %s at %d px\n", filePath.string().c_str(), size);
+                allSucceeded = false;
+                continue;
+            }
+            if (size == pixelHeight && (isFallback || fallbackName.empty())) fallbackName = name;
+            atlases_[name][size] = std::move(atlas);
         }
-        atlases_[name] = std::move(atlas);
     }
 
     if (fallbackName.empty()) {
@@ -87,17 +95,22 @@ bool LambUiFontLoader::loadAll(const std::filesystem::path& fontsDirectory, int 
         return false;
     }
 
-    textMeasurer_ = std::make_shared<LambUI::FontAtlasTextMeasurer>(*atlases_.at(fallbackName));
-    for (const auto& [name, atlas] : atlases_) {
-        textMeasurer_->RegisterFont(atlas.get(), *atlas);
-    }
+    defaultPixelHeight_ = pixelHeight;
+    const auto& defaultAtlas = atlases_.at(fallbackName).at(pixelHeight);
+    textMeasurer_ = std::make_shared<LambUI::FontAtlasTextMeasurer>(*defaultAtlas);
+    defaultFontHandle_ = defaultAtlas.get();
+    forEachFont([&](void* handle, const LambUI::FontAtlas& atlas) {
+        textMeasurer_->RegisterFont(handle, atlas);
+    });
 
     return allSucceeded;
 }
 
-void* LambUiFontLoader::getFontHandle(const std::string& name) const {
+void* LambUiFontLoader::getFontHandle(const std::string& name, int pixelHeight) const {
     const auto it = atlases_.find(name);
-    return it != atlases_.end() ? it->second.get() : nullptr;
+    if (it == atlases_.end()) return nullptr;
+    const auto size = it->second.find(pixelHeight == 0 ? defaultPixelHeight_ : pixelHeight);
+    return size != it->second.end() ? size->second.get() : nullptr;
 }
 
 std::shared_ptr<LambUI::ITextMeasurer> LambUiFontLoader::textMeasurer() const {
@@ -105,8 +118,14 @@ std::shared_ptr<LambUI::ITextMeasurer> LambUiFontLoader::textMeasurer() const {
 }
 
 void LambUiFontLoader::forEachFont(const std::function<void(void*, const LambUI::FontAtlas&)>& callback) const {
-    for (const auto& [name, atlas] : atlases_) {
-        callback(atlas.get(), *atlas);
+    forEachNamedFont([&](const std::string&, int, void* handle, const LambUI::FontAtlas& atlas) {
+        callback(handle, atlas);
+    });
+}
+
+void LambUiFontLoader::forEachNamedFont(const std::function<void(const std::string&, int, void*, const LambUI::FontAtlas&)>& callback) const {
+    for (const auto& [name, sizes] : atlases_) {
+        for (const auto& [size, atlas] : sizes) callback(name, size, atlas.get(), *atlas);
     }
 }
 

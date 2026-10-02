@@ -49,6 +49,8 @@ class LuaUiScene : public IScene {
     void requestTransitionFromLua(SceneId id) { requestTransition(id); }
 
   protected:
+    virtual void bindSceneApi(lua_State* /*lua*/, AudioEngine& /*audio*/) {}
+
     // Hook called once per frame, after the Lua script's optional global
     // "OnUpdate(dt)" function (if defined) has already been invoked.
     virtual void onUpdateScene(float /*dt*/) {}

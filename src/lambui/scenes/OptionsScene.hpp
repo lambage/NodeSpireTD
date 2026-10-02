@@ -1,22 +1,30 @@
 #pragma once
 
-#include "lambui/IScene.hpp"
+#include "lambui/LuaUiScene.hpp"
 
-namespace LambUI {
-class UIManager;
-}
+struct AppSettings;
+struct SDL_Window;
+class VulkanContext;
 
 namespace NodeSpireUi {
 
-// TODO(lambui-migration): compile-only placeholder. The RmlUi-era
-// OptionsScene (GFX/Audio/Gameplay tabs backed by SettingsManager/
-// AppSettings) has not been rebuilt against LambUI/Lua yet; see
-// docs/adr or repo memory for the migration's phased plan.
-class OptionsScene final : public IScene {
+class OptionsScene final : public LuaUiScene {
   public:
-    void onEnter(LambUI::UIManager& ui, AudioEngine& audio) override;
-    void onExit(LambUI::UIManager& ui) override;
-    SceneTransition update(float dt) override;
+    OptionsScene(lambui_backend::VulkanUiRenderer& renderer, AppSettings& settings,
+                 SDL_Window* window, VulkanContext& vulkanContext);
+    SceneTransition onKeyDown(uint32_t scanCode) override;
+
+  protected:
+    void bindSceneApi(lua_State* lua, AudioEngine& audio) override;
+
+  private:
+    static OptionsScene& fromLua(lua_State* lua);
+    bool apply(const AppSettings& settings, std::string& error);
+
+    AppSettings& settings_;
+    SDL_Window* window_;
+    VulkanContext& vulkanContext_;
+    AudioEngine* audio_ = nullptr;
 };
 
 } // namespace NodeSpireUi

@@ -26,6 +26,9 @@ void LuaUiScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
     lua_ = luaL_newstate();
     luaL_openlibs(lua_);
     bindings_ = std::make_unique<LambUILua::LuaUIBindings>(lua_, ui);
+    bindings_->SetFontResolver([renderer = &renderer_](const std::string& name, int size) {
+        return renderer->GetFontHandle(name, size);
+    });
     BindAudioEngine(lua_, audio);
     BindSceneControl(lua_, *this);
     bindings_->SetImageLoader([renderer = &renderer_](const std::string& path) -> LambUI::UIImage {
@@ -38,6 +41,7 @@ void LuaUiScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
         return {};
     });
 
+    bindSceneApi(lua_, audio);
     if (luaL_dofile(lua_, scriptPath_.c_str()) != LUA_OK) {
         const char* error = lua_tostring(lua_, -1);
         std::fprintf(stderr, "LuaUiScene: failed to run '%s': %s\n", scriptPath_.c_str(),

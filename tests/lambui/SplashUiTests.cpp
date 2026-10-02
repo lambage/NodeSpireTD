@@ -10,6 +10,7 @@ extern "C" {
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -168,6 +169,180 @@ TEST_F(SplashUiTest, MainMenuMissingArtworkKeepsClickableTextButtons) {
     manager.InjectMouseButton(LambUI::MouseButton::Left, true);
     manager.InjectMouseButton(LambUI::MouseButton::Left, false);
     ASSERT_TRUE(Run("assert(destination == 'Lobby')"));
+}
+
+class OptionsUiTest : public SplashUiTest {
+    protected:
+        void SetUp() override {
+                SplashUiTest::SetUp();
+    bindings->SetFontResolver([](const std::string& name, int size) -> void* {
+        EXPECT_EQ(name, "Inter-Bold");
+        EXPECT_EQ(size, 32);
+        return reinterpret_cast<void*>(uintptr_t{456});
+    });
+    bindings->SetImageLoader([](const std::string& path) {
+        EXPECT_EQ(path, "assets/images/splash_screen.png");
+        return LambUI::UIImage{reinterpret_cast<void*>(uintptr_t{123}), 1376, 768};
+    });
+    ASSERT_TRUE(Run(R"lua(
+        Audio = { Preload = function(...) end, Play = function(...) end }
+        Scene = { GoTo = function(scene) destination = scene end }
+        Settings = {
+            Get = function() return {
+                fullscreen = false, exclusiveFullscreen = false, vSyncEnabled = true,
+                displayWidth = 1280, displayHeight = 720, refreshRate = 60,
+                graphicsQuality = 2, masterVolume = 0.8, musicVolume = 0.7,
+                sfxVolume = 0.8, audioDevice = '', muteWhenUnfocused = true
+            } end,
+            DisplayModes = function() return {{width = 1280, height = 720, refreshRate = 60}} end,
+            AudioDevices = function() return {} end,
+            Apply = function(settings)
+                saved = {}
+                for key, value in pairs(settings) do saved[key] = value end
+                for key, value in pairs(settings) do active[key] = value end
+                return true
+            end,
+            SetVolume = function(field, value)
+                active[field] = value
+                saved = {}
+                for key, current in pairs(active) do saved[key] = current end
+                volumeUpdates = volumeUpdates + 1
+                return true
+            end
+        }
+        active = Settings.Get()
+        volumeUpdates = 0
+        Settings.Defaults = Settings.Get
+    )lua"));
+    const auto script = std::filesystem::path(NODESPIRE_MAINMENU_SCRIPT).parent_path() / "Options.lua";
+    ASSERT_EQ(luaL_dofile(lua.get(), script.string().c_str()), LUA_OK) << lua_tostring(lua.get(), -1);
+        Layout(1920, 1080);
+    }
+
+    void Layout(float width, float height) {
+        manager.SetDisplaySize(width, height);
+        manager.Update(0);
+        ASSERT_TRUE(Run("OnUpdate()"));
+        manager.Update(0);
+        manager.Render();
+    }
+
+    void Click(float x, float y) {
+        manager.InjectMouseMove(x, y);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, true);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, false);
+        manager.Update(0);
+        manager.Render();
+    }
+
+    void Drag(float startX, float startY, float endX, float endY) {
+        manager.InjectMouseMove(startX, startY);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, true);
+        manager.InjectMouseMove(endX, endY);
+        manager.InjectMouseButton(LambUI::MouseButton::Left, false);
+        manager.Update(0);
+        manager.Render();
+    }
+
+    bool HasText(const std::string& text) {
+        return std::any_of(renderer->commands.begin(), renderer->commands.end(), [&](const auto& command) {
+            return command.type == LambUI::RenderCommandType::DrawString && command.text == text;
+        });
+    }
+};
+
+TEST_F(OptionsUiTest, LoadsSettingsAndDoesNotSaveOnBack) {
+    for (const auto& text : {"Options", "Display", "Audio", "Apply", "Defaults", "Back"}) {
+        EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [&](const auto& command) {
+            return command.type == LambUI::RenderCommandType::DrawString && command.text == text;
+        })) << text;
+    }
+    ASSERT_TRUE(Run("assert(saved == nil)"));
+    Click(680, 816);
+    ASSERT_TRUE(Run("assert(destination == 'MainMenu' and saved == nil)"));
+}
+
+TEST_F(OptionsUiTest, VolumesApplyImmediatelyWhileOtherSettingsRemainDraft) {
+    Layout(800, 600);
+    Click(72, 400);
+    EXPECT_TRUE(HasText("Unsaved changes"));
+    Click(680, 532);
+    ASSERT_TRUE(Run("assert(saved and saved.vSyncEnabled == false)"));
+    Click(244, 132);
+    EXPECT_TRUE(HasText("80%"));
+    Drag(400, 218, 358, 218);
+    EXPECT_TRUE(HasText("50%"));
+    ASSERT_TRUE(Run("assert(math.abs(active.masterVolume - 0.5) < 0.01 and math.abs(saved.masterVolume - 0.5) < 0.01)"));
+    Click(680, 532);
+    ASSERT_TRUE(Run("assert(math.abs(saved.masterVolume - 0.5) < 0.01)"));
+    Click(540, 532);
+    EXPECT_TRUE(HasText("80%"));
+    ASSERT_TRUE(Run("assert(math.abs(saved.masterVolume - 0.8) < 0.001 and saved.vSyncEnabled == false)"));
+    Click(680, 532);
+    ASSERT_TRUE(Run("assert(math.abs(saved.masterVolume - 0.8) < 0.001 and saved.vSyncEnabled == true)"));
+}
+
+TEST_F(OptionsUiTest, VolumeChangesDoNotApplyPendingDisplaySettingsOrNeedApplyBeforeBack) {
+    Layout(800, 600);
+    ASSERT_TRUE(Run("assert(volumeUpdates == 0 and saved == nil)"));
+    Click(72, 400);
+    Click(244, 132);
+    Drag(400, 218, 358, 218);
+    Drag(400, 306, 358, 306);
+    Drag(400, 394, 358, 394);
+    ASSERT_TRUE(Run(R"lua(
+        assert(volumeUpdates == 3)
+        assert(math.abs(active.masterVolume - 0.5) < 0.01)
+        assert(math.abs(active.musicVolume - 0.5) < 0.01)
+        assert(math.abs(active.sfxVolume - 0.5) < 0.01)
+        assert(saved.vSyncEnabled == true and saved.audioDevice == '')
+    )lua"));
+    EXPECT_TRUE(HasText("Unsaved changes"));
+    Click(100, 532);
+    ASSERT_TRUE(Run("assert(destination == 'MainMenu' and math.abs(saved.masterVolume - 0.5) < 0.01)"));
+}
+
+TEST_F(OptionsUiTest, VolumeSaveFailuresAreReported) {
+    Layout(800, 600);
+    ASSERT_TRUE(Run("Settings.SetVolume = function() return false, 'Volume save failed' end"));
+    Click(244, 132);
+    Drag(400, 218, 358, 218);
+    EXPECT_TRUE(HasText("Volume save failed"));
+    ASSERT_TRUE(Run("assert(saved == nil)"));
+}
+
+TEST_F(OptionsUiTest, WindowModeSelectionAndSaveErrors) {
+    Layout(640, 480);
+    EXPECT_TRUE(HasText("Windowed"));
+    EXPECT_FALSE(HasText("Windowed  v"));
+    Click(184, 224);
+    EXPECT_TRUE(HasText("Borderless fullscreen"));
+    Click(184, 280);
+    Click(540, 412);
+    ASSERT_TRUE(Run("assert(saved.fullscreen and not saved.exclusiveFullscreen)"));
+    ASSERT_TRUE(Run("Settings.Apply = function() return false, 'Save failed' end"));
+    Click(540, 412);
+    EXPECT_TRUE(HasText("Save failed"));
+    EXPECT_FALSE(HasText("Settings applied"));
+}
+
+TEST_F(OptionsUiTest, SplashArtworkSurroundsResponsiveTranslucentPanel) {
+    for (const auto& viewport : std::vector<LambUI::UIRect>{{0, 0, 1920, 1080}, {0, 0, 640, 480}, {0, 0, 640, 720}}) {
+        Layout(viewport.width, viewport.height);
+        const auto image = std::find_if(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+            return command.textureHandle == reinterpret_cast<void*>(uintptr_t{123});
+        });
+        const auto panel = std::find_if(renderer->commands.begin(), renderer->commands.end(), [](const auto& command) {
+            return command.type == LambUI::RenderCommandType::DrawQuad && command.color == 0x141719D9u;
+        });
+        ASSERT_NE(image, renderer->commands.end());
+        ASSERT_NE(panel, renderer->commands.end());
+        EXPECT_LT(image, panel);
+        EXPECT_FLOAT_EQ(panel->width, std::min(760.0f, viewport.width - 48));
+        EXPECT_FLOAT_EQ(panel->height, std::min(640.0f, viewport.height - 48));
+        EXPECT_FLOAT_EQ(panel->x, (viewport.width - panel->width) / 2);
+        EXPECT_FLOAT_EQ(panel->y, (viewport.height - panel->height) / 2);
+    }
 }
 
 TEST_F(SplashUiTest, MissingImageKeepsTextFallback) {

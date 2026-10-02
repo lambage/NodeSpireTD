@@ -66,7 +66,8 @@ size_t decodeUtf8(const std::string& text, size_t offset, char32_t& outCodepoint
 
 } // namespace
 
-VulkanUiRenderer::VulkanUiRenderer(VulkanContext& context) : context_(context) {
+VulkanUiRenderer::VulkanUiRenderer(VulkanContext& context)
+    : context_(context), vertexBuffers_(VulkanContext::kMaxFramesInFlight) {
     createSamplerAndDescriptorLayout();
     createPipeline();
 
@@ -80,8 +81,10 @@ VulkanUiRenderer::~VulkanUiRenderer() {
     context_.waitIdle();
     const VkDevice device = context_.device();
 
-    if (vertexBuffer_ != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(context_.allocator(), vertexBuffer_, vertexBufferAllocation_);
+    for (const auto& vertexBuffer : vertexBuffers_) {
+        if (vertexBuffer.buffer != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(context_.allocator(), vertexBuffer.buffer, vertexBuffer.allocation);
+        }
     }
     destroyTextures();
     if (pipeline_ != VK_NULL_HANDLE) {
@@ -403,7 +406,10 @@ void* VulkanUiRenderer::UploadTexture(int width, int height, const uint8_t* rgba
     return reinterpret_cast<void*>(index);
 }
 
-void VulkanUiRenderer::LoadFont(const LambUI::FontAtlas& atlas, void* fontHandle) {
+void VulkanUiRenderer::LoadFont(const LambUI::FontAtlas& atlas, void* fontHandle, const std::string& name, int pixelHeight) {
+    if (!name.empty() && pixelHeight <= 0) {
+        throw std::invalid_argument("VulkanUiRenderer::LoadFont: named fonts require a positive pixel size.");
+    }
     if (fontHandle == nullptr) {
         throw std::invalid_argument("VulkanUiRenderer::LoadFont: fontHandle must not be null.");
     }
@@ -413,34 +419,48 @@ void VulkanUiRenderer::LoadFont(const LambUI::FontAtlas& atlas, void* fontHandle
     const size_t textureIndex =
         uploadTexture(atlas.GetAtlasWidth(), atlas.GetAtlasHeight(), atlas.GetAtlasPixels().data(), VK_FORMAT_R8_UNORM);
     fonts_.emplace(fontHandle, Font{&atlas, textureIndex});
+    if (!name.empty()) namedFonts_[name][pixelHeight] = fontHandle;
     spdlog::debug("VulkanUiRenderer: registered font atlas (handle={})", fontHandle);
 }
 
+void* VulkanUiRenderer::GetFontHandle(const std::string& name, int pixelHeight) const {
+    const auto font = namedFonts_.find(name);
+    if (font == namedFonts_.end()) return nullptr;
+    const auto size = font->second.find(pixelHeight == 0 ? defaultFontSize_ : pixelHeight);
+    return size == font->second.end() ? nullptr : size->second;
+}
+
 void VulkanUiRenderer::ensureVertexBufferCapacity(VkDeviceSize bytes) {
-    if (bytes <= vertexBufferCapacity_) {
+    auto& vertexBuffer = vertexBuffers_.at(activeFrameIndex_);
+    if (bytes <= vertexBuffer.capacity) {
         return;
     }
-    if (vertexBuffer_ != VK_NULL_HANDLE) {
-        vmaDestroyBuffer(context_.allocator(), vertexBuffer_, vertexBufferAllocation_);
-        vertexBuffer_ = VK_NULL_HANDLE;
+    if (vertexBuffer.buffer != VK_NULL_HANDLE) {
+        vmaDestroyBuffer(context_.allocator(), vertexBuffer.buffer, vertexBuffer.allocation);
+        vertexBuffer = {};
     }
-    vertexBufferCapacity_ = std::max<VkDeviceSize>(bytes, kMinVertexBufferCapacity);
+    const VkDeviceSize capacity = std::max<VkDeviceSize>(bytes, kMinVertexBufferCapacity);
 
     VkBufferCreateInfo bufferCI{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    bufferCI.size = vertexBufferCapacity_;
+    bufferCI.size = capacity;
     bufferCI.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
 
     VmaAllocationCreateInfo allocCI{};
     allocCI.usage = VMA_MEMORY_USAGE_AUTO;
     allocCI.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 
-    if (vmaCreateBuffer(context_.allocator(), &bufferCI, &allocCI, &vertexBuffer_, &vertexBufferAllocation_, nullptr) !=
+    if (vmaCreateBuffer(context_.allocator(), &bufferCI, &allocCI, &vertexBuffer.buffer, &vertexBuffer.allocation, nullptr) !=
         VK_SUCCESS) {
         throw std::runtime_error("VulkanUiRenderer: failed to create vertex buffer.");
     }
+    vertexBuffer.capacity = capacity;
 }
 
-void VulkanUiRenderer::BeginFrame(VkCommandBuffer commandBuffer, VkExtent2D framebufferExtent) {
+void VulkanUiRenderer::BeginFrame(VkCommandBuffer commandBuffer, VkExtent2D framebufferExtent, size_t frameIndex) {
+    if (frameIndex >= vertexBuffers_.size()) {
+        throw std::out_of_range("VulkanUiRenderer: invalid frame index.");
+    }
+    activeFrameIndex_ = frameIndex;
     activeCommandBuffer_ = commandBuffer;
     framebufferExtent_ = framebufferExtent;
 }
@@ -532,6 +552,9 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
         } else if (item.type == RenderCommandType::DrawString) {
             auto fontIt = fonts_.find(item.fontHandle);
             if (fontIt == fonts_.end()) {
+                fontIt = fonts_.find(defaultFontHandle_);
+            }
+            if (fontIt == fonts_.end()) {
                 continue;
             }
             const LambUI::FontAtlas& atlas = *fontIt->second.atlas;
@@ -575,11 +598,13 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
     }
 
     const VkDeviceSize vertexBytes = vertices.size() * sizeof(Vertex);
+    auto& vertexBuffer = vertexBuffers_.at(activeFrameIndex_);
     if (vertexBytes > 0) {
         ensureVertexBufferCapacity(vertexBytes);
         VmaAllocationInfo allocInfo{};
-        vmaGetAllocationInfo(context_.allocator(), vertexBufferAllocation_, &allocInfo);
+        vmaGetAllocationInfo(context_.allocator(), vertexBuffer.allocation, &allocInfo);
         std::memcpy(allocInfo.pMappedData, vertices.data(), static_cast<size_t>(vertexBytes));
+        vmaFlushAllocation(context_.allocator(), vertexBuffer.allocation, 0, vertexBytes);
     }
 
     const VkViewport viewport{0.0f,
@@ -592,7 +617,7 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
     vkCmdBindPipeline(activeCommandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     VkDeviceSize vertexOffset = 0;
     if (!vertices.empty()) {
-        vkCmdBindVertexBuffers(activeCommandBuffer_, 0, 1, &vertexBuffer_, &vertexOffset);
+        vkCmdBindVertexBuffers(activeCommandBuffer_, 0, 1, &vertexBuffer.buffer, &vertexOffset);
     }
 
     for (const Draw& draw : draws) {

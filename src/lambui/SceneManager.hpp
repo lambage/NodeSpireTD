@@ -12,6 +12,8 @@ class UIManager;
 
 class AudioEngine;
 class VulkanContext;
+struct AppSettings;
+struct SDL_Window;
 
 namespace lambui_backend {
 class VulkanUiRenderer;
@@ -33,7 +35,7 @@ class SceneManager {
           VulkanContext& vulkanContext,
            multiplayer::MultiplayerSession& multiplayerSession,
            multiplayer::PlayerProfileStore& playerProfileStore,
-           lambui_backend::VulkanUiRenderer& renderer);
+           lambui_backend::VulkanUiRenderer& renderer, AppSettings& settings, SDL_Window* window);
 
     void update(float dt);
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent);
@@ -56,6 +58,8 @@ class SceneManager {
     AudioEngine& audio_;
     VulkanContext& vulkanContext_;
     lambui_backend::VulkanUiRenderer& renderer_;
+    AppSettings& settings_;
+    SDL_Window* window_;
     multiplayer::MultiplayerSession& multiplayerSession_;
     multiplayer::PlayerProfileStore& playerProfileStore_;
     PlayLevelLaunchConfig playLevelLaunchConfig_;

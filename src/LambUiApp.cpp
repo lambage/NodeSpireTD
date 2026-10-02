@@ -42,12 +42,23 @@ struct SdlGuard {
 
 SDL_Window* createWindow(const StartupWindowConfig& startupWindow) {
     Uint32 flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
-    if (startupWindow.fullscreen) {
-        flags |= SDL_WINDOW_FULLSCREEN;
-    }
     SDL_Window* window = SDL_CreateWindow("NodeSpireTD", startupWindow.width, startupWindow.height, flags);
     if (!window) {
         throw std::runtime_error(std::string("SDL_CreateWindow failed: ") + SDL_GetError());
+    }
+    SDL_SetWindowMinimumSize(window, 640, 480);
+    if (startupWindow.fullscreen) {
+        SDL_DisplayMode mode{};
+        if (startupWindow.exclusiveFullscreen &&
+            SDL_GetClosestFullscreenDisplayMode(SDL_GetDisplayForWindow(window), startupWindow.width,
+                startupWindow.height, static_cast<float>(startupWindow.refreshRate), true, &mode)) {
+            if (!SDL_SetWindowFullscreenMode(window, &mode)) {
+                spdlog::warn("Unable to restore exclusive fullscreen: {}", SDL_GetError());
+            }
+        }
+        if (!SDL_SetWindowFullscreen(window, true)) {
+            spdlog::warn("Unable to restore fullscreen: {}", SDL_GetError());
+        }
     }
     SDL_StartTextInput(window);
     return window;
@@ -63,7 +74,7 @@ int main(int /*argc*/, char** /*argv*/) {
         });
         LambUI::Log::SetMinLevel(LambUI::LogLevel::Debug);
 
-    const AppSettings startupSettings = SettingsManager().loadOrCreateDefaults();
+    AppSettings startupSettings = SettingsManager().loadOrCreateDefaults();
     const auto startupWindow = resolveStartupWindowConfig(startupSettings);
 
     SdlGuard sdlGuard;
@@ -74,19 +85,21 @@ int main(int /*argc*/, char** /*argv*/) {
     std::fprintf(stderr, "TRACE: VulkanContext ready\n"); std::fflush(stderr);
 
     LambUiFontLoader fontLoader;
-    if (!fontLoader.loadAll("assets/fonts")) {
+    if (!fontLoader.loadAll("assets/fonts", 20)) {
         spdlog::warn("{}", "LambUiApp: one or more fonts failed to load from assets/fonts");
     }
     std::fprintf(stderr, "TRACE: fonts loaded\n"); std::fflush(stderr);
 
     auto renderer = std::make_shared<lambui_backend::VulkanUiRenderer>(*vulkanContext);
     std::fprintf(stderr, "TRACE: UI renderer created\n"); std::fflush(stderr);
-    fontLoader.forEachFont([&renderer](void* fontHandle, const LambUI::FontAtlas& atlas) {
-        renderer->LoadFont(atlas, fontHandle);
+    fontLoader.forEachNamedFont([&renderer](const std::string& name, int size, void* fontHandle, const LambUI::FontAtlas& atlas) {
+        renderer->LoadFont(atlas, fontHandle, name, size);
     });
+    renderer->SetDefaultFont(fontLoader.defaultFontHandle());
     std::fprintf(stderr, "TRACE: fonts uploaded to renderer\n"); std::fflush(stderr);
 
     LambUI::UIManager uiManager(renderer, fontLoader.textMeasurer());
+    uiManager.SetPointerFocusHighlightsEnabled(false);
     const VkExtent2D initialExtent = vulkanContext->extent();
     uiManager.SetDisplaySize(static_cast<float>(initialExtent.width), static_cast<float>(initialExtent.height));
     std::fprintf(stderr, "TRACE: UIManager ready\n"); std::fflush(stderr);
@@ -99,7 +112,7 @@ int main(int /*argc*/, char** /*argv*/) {
         std::fprintf(stderr, "TRACE: audio/multiplayer ready, entering Splash scene\n"); std::fflush(stderr);
 
         NodeSpireUi::SceneManager sceneManager(uiManager, NodeSpireUi::SceneId::Splash, audioEngine, *vulkanContext,
-                                               multiplayerSession, playerProfileStore, *renderer);
+                                               multiplayerSession, playerProfileStore, *renderer, startupSettings, window.get());
         std::fprintf(stderr, "TRACE: Splash scene entered, starting main loop\n"); std::fflush(stderr);
 
         auto lastFrameTime = std::chrono::steady_clock::now();
@@ -134,6 +147,11 @@ int main(int /*argc*/, char** /*argv*/) {
 
             multiplayerSession.update();
             sceneManager.update(dt);
+            AppSettings effectiveSettings = startupSettings;
+            if (effectiveSettings.muteWhenUnfocused && !(SDL_GetWindowFlags(window.get()) & SDL_WINDOW_INPUT_FOCUS)) {
+                effectiveSettings.masterVolume = 0.0f;
+            }
+            audioEngine.setEffectiveSettings(effectiveSettings);
             audioEngine.update(dt);
             uiManager.Update(dt);
 
@@ -149,7 +167,7 @@ int main(int /*argc*/, char** /*argv*/) {
             VkCommandBuffer commandBuffer = vulkanContext->beginFrameRecording(frameIndex, imageIndex);
             sceneManager.renderWorld(commandBuffer, extent);
             sceneManager.renderOverlay(commandBuffer, extent);
-            renderer->BeginFrame(commandBuffer, extent);
+            renderer->BeginFrame(commandBuffer, extent, frameIndex);
             uiManager.Render();
             vulkanContext->endFrameRecordingAndSubmit(frameIndex, imageIndex, commandBuffer);
             if (vulkanContext->present(imageIndex)) {

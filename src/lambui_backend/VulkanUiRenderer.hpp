@@ -55,13 +55,16 @@ class VulkanUiRenderer final : public LambUI::IRenderer {
     // fontHandle must match the handle registered with the paired
     // LambUI::FontAtlasTextMeasurer (see LambUiFontLoader) so text layout
     // and glyph rendering agree on metrics.
-    void LoadFont(const LambUI::FontAtlas& atlas, void* fontHandle);
+    void LoadFont(const LambUI::FontAtlas& atlas, void* fontHandle, const std::string& name = {}, int pixelHeight = 0);
+    void SetDefaultFont(void* fontHandle, int pixelHeight = 20) { defaultFontHandle_ = fontHandle; defaultFontSize_ = pixelHeight; }
+    void* GetFontHandle(const std::string& name, int pixelHeight = 0) const;
 
     // Must be called once per frame after VulkanContext::beginFrameRecording
     // (so a dynamic-rendering pass targeting the swapchain is already
     // active) and before LambUI::UIManager::Render() triggers
-    // SubmitRenderCommands().
-    void BeginFrame(VkCommandBuffer commandBuffer, VkExtent2D framebufferExtent);
+    // SubmitRenderCommands(). Use the same frameIndex whose fence was waited
+    // before recording; its vertex storage is reused only by that frame slot.
+    void BeginFrame(VkCommandBuffer commandBuffer, VkExtent2D framebufferExtent, size_t frameIndex);
 
     void SubmitRenderCommands(const std::vector<LambUI::UIRenderCommand>& commands) override;
 
@@ -94,6 +97,12 @@ class VulkanUiRenderer final : public LambUI::IRenderer {
         size_t textureIndex = 0;
     };
 
+    struct VertexBuffer {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VmaAllocation allocation = nullptr;
+        VkDeviceSize capacity = 0;
+    };
+
     void createSamplerAndDescriptorLayout();
     void createPipeline();
     void ensureVertexBufferCapacity(VkDeviceSize bytes);
@@ -110,13 +119,15 @@ class VulkanUiRenderer final : public LambUI::IRenderer {
     VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;
 
-    VkBuffer vertexBuffer_ = VK_NULL_HANDLE;
-    VmaAllocation vertexBufferAllocation_ = nullptr;
-    VkDeviceSize vertexBufferCapacity_ = 0;
+    std::vector<VertexBuffer> vertexBuffers_;
+    size_t activeFrameIndex_ = 0;
 
     std::vector<Texture> textures_;
     std::unordered_map<std::string, Image> images_;
     std::unordered_map<void*, Font> fonts_;
+    std::unordered_map<std::string, std::unordered_map<int, void*>> namedFonts_;
+    void* defaultFontHandle_ = nullptr;
+    int defaultFontSize_ = 20;
 };
 
 } // namespace lambui_backend

@@ -19,8 +19,8 @@ class ITextMeasurer;
 // LambUI::UIWidget::SetFont()/Lua's widget:SetFont(handle).
 //
 // Unlike the old RmlUi loader, LambUI has no font-family/weight/fallback-
-// chain concept at the library level -- each loaded file is just one SDF
-// atlas addressed by its own filename stem (e.g. "Inter-Regular"). The
+// chain concept at the library level -- each file/size pair is one SDF
+// atlas addressed by filename stem (e.g. "Inter-Regular") and pixel size. The
 // manifest's "fallback" entry (or the first font found if none is marked)
 // becomes the measurer's default atlas, used whenever a widget's font
 // handle is null/unknown.
@@ -30,15 +30,15 @@ class LambUiFontLoader {
     ~LambUiFontLoader();
 
     // Loads every .ttf/.otf/.otc under fontsDirectory at the given SDF bake
-    // size. Returns false if any font failed to load or the directory is
+    // size plus the manifest's "sizes" entries. Returns false if any font failed to load or the directory is
     // missing; individual failures are logged to stderr and do not stop the
     // rest of the batch from loading.
     bool loadAll(const std::filesystem::path& fontsDirectory, int pixelHeight = 48);
 
     // Opaque handle for LambUI::UIWidget::SetFont()/Lua's widget:SetFont();
-    // nullptr if name is unknown (widgets then fall back to the measurer's
-    // default atlas).
-    void* getFontHandle(const std::string& name) const;
+    // Zero size selects the app's default size; unknown names/sizes return nullptr.
+    void* getFontHandle(const std::string& name, int pixelHeight = 0) const;
+    void* defaultFontHandle() const { return defaultFontHandle_; }
 
     // shared_ptr because LambUI::UIManager's constructor takes
     // std::shared_ptr<ITextMeasurer> (it may outlive this loader in theory,
@@ -49,9 +49,12 @@ class LambUiFontLoader {
     // renderer (e.g. lambui_backend::VulkanUiRenderer) can upload each
     // atlas's SDF bitmap under the same handle the measurer already knows.
     void forEachFont(const std::function<void(void*, const LambUI::FontAtlas&)>& callback) const;
+    void forEachNamedFont(const std::function<void(const std::string&, int, void*, const LambUI::FontAtlas&)>& callback) const;
 
   private:
-    std::unordered_map<std::string, std::unique_ptr<LambUI::FontAtlas>> atlases_;
+    std::unordered_map<std::string, std::unordered_map<int, std::unique_ptr<LambUI::FontAtlas>>> atlases_;
+    int defaultPixelHeight_ = 48;
     std::shared_ptr<LambUI::FontAtlasTextMeasurer> textMeasurer_;
+    void* defaultFontHandle_ = nullptr;
 };
 
