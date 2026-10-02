@@ -43,12 +43,16 @@ target_link_libraries(NodeSpirePartyProtocol PUBLIC protobuf::libprotobuf)
 
 function(nodespire_stage_runtime_dependencies targetName)
     if(WIN32)
-        add_custom_command(TARGET ${targetName} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:${targetName}>
-                    $<TARGET_RUNTIME_DLLS:${targetName}>
+        add_custom_target(${targetName}RuntimeDependencies
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${targetName}>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_RUNTIME_DLLS:${targetName}> $<TARGET_FILE_DIR:${targetName}>
+            DEPENDS $<TARGET_RUNTIME_DLLS:${targetName}>
             COMMAND_EXPAND_LISTS
             COMMENT "Staging runtime dependencies for ${targetName}"
+            VERBATIM
         )
+        add_dependencies(${targetName} ${targetName}RuntimeDependencies)
     endif()
 endfunction()
 

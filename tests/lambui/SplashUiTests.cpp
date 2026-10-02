@@ -95,6 +95,81 @@ TEST_F(SplashUiTest, ImageIsRenderedAndFitsAfterResize) {
     }
 }
 
+TEST_F(SplashUiTest, MainMenuPreloadsArtworkAndRoutesAllActions) {
+    int loads = 0;
+    const std::vector<std::string> sources = {
+        "splash_screen", "play_button", "play_button_hover", "options_button",
+        "options_button_hover", "quit_button", "quit_button_hover"
+    };
+    bindings->SetImageLoader([&](const std::string& path) {
+        ++loads;
+        for (size_t index = 0; index < sources.size(); ++index) {
+            if (path == "assets/images/" + sources[index] + ".png")
+                return LambUI::UIImage{reinterpret_cast<void*>(uintptr_t{100} + index), 1376, 768};
+        }
+        ADD_FAILURE() << "Unexpected image: " << path;
+        return LambUI::UIImage{};
+    });
+    ASSERT_TRUE(Run(R"lua(
+        Audio = { Preload = function(...) end, Play = function(...) end }
+        Scene = {
+            GoTo = function(scene) destination = scene end,
+            Quit = function() quit = true end
+        }
+    )lua"));
+    ASSERT_EQ(luaL_dofile(lua.get(), NODESPIRE_MAINMENU_SCRIPT), LUA_OK) << lua_tostring(lua.get(), -1);
+    EXPECT_EQ(loads, 7);
+    const std::vector<float> offsets = {-128, -6, 116};
+    const std::vector<const char*> checks = {
+        "assert(destination == 'Lobby')", "assert(destination == 'Options')", "assert(quit)"
+    };
+    for (const auto& viewport : std::vector<LambUI::UIRect>{{0, 0, 1920, 1080}, {0, 0, 800, 600}}) {
+        manager.SetDisplaySize(viewport.width, viewport.height);
+        manager.Update(0);
+        for (size_t index = 0; index < offsets.size(); ++index) {
+            ASSERT_TRUE(Run("destination, quit = nil, false"));
+            manager.InjectMouseMove(viewport.width / 2, viewport.height / 2 + offsets[index]);
+            manager.Update(0);
+            manager.Render();
+            const auto hoverTexture = reinterpret_cast<void*>(uintptr_t{102} + index * 2);
+            EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [&](const auto& command) {
+                return command.textureHandle == hoverTexture && command.color == 0xFFFFFFFFu;
+            }));
+            manager.InjectMouseButton(LambUI::MouseButton::Left, true);
+            manager.InjectMouseButton(LambUI::MouseButton::Left, false);
+            ASSERT_TRUE(Run(checks[index]));
+            manager.InjectMouseMove(0, 0);
+            manager.Update(0);
+            manager.Render();
+            const auto normalTexture = reinterpret_cast<void*>(uintptr_t{101} + index * 2);
+            EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [&](const auto& command) {
+                return command.textureHandle == normalTexture;
+            }));
+        }
+    }
+    EXPECT_EQ(loads, 7);
+    EXPECT_EQ(lua_gettop(lua.get()), 0);
+}
+
+TEST_F(SplashUiTest, MainMenuMissingArtworkKeepsClickableTextButtons) {
+    ASSERT_TRUE(Run(R"lua(
+        Audio = { Preload = function(...) end, Play = function(...) end }
+        Scene = { GoTo = function(scene) destination = scene end, Quit = function() end }
+    )lua"));
+    ASSERT_EQ(luaL_dofile(lua.get(), NODESPIRE_MAINMENU_SCRIPT), LUA_OK) << lua_tostring(lua.get(), -1);
+    manager.Update(0);
+    manager.Render();
+    for (const auto& text : {"Play", "Options", "Exit"}) {
+        EXPECT_TRUE(std::any_of(renderer->commands.begin(), renderer->commands.end(), [&](const auto& command) {
+            return command.type == LambUI::RenderCommandType::DrawString && command.text == text;
+        }));
+    }
+    manager.InjectMouseMove(960, 412);
+    manager.InjectMouseButton(LambUI::MouseButton::Left, true);
+    manager.InjectMouseButton(LambUI::MouseButton::Left, false);
+    ASSERT_TRUE(Run("assert(destination == 'Lobby')"));
+}
+
 TEST_F(SplashUiTest, MissingImageKeepsTextFallback) {
     ASSERT_TRUE(LoadScene(false));
     manager.Update(0);

@@ -57,6 +57,7 @@ target_link_libraries(NodeSpireSplashUiTests PRIVATE
 )
 target_compile_definitions(NodeSpireSplashUiTests PRIVATE
     NODESPIRE_SPLASH_SCRIPT="${CMAKE_SOURCE_DIR}/assets/scenes/Splash.lua"
+    NODESPIRE_MAINMENU_SCRIPT="${CMAKE_SOURCE_DIR}/assets/scenes/MainMenu.lua"
 )
 nodespire_stage_runtime_dependencies(NodeSpireSplashUiTests)
 gtest_discover_tests(NodeSpireSplashUiTests)
