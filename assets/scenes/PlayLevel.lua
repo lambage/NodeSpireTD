@@ -1,6 +1,11 @@
 local CLICK, HOVER = "assets/audio/click.ogg", "assets/audio/hover.ogg"
-Audio.Preload(CLICK, "Sfx")
-Audio.Preload(HOVER, "Sfx")
+
+-- Scene lifecycle used by LuaUiScene:
+-- 1) script load: defines helpers/widgets/functions
+-- 2) OnEnter(): preload assets and initialize frame-driven state
+-- 3) OnUpdate(dt): periodic refresh for dynamic values/layout
+-- 4) OnShortcut(scanCode): optional scene-level keyboard handling
+-- 5) OnExit(): cleanup scene-owned transient state
 
 local colors = {
     ink = 0xEDF0E8FF, muted = 0xA8B0AAFF, gold = 0xE1BD67FF, accent = 0x83B9A4FF,
@@ -10,6 +15,14 @@ local colors = {
 local state = Play.State()
 local refresh, feedback, refreshing = nil, "", false
 local chatOpen, previousChat, previousSelection = false, "", ""
+local entered, assetsPreloaded = false, false
+
+local function preloadAssets()
+    if assetsPreloaded then return end
+    Audio.Preload(CLICK, "Sfx")
+    Audio.Preload(HOVER, "Sfx")
+    assetsPreloaded = true
+end
 local function place(widget, parent, left, top, width, height)
     widget:SetSize(math.max(0, width), math.max(0, height))
     widget:SetPoint("TOPLEFT", parent, "TOPLEFT", left, top)
@@ -416,11 +429,29 @@ refresh = function()
 end
 
 local elapsed, previousWidth, previousHeight = 1, 0, 0
+function OnEnter()
+    preloadAssets()
+    entered = true
+    elapsed = 1
+    previousWidth, previousHeight = 0, 0
+    refresh()
+end
+
+function OnExit()
+    entered = false
+end
+
+function OnShortcut(scanCode)
+    -- Return true only when this script explicitly consumes a key.
+    -- Returning false keeps C++ fallback shortcuts active.
+    return false
+end
+
 function OnUpdate(dt)
+    if not entered then return end
     elapsed = elapsed + (dt or 0)
     local _, _, width, height = UI.Root:GetRect()
     if elapsed < 0.05 and width == previousWidth and height == previousHeight then return end
     elapsed, previousWidth, previousHeight = 0, width, height
     refresh()
 end
-OnUpdate(0)

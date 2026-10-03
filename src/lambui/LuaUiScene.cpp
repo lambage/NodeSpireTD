@@ -49,10 +49,35 @@ void LuaUiScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
         lua_pop(lua_, 1);
     }
 
+    if (lua_) {
+        lua_getglobal(lua_, "OnEnter");
+        if (lua_isfunction(lua_, -1)) {
+            if (lua_pcall(lua_, 0, 0, 0) != LUA_OK) {
+                const char* error = lua_tostring(lua_, -1);
+                std::fprintf(stderr, "LuaUiScene: OnEnter failed: %s\n", error ? error : "unknown error");
+                lua_pop(lua_, 1);
+            }
+        } else {
+            lua_pop(lua_, 1);
+        }
+    }
+
     onSceneEnter(audio);
 }
 
 void LuaUiScene::onExit(LambUI::UIManager& ui) {
+    if (lua_) {
+        lua_getglobal(lua_, "OnExit");
+        if (lua_isfunction(lua_, -1)) {
+            if (lua_pcall(lua_, 0, 0, 0) != LUA_OK) {
+                const char* error = lua_tostring(lua_, -1);
+                std::fprintf(stderr, "LuaUiScene: OnExit failed: %s\n", error ? error : "unknown error");
+                lua_pop(lua_, 1);
+            }
+        } else {
+            lua_pop(lua_, 1);
+        }
+    }
     ui.Clear();
     bindings_.reset();
     if (lua_) {
@@ -77,6 +102,29 @@ SceneTransition LuaUiScene::update(float dt) {
     }
     onUpdateScene(dt);
     return pendingTransition_;
+}
+
+bool LuaUiScene::handleShortcut(uint32_t scanCode) {
+    if (lua_) {
+        lua_getglobal(lua_, "OnShortcut");
+        if (lua_isfunction(lua_, -1)) {
+            lua_pushinteger(lua_, static_cast<lua_Integer>(scanCode));
+            if (lua_pcall(lua_, 1, 1, 0) == LUA_OK) {
+                const bool handled = lua_toboolean(lua_, -1) != 0;
+                lua_pop(lua_, 1);
+                if (handled) {
+                    return true;
+                }
+            } else {
+                const char* error = lua_tostring(lua_, -1);
+                std::fprintf(stderr, "LuaUiScene: OnShortcut failed: %s\n", error ? error : "unknown error");
+                lua_pop(lua_, 1);
+            }
+        } else {
+            lua_pop(lua_, 1);
+        }
+    }
+    return handleSceneShortcut(scanCode);
 }
 
 } // namespace NodeSpireUi

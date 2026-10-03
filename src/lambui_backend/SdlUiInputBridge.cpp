@@ -73,6 +73,36 @@ SdlUiInputBridge::PumpResult SdlUiInputBridge::Pump(LambUI::UIManager& uiManager
             case SDLK_SPACE:
                 scanCode = ScanCode::Space;
                 break;
+            case SDLK_0:
+                scanCode = '0';
+                break;
+            case SDLK_1:
+                scanCode = '1';
+                break;
+            case SDLK_2:
+                scanCode = '2';
+                break;
+            case SDLK_3:
+                scanCode = '3';
+                break;
+            case SDLK_4:
+                scanCode = '4';
+                break;
+            case SDLK_5:
+                scanCode = '5';
+                break;
+            case SDLK_6:
+                scanCode = '6';
+                break;
+            case SDLK_7:
+                scanCode = '7';
+                break;
+            case SDLK_8:
+                scanCode = '8';
+                break;
+            case SDLK_9:
+                scanCode = '9';
+                break;
             case SDLK_TAB:
                 scanCode = ScanCode::Tab;
                 break;

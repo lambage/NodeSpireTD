@@ -176,6 +176,16 @@ TEST_F(SplashUiTest, MainMenuMissingArtworkKeepsClickableTextButtons) {
     ASSERT_TRUE(Run("assert(destination == 'Lobby')"));
 }
 
+TEST_F(SplashUiTest, LuaExposesNamedScancodes) {
+    ASSERT_TRUE(Run(R"lua(
+        assert(type(keys) == 'table')
+        assert(keys.ESCAPE == 27)
+        assert(keys.ENTER == 13)
+        assert(keys.LEFT == 0x102)
+        assert(keys.ESCAPE == keys.ESCAPE)
+    )lua"));
+}
+
 class PlayUiTest : public SplashUiTest {
   protected:
     void SetUp() override {

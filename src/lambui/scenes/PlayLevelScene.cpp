@@ -373,7 +373,7 @@ SceneTransition PlayLevelScene::onKeyDown(uint32_t scanCode) {
     return std::nullopt;
 }
 
-bool PlayLevelScene::handleShortcut(uint32_t scanCode) {
+bool PlayLevelScene::handleSceneShortcut(uint32_t scanCode) {
     if (pauseMenuVisible_ || gameplayState_.matchStatus != MatchStatus::Running ||
         (ui_ && dynamic_cast<LambUI::UIInputBox*>(ui_->GetFocusedWidget()))) return false;
     if (scanCode < '1' || scanCode > '5') return false;

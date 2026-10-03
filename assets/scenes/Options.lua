@@ -1,7 +1,13 @@
 local draft = Settings.Get()
 local refreshers = {}
 local CLICK_SFX = "assets/audio/click.ogg"
-Audio.Preload(CLICK_SFX, "Sfx")
+local entered, assetsPreloaded = false, false
+
+local function preloadAssets()
+    if assetsPreloaded then return end
+    Audio.Preload(CLICK_SFX, "Sfx")
+    assetsPreloaded = true
+end
 
 local backdrop = UI.CreateFrame("Frame", "OptionsBackdrop")
 backdrop:SetAllPoints(UI.Root)
@@ -221,7 +227,23 @@ apply:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -32, -24)
 apply:SetButtonColors(0x237F70FF, 0x2B9A84FF, 0x196555FF)
 
 local previousWidth, previousHeight = 0, 0
+function OnEnter()
+    preloadAssets()
+    entered = true
+    previousWidth, previousHeight = 0, 0
+    OnUpdate()
+end
+
+function OnExit()
+    entered = false
+end
+
+function OnShortcut(scanCode)
+    return false
+end
+
 function OnUpdate()
+    if not entered then return end
     local _, _, width, height = UI.Root:GetRect()
     if width == previousWidth and height == previousHeight then return end
     previousWidth, previousHeight = width, height
@@ -231,4 +253,3 @@ function OnUpdate()
     pages.Display:SetContentSize(math.max(0, panelWidth - 64), 264)
     pages.Audio:SetContentSize(math.max(0, panelWidth - 64), 440)
 end
-OnUpdate()

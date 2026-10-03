@@ -34,11 +34,11 @@ class PlayLevelScene final : public LuaUiScene {
     void onExit(LambUI::UIManager& ui) override;
     SceneTransition update(float dt) override;
     SceneTransition onKeyDown(uint32_t scanCode) override;
-    bool handleShortcut(uint32_t scanCode) override;
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent) override;
 
   protected:
     void bindSceneApi(lua_State* lua, AudioEngine& audio) override;
+    bool handleSceneShortcut(uint32_t scanCode) override;
 
   private:
     int pushState(lua_State* lua);

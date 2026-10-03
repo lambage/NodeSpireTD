@@ -5,9 +5,15 @@ local HOVER_SFX = "assets/audio/hover.ogg"
 local CLICK_SFX = "assets/audio/click.ogg"
 local CLOSE_SFX = "assets/audio/close.ogg"
 
-Audio.Preload(HOVER_SFX, "Sfx")
-Audio.Preload(CLICK_SFX, "Sfx")
-Audio.Preload(CLOSE_SFX, "Sfx")
+local entered, assetsPreloaded = false, false
+
+local function preloadAssets()
+    if assetsPreloaded then return end
+    Audio.Preload(HOVER_SFX, "Sfx")
+    Audio.Preload(CLICK_SFX, "Sfx")
+    Audio.Preload(CLOSE_SFX, "Sfx")
+    assetsPreloaded = true
+end
 
 local root = UI.CreateFrame("Frame", "MainMenuRoot")
 root:SetAllPoints(UI.Root)
@@ -66,3 +72,16 @@ makeMenuButton("ExitButton", "Exit", "quit_button", 116, function()
     Audio.Play(CLOSE_SFX, "Sfx")
     Scene.Quit()
 end)
+
+function OnEnter()
+    preloadAssets()
+    entered = true
+end
+
+function OnExit()
+    entered = false
+end
+
+function OnShortcut(scanCode)
+    return false
+end

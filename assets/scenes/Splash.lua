@@ -18,4 +18,17 @@ local status = root:CreateFontString("Status")
 status:SetText("Loading...")
 status:SetPoint("BOTTOM", root, "BOTTOM", 0, -24)
 
-Audio.Play("assets/music/Heroic_Demise.mp3", "Music", true, 0.5)
+local entered = false
+
+function OnEnter()
+	entered = true
+	Audio.Play("assets/music/Heroic_Demise.mp3", "Music", true, 0.5)
+end
+
+function OnExit()
+	entered = false
+end
+
+function OnShortcut(scanCode)
+	return false
+end

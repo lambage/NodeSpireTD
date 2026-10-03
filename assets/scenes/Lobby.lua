@@ -1,7 +1,13 @@
 local CLICK_SFX = "assets/audio/click.ogg"
 local HOVER_SFX = "assets/audio/hover.ogg"
-Audio.Preload(CLICK_SFX, "Sfx")
-Audio.Preload(HOVER_SFX, "Sfx")
+local entered, assetsPreloaded = false, false
+
+local function preloadAssets()
+    if assetsPreloaded then return end
+    Audio.Preload(CLICK_SFX, "Sfx")
+    Audio.Preload(HOVER_SFX, "Sfx")
+    assetsPreloaded = true
+end
 
 local colors = {
     ink = 0xEDF0E8FF, heading = 0xF3F0DFFF, muted = 0xA8B0AAFF,
@@ -444,11 +450,32 @@ refresh = function()
 end
 
 local elapsed, previousWidth, previousHeight = 1, 0, 0
+function OnEnter()
+    preloadAssets()
+    entered = true
+    elapsed = 1
+    previousWidth, previousHeight = 0, 0
+    refresh()
+end
+
+function OnExit()
+    entered = false
+end
+
+function OnShortcut(scanCode)
+    if scanCode == 27 then
+        Audio.Play(CLICK_SFX, "Sfx")
+        Scene.GoTo("MainMenu")
+        return true
+    end
+    return false
+end
+
 function OnUpdate(dt)
+    if not entered then return end
     elapsed = elapsed + (dt or 1)
     local _, _, width, height = UI.Root:GetRect()
     if elapsed < 0.1 and width == previousWidth and height == previousHeight then return end
     elapsed, previousWidth, previousHeight = 0, width, height
     refresh()
 end
-OnUpdate(0)

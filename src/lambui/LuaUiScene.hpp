@@ -44,6 +44,7 @@ class LuaUiScene : public IScene {
     void onEnter(LambUI::UIManager& ui, AudioEngine& audio) override;
     void onExit(LambUI::UIManager& ui) override;
     SceneTransition update(float dt) override;
+    bool handleShortcut(uint32_t scanCode) override;
 
     // Used by LuaSceneBindings' Scene.GoTo(name) Lua call.
     void requestTransitionFromLua(SceneId id) { requestTransition(id); }
@@ -59,6 +60,10 @@ class LuaUiScene : public IScene {
     // subclasses to reset per-enter state (e.g. elapsed timers) on every
     // onEnter, including a /reload re-enter of the same scene.
     virtual void onSceneEnter(AudioEngine& /*audio*/) {}
+
+    // Called by handleShortcut when the Lua global OnShortcut(scanCode) does
+    // not handle the key. Scenes can override to keep C++ fallback behavior.
+    virtual bool handleSceneShortcut(uint32_t /*scanCode*/) { return false; }
 
     void requestTransition(SceneId id) { pendingTransition_ = id; }
 
