@@ -9,7 +9,9 @@
 #include <LambUI/UIFontAtlas.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <spdlog/spdlog.h>
@@ -20,6 +22,14 @@ namespace lambui_backend {
 namespace {
 
 constexpr VkDeviceSize kMinVertexBufferCapacity = 64 * 1024;
+
+bool UiProfileEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("NODESPIRE_UI_PROFILE");
+        return value && value[0] != '\0' && value[0] != '0';
+    }();
+    return enabled;
+}
 
 VkShaderModule loadSpirv(VkDevice device, const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -470,6 +480,9 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
     using LambUI::UIRect;
     using LambUI::UIRenderCommand;
 
+    const bool profileEnabled = UiProfileEnabled();
+    const auto profileStart = profileEnabled ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
     if (activeCommandBuffer_ == VK_NULL_HANDLE) {
         return;
     }
@@ -655,6 +668,42 @@ void VulkanUiRenderer::SubmitRenderCommands(const std::vector<LambUI::UIRenderCo
         vkCmdPushConstants(activeCommandBuffer_, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(Settings), &draw.settings);
         vkCmdDraw(activeCommandBuffer_, draw.vertexCount, 1, draw.firstVertex, 0);
+    }
+
+    if (profileEnabled) {
+        struct UiRenderStats {
+            std::chrono::steady_clock::time_point windowStart = std::chrono::steady_clock::now();
+            uint64_t frames = 0;
+            uint64_t commands = 0;
+            uint64_t draws = 0;
+            uint64_t vertices = 0;
+            uint64_t submitMicros = 0;
+        };
+        static UiRenderStats stats;
+
+        const auto profileEnd = std::chrono::steady_clock::now();
+        const auto elapsedMicros =
+            static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(profileEnd - profileStart).count());
+
+        stats.frames += 1;
+        stats.commands += commands.size();
+        stats.draws += draws.size();
+        stats.vertices += vertices.size();
+        stats.submitMicros += elapsedMicros;
+
+        const auto windowElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(profileEnd - stats.windowStart);
+        if (windowElapsed.count() >= 1000 && stats.frames > 0) {
+            const double frames = static_cast<double>(stats.frames);
+            spdlog::info(
+                "[ui-prof][renderer] fps={} cmds/frame={:.1f} draws/frame={:.1f} verts/frame={:.1f} submit_ms/frame={:.3f}",
+                stats.frames,
+                static_cast<double>(stats.commands) / frames,
+                static_cast<double>(stats.draws) / frames,
+                static_cast<double>(stats.vertices) / frames,
+                static_cast<double>(stats.submitMicros) / (frames * 1000.0));
+            stats = {};
+            stats.windowStart = profileEnd;
+        }
     }
 }
 

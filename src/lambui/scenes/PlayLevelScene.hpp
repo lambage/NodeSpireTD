@@ -42,7 +42,11 @@ class PlayLevelScene final : public LuaUiScene {
 
   private:
     int pushState(lua_State* lua);
+    int pushStateRevision(lua_State* lua);
     static int dispatch(lua_State* lua);
+    std::uint64_t computeUiStateFingerprint() const;
+    std::uint64_t currentUiStateRevision();
+    void publishStateToLuaIfDirty();
     void beginWorldLoad();
     bool loadWaveDefinitions();
     void restartMatch();
@@ -117,6 +121,9 @@ class PlayLevelScene final : public LuaUiScene {
     bool loadedReadySignaled_ = false;
     std::vector<std::string> chat_;
     float towerPreviewSpinRadians_ = 0.0f;
+    std::uint64_t uiStateFingerprint_ = 0;
+    std::uint64_t uiStateRevision_ = 1;
+    std::uint64_t lastPublishedUiStateRevision_ = 0;
     std::filesystem::file_time_type settingsLastWriteTime_{};
     float settingsPollAccumulator_ = 0.0f;
     GameplayTuningManager gameplayTuningManager_;

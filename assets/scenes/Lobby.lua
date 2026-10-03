@@ -19,6 +19,10 @@ local state = Lobby.State()
 local feedback, lastRole = "", state.role
 local refreshing, pendingLevel, carouselStart = false, state.selectedLevel, 1
 local modal, refresh
+local refreshQueued = true
+local function requestRefresh()
+    refreshQueued = true
+end
 
 local function place(widget, parent, left, top, width, height)
     widget:SetSize(math.max(0, width), math.max(0, height))
@@ -50,7 +54,7 @@ end
 local function command(action, ...)
     local success, message = action(...)
     feedback = message or (success == false and "Unable to complete action" or "")
-    if refresh then refresh() end
+    if refresh then requestRefresh() end
     return success
 end
 
@@ -446,15 +450,16 @@ refresh = function()
             end
         end
     end
+    refreshQueued = false
     refreshing = false
 end
 
-local elapsed, previousWidth, previousHeight = 1, 0, 0
+local previousWidth, previousHeight = 0, 0
 function OnEnter()
     preloadAssets()
     entered = true
-    elapsed = 1
     previousWidth, previousHeight = 0, 0
+    refreshQueued = true
     refresh()
 end
 
@@ -463,7 +468,7 @@ function OnExit()
 end
 
 function OnShortcut(scanCode)
-    if scanCode == 27 then
+    if scanCode == keys.ESCAPE then
         Audio.Play(CLICK_SFX, "Sfx")
         Scene.GoTo("MainMenu")
         return true
@@ -473,9 +478,10 @@ end
 
 function OnUpdate(dt)
     if not entered then return end
-    elapsed = elapsed + (dt or 1)
     local _, _, width, height = UI.Root:GetRect()
-    if elapsed < 0.1 and width == previousWidth and height == previousHeight then return end
-    elapsed, previousWidth, previousHeight = 0, width, height
-    refresh()
+    if not refreshQueued and width == previousWidth and height == previousHeight then return end
+    if refreshQueued or width ~= previousWidth or height ~= previousHeight then
+        previousWidth, previousHeight = width, height
+        refresh()
+    end
 end

@@ -4,6 +4,8 @@
 #include "lambui/AppControl.hpp"
 #include "lua.hpp"
 
+#include <LambUI/UITypes.h>
+
 #include <string_view>
 
 namespace NodeSpireUi {
@@ -33,9 +35,44 @@ int LuaQuit(lua_State* /*L*/) {
     return 0;
 }
 
+void BindScancodes(lua_State* L) {
+    lua_newtable(L);
+    const auto set = [&](const char* name, uint32_t value) {
+        lua_pushinteger(L, static_cast<lua_Integer>(value));
+        lua_setfield(L, -2, name);
+    };
+
+    set("BACKSPACE", LambUI::ScanCode::Backspace);
+    set("TAB", LambUI::ScanCode::Tab);
+    set("ENTER", LambUI::ScanCode::Enter);
+    set("ESCAPE", LambUI::ScanCode::Escape);
+    set("SPACE", LambUI::ScanCode::Space);
+    set("LEFT_SHIFT", LambUI::ScanCode::LeftShift);
+    set("RIGHT_SHIFT", LambUI::ScanCode::RightShift);
+    set("LEFT", LambUI::ScanCode::Left);
+    set("RIGHT", LambUI::ScanCode::Right);
+    set("UP", LambUI::ScanCode::Up);
+    set("DOWN", LambUI::ScanCode::Down);
+    set("HOME", LambUI::ScanCode::Home);
+    set("END", LambUI::ScanCode::End);
+    set("DELETE", LambUI::ScanCode::Delete);
+    set("LEFT_CONTROL", LambUI::ScanCode::LeftControl);
+    set("RIGHT_CONTROL", LambUI::ScanCode::RightControl);
+    set("A", LambUI::ScanCode::A);
+    set("C", LambUI::ScanCode::C);
+    set("V", LambUI::ScanCode::V);
+    set("X", LambUI::ScanCode::X);
+    lua_pushvalue(L, -1);
+    lua_setglobal(L, "keys");
+    lua_pushvalue(L, -1);
+    lua_setglobal(L, "Keys");
+    lua_pop(L, 1);
+}
+
 } // namespace
 
 void BindSceneControl(lua_State* L, LuaUiScene& scene) {
+    BindScancodes(L);
     lua_newtable(L);
     lua_pushlightuserdata(L, &scene);
     lua_pushcclosure(L, LuaGoTo, 1);

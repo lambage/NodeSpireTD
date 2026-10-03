@@ -449,6 +449,21 @@ TEST_F(PlayUiTest, ProfileCanMoveWithoutHidingLoadoutOrResettingOnRefresh) {
     )lua"));
 }
 
+TEST_F(PlayUiTest, TowerTalentRefreshIsThrottledWhenSelectionIsStatic) {
+    ASSERT_TRUE(Run(R"lua(
+        snapshot.phase = 'running'
+        snapshot.selection = {kind = 'tower', archetype = 'archer_hut', id = 1, name = 'Archer Hut', owned = true,
+            damage = 20, range = 5, rate = 1, spent = 150, sell = 120, damageType = 'PHY', armorPiercing = 1,
+            upgrades = {{id = 'quickdraw_rig', name = 'Quickdraw Rig', level = 0, maxLevel = 2, cost = 50, enabled = true}}}
+        elapsed = 0
+        refreshCount = 0
+        OnUpdate(0.02)
+        OnUpdate(0.02)
+        OnUpdate(0.02)
+        assert(refreshCount == 0)
+    )lua"));
+}
+
 TEST_F(PlayUiTest, TalentTreeRendersBranchesArtworkAndLockedStates) {
     int imageLoads = 0;
     bindings->SetImageLoader([&](const std::string& path) {

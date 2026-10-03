@@ -23,6 +23,7 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <iomanip>
@@ -31,6 +32,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 #include <sstream>
+#include <string_view>
 
 
 namespace NodeSpireUi {
@@ -204,6 +206,24 @@ int integerArgument(lua_State* lua, int index, int minimum, int maximum) {
     return static_cast<int>(value);
 }
 
+void hashCombine(std::uint64_t& hash, std::uint64_t value) {
+    hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+}
+
+void hashText(std::uint64_t& hash, std::string_view value) {
+    hashCombine(hash, static_cast<std::uint64_t>(value.size()));
+    for (unsigned char character : value) hashCombine(hash, character);
+}
+
+template <typename TValue>
+void hashNumber(std::uint64_t& hash, TValue value) {
+    if constexpr (std::is_floating_point_v<TValue>) {
+        hashCombine(hash, static_cast<std::uint64_t>(std::llround(static_cast<double>(value) * 1000.0)));
+    } else {
+        hashCombine(hash, static_cast<std::uint64_t>(value));
+    }
+}
+
 }
 
 PlayLevelScene::PlayLevelScene(VulkanContext& vulkanContext, multiplayer::MultiplayerSession& session,
@@ -219,6 +239,8 @@ PlayLevelScene::~PlayLevelScene() = default;
 void PlayLevelScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
     ui_ = &ui;
     LuaUiScene::onEnter(ui, audio);
+    lastPublishedUiStateRevision_ = 0;
+    publishStateToLuaIfDirty();
 }
 
 void PlayLevelScene::bindSceneApi(lua_State* lua, AudioEngine& audio) {
@@ -242,7 +264,7 @@ void PlayLevelScene::bindSceneApi(lua_State* lua, AudioEngine& audio) {
     loadWaveDefinitions();
     beginWorldLoad();
     lua_newtable(lua);
-    for (const char* name : {"State", "Start", "SelectSlot", "CancelPlacement", "ClearSelection", "Upgrade",
+    for (const char* name : {"State", "StateRevision", "Start", "SelectSlot", "CancelPlacement", "ClearSelection", "Upgrade",
                              "Sell", "Pause", "Restart", "Lobby", "Retry", "SendChat", "SetVolume", "Preview"}) {
         lua_pushlightuserdata(lua, this);
         lua_pushstring(lua, name);
@@ -298,6 +320,7 @@ SceneTransition PlayLevelScene::update(float dt) {
     }
     if (!pauseMenuVisible_ || onlineMatch_) updateMatchSimulation(dt);
     refreshHud();
+    publishStateToLuaIfDirty();
     const auto luaTransition = LuaUiScene::update(dt);
     return pendingTransition_ ? std::exchange(pendingTransition_, std::nullopt) : luaTransition;
 }
@@ -332,6 +355,117 @@ void PlayLevelScene::refreshHud() {
     }
 }
 
+std::uint64_t PlayLevelScene::computeUiStateFingerprint() const {
+    std::uint64_t hash = 1469598103934665603ULL;
+    if (ui_) {
+        const auto rect = ui_->GetRoot().GetComputedRect();
+        hashNumber(hash, rect.width);
+        hashNumber(hash, rect.height);
+    }
+    hashNumber(hash, static_cast<int>(snapshot_.phase));
+    hashText(hash, snapshot_.headline);
+    hashText(hash, snapshot_.supportingText);
+    hashText(hash, snapshot_.countdownLabel);
+    hashNumber(hash, snapshot_.countdownSeconds);
+    hashNumber(hash, snapshot_.countdownProgress);
+    hashNumber(hash, snapshot_.loadingProgress);
+    hashNumber(hash, snapshot_.startWaveEnabled);
+    hashText(hash, snapshot_.startWaveDisabledReason);
+    hashNumber(hash, snapshot_.loadoutVisible);
+    hashNumber(hash, snapshot_.countdownVisible);
+    hashNumber(hash, gameplayState_.baseHealth);
+    hashNumber(hash, gameplayState_.playerMoney);
+    hashNumber(hash, gameplayState_.currentWave);
+    hashNumber(hash, gameplayState_.enemiesAlive);
+    hashNumber(hash, selectedTowerSlot_);
+    hashNumber(hash, selectedTowerRuntimeId_);
+    hashNumber(hash, selectedEnemyRuntimeId_);
+    hashNumber(hash, pauseMenuVisible_);
+    hashNumber(hash, onlineMatch_);
+    hashNumber(hash, session_.isClient());
+    hashText(hash, placementReason_);
+    hashNumber(hash, placementSample_.hit);
+    hashNumber(hash, settings_.masterVolume);
+    hashNumber(hash, settings_.musicVolume);
+    hashNumber(hash, settings_.sfxVolume);
+    hashNumber(hash, chat_.size());
+    if (!chat_.empty()) hashText(hash, chat_.back());
+
+    const auto selected = std::find_if(placedTowers_.begin(), placedTowers_.end(), [this](const auto& tower) {
+        return tower.runtimeId == selectedTowerRuntimeId_;
+    });
+    if (selected != placedTowers_.end()) {
+        hashText(hash, selected->towerId);
+        hashNumber(hash, selected->ownerPlayerId);
+        hashNumber(hash, selected->attackDamage);
+        hashNumber(hash, selected->attackRange);
+        hashNumber(hash, selected->attackIntervalSeconds);
+        hashNumber(hash, selected->armorPiercing);
+        hashNumber(hash, selected->burnDamagePerSecond);
+        hashNumber(hash, selected->burnDuration);
+        hashNumber(hash, selected->slowAmount);
+        hashNumber(hash, selected->slowDuration);
+        hashNumber(hash, selected->freezeChance);
+        hashNumber(hash, selected->freezeDuration);
+        hashNumber(hash, selected->critChance);
+        hashNumber(hash, selected->critDamageMul);
+        hashNumber(hash, selected->splashRadius);
+        hashNumber(hash, selected->chainRange);
+        hashNumber(hash, selected->chainTargetCount);
+        hashNumber(hash, selected->ricochetRange);
+        hashNumber(hash, selected->ricochetCount);
+        hashNumber(hash, selected->unlockedUpgradeNodeIds.size());
+        for (const auto& id : selected->unlockedUpgradeNodeIds) hashText(hash, id);
+    }
+
+    const auto enemy = std::find_if(activeEnemies_.begin(), activeEnemies_.end(), [this](const auto& item) {
+        return item.runtimeId == selectedEnemyRuntimeId_;
+    });
+    if (enemy != activeEnemies_.end()) {
+        hashText(hash, enemy->enemyId);
+        hashNumber(hash, enemy->health);
+        hashNumber(hash, enemy->maxHealth);
+        hashNumber(hash, enemy->shield);
+        hashNumber(hash, enemy->maxShield);
+        hashNumber(hash, enemy->armor);
+        hashNumber(hash, enemy->moveSpeed);
+        hashNumber(hash, enemy->rewardMoney);
+        hashNumber(hash, enemy->baseDamage);
+    }
+
+    return hash;
+}
+
+std::uint64_t PlayLevelScene::currentUiStateRevision() {
+    refreshHud();
+    const std::uint64_t fingerprint = computeUiStateFingerprint();
+    if (fingerprint != uiStateFingerprint_) {
+        uiStateFingerprint_ = fingerprint;
+        ++uiStateRevision_;
+    }
+    return uiStateRevision_;
+}
+
+void PlayLevelScene::publishStateToLuaIfDirty() {
+    if (!lua_) return;
+
+    const std::uint64_t revision = currentUiStateRevision();
+    if (revision == lastPublishedUiStateRevision_) return;
+    lastPublishedUiStateRevision_ = revision;
+
+    lua_getglobal(lua_, "OnStateChanged");
+    if (!lua_isfunction(lua_, -1)) {
+        lua_pop(lua_, 1);
+        return;
+    }
+    pushState(lua_);
+    if (lua_pcall(lua_, 1, 0, 0) != LUA_OK) {
+        const char* error = lua_tostring(lua_, -1);
+        std::fprintf(stderr, "PlayLevelScene: OnStateChanged failed: %s\n", error ? error : "unknown error");
+        lua_pop(lua_, 1);
+    }
+}
+
 bool PlayLevelScene::pointerIsOverHud() const {
     if (!lua_ || pauseMenuVisible_) return true;
     float mouseX = 0, mouseY = 0;
@@ -358,7 +492,7 @@ void PlayLevelScene::setPauseMenuVisible(bool visible) {
 }
 
 SceneTransition PlayLevelScene::onKeyDown(uint32_t scanCode) {
-    if (scanCode != 27) return std::nullopt;
+    if (scanCode != LambUI::ScanCode::Escape) return std::nullopt;
     if (!pauseMenuVisible_ && selectedTowerSlot_ >= 0) {
         selectedTowerSlot_ = -1;
         placementSample_ = {};
@@ -412,7 +546,7 @@ void PlayLevelScene::pollExternalSettings(float dt) {
 }
 
 int PlayLevelScene::pushState(lua_State* lua) {
-    refreshHud();
+    currentUiStateRevision();
     lua_newtable(lua);
     const char* phases[] = {"loading", "failed", "ready", "running", "paused", "victory", "defeat"};
     field(lua, "phase", phases[static_cast<int>(snapshot_.phase)]);
@@ -548,6 +682,11 @@ int PlayLevelScene::pushState(lua_State* lua) {
     return 1;
 }
 
+int PlayLevelScene::pushStateRevision(lua_State* lua) {
+    lua_pushinteger(lua, static_cast<lua_Integer>(currentUiStateRevision()));
+    return 1;
+}
+
 int PlayLevelScene::dispatch(lua_State* lua) {
     auto& scene = *static_cast<PlayLevelScene*>(lua_touserdata(lua, lua_upvalueindex(1)));
     const std::string_view action = lua_tostring(lua, lua_upvalueindex(2));
@@ -555,6 +694,7 @@ int PlayLevelScene::dispatch(lua_State* lua) {
     std::string message;
     try {
         if (action == "State") return scene.pushState(lua);
+        if (action == "StateRevision") return scene.pushStateRevision(lua);
         if (action == "Start") {
             scene.refreshHud();
             if (!scene.snapshot_.startWaveVisible || !scene.snapshot_.startWaveEnabled || scene.pauseMenuVisible_)
