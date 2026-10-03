@@ -1,5 +1,6 @@
 #include "lambui/SceneManager.hpp"
 
+#include "lambui/UiTrace.hpp"
 #include "lambui/scenes/LobbyScene.hpp"
 #include "lambui/scenes/MainMenuScene.hpp"
 #include "lambui/scenes/OptionsScene.hpp"
@@ -9,6 +10,18 @@
 namespace NodeSpireUi {
 
 namespace {
+
+const char* sceneName(SceneId id) {
+    switch (id) {
+    case SceneId::Splash: return "Splash";
+    case SceneId::MainMenu: return "MainMenu";
+    case SceneId::Lobby: return "Lobby";
+    case SceneId::Options: return "Options";
+    case SceneId::PlayLevel: return "PlayLevel";
+    }
+    return "Unknown";
+}
+
 std::unique_ptr<IScene> createScene(SceneId id, multiplayer::MultiplayerSession& multiplayerSession,
                                     multiplayer::PlayerProfileStore& playerProfileStore, VulkanContext& vulkanContext,
                                     PlayLevelLaunchConfig& playLevelLaunchConfig,
@@ -36,13 +49,17 @@ SceneManager::SceneManager(LambUI::UIManager& ui, SceneId initialScene, AudioEng
                                                      lambui_backend::VulkanUiRenderer& renderer, AppSettings& settings, SDL_Window* window)
         : ui_(ui), audio_(audio), vulkanContext_(vulkanContext), renderer_(renderer), settings_(settings), window_(window), multiplayerSession_(multiplayerSession), playerProfileStore_(playerProfileStore),
             activeSceneId_(initialScene) {
+    const VkExtent2D initialExtent = vulkanContext_.extent();
+    viewportWidth_ = static_cast<float>(initialExtent.width);
+    viewportHeight_ = static_cast<float>(initialExtent.height);
     enterScene(initialScene);
 }
 
 void SceneManager::enterScene(SceneId id) {
     activeSceneId_ = id;
+    UiTrace("SceneManager: entering %s (viewport=%gx%g)", sceneName(id), viewportWidth_, viewportHeight_);
     activeScene_ = createScene(id, multiplayerSession_, playerProfileStore_, vulkanContext_, playLevelLaunchConfig_, renderer_, settings_, window_);
-    activeScene_->onEnter(ui_, audio_);
+    activeScene_->onEnter(ui_, audio_, viewportWidth_, viewportHeight_);
 }
 
 void SceneManager::applyTransition(const SceneTransition& transition) {
@@ -50,11 +67,20 @@ void SceneManager::applyTransition(const SceneTransition& transition) {
         return;
     }
 
+    UiTrace("SceneManager: transition %s -> %s", sceneName(activeSceneId_), sceneName(*transition));
     activeScene_->onExit(ui_);
     enterScene(*transition);
 }
 
-void SceneManager::update(float dt) {
+void SceneManager::update(float dt, float viewportWidth, float viewportHeight) {
+    if (viewportWidth > 0.0f && viewportHeight > 0.0f &&
+        (viewportWidth != viewportWidth_ || viewportHeight != viewportHeight_)) {
+        UiTrace("SceneManager: viewport changed %gx%g -> %gx%g", viewportWidth_, viewportHeight_, viewportWidth,
+                viewportHeight);
+        viewportWidth_ = viewportWidth;
+        viewportHeight_ = viewportHeight;
+        activeScene_->onLayoutChanged(viewportWidth_, viewportHeight_);
+    }
     applyTransition(activeScene_->update(dt));
 }
 

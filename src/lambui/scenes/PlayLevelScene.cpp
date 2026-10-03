@@ -236,11 +236,10 @@ PlayLevelScene::PlayLevelScene(VulkanContext& vulkanContext, multiplayer::Multip
 
 PlayLevelScene::~PlayLevelScene() = default;
 
-void PlayLevelScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio) {
+void PlayLevelScene::onEnter(LambUI::UIManager& ui, AudioEngine& audio, float viewportWidth, float viewportHeight) {
     ui_ = &ui;
-    LuaUiScene::onEnter(ui, audio);
     lastPublishedUiStateRevision_ = 0;
-    publishStateToLuaIfDirty();
+    LuaUiScene::onEnter(ui, audio, viewportWidth, viewportHeight);
 }
 
 void PlayLevelScene::bindSceneApi(lua_State* lua, AudioEngine& audio) {
@@ -264,7 +263,7 @@ void PlayLevelScene::bindSceneApi(lua_State* lua, AudioEngine& audio) {
     loadWaveDefinitions();
     beginWorldLoad();
     lua_newtable(lua);
-    for (const char* name : {"State", "StateRevision", "Start", "SelectSlot", "CancelPlacement", "ClearSelection", "Upgrade",
+    for (const char* name : {"Start", "SelectSlot", "CancelPlacement", "ClearSelection", "Upgrade",
                              "Sell", "Pause", "Restart", "Lobby", "Retry", "SendChat", "SetVolume", "Preview"}) {
         lua_pushlightuserdata(lua, this);
         lua_pushstring(lua, name);
@@ -320,7 +319,6 @@ SceneTransition PlayLevelScene::update(float dt) {
     }
     if (!pauseMenuVisible_ || onlineMatch_) updateMatchSimulation(dt);
     refreshHud();
-    publishStateToLuaIfDirty();
     const auto luaTransition = LuaUiScene::update(dt);
     return pendingTransition_ ? std::exchange(pendingTransition_, std::nullopt) : luaTransition;
 }
@@ -446,24 +444,14 @@ std::uint64_t PlayLevelScene::currentUiStateRevision() {
     return uiStateRevision_;
 }
 
-void PlayLevelScene::publishStateToLuaIfDirty() {
-    if (!lua_) return;
-
+void PlayLevelScene::pushOnUpdateState(lua_State* lua) {
     const std::uint64_t revision = currentUiStateRevision();
-    if (revision == lastPublishedUiStateRevision_) return;
-    lastPublishedUiStateRevision_ = revision;
-
-    lua_getglobal(lua_, "OnStateChanged");
-    if (!lua_isfunction(lua_, -1)) {
-        lua_pop(lua_, 1);
+    if (revision == lastPublishedUiStateRevision_) {
+        lua_pushnil(lua);
         return;
     }
-    pushState(lua_);
-    if (lua_pcall(lua_, 1, 0, 0) != LUA_OK) {
-        const char* error = lua_tostring(lua_, -1);
-        std::fprintf(stderr, "PlayLevelScene: OnStateChanged failed: %s\n", error ? error : "unknown error");
-        lua_pop(lua_, 1);
-    }
+    lastPublishedUiStateRevision_ = revision;
+    pushState(lua);
 }
 
 bool PlayLevelScene::pointerIsOverHud() const {
@@ -682,19 +670,12 @@ int PlayLevelScene::pushState(lua_State* lua) {
     return 1;
 }
 
-int PlayLevelScene::pushStateRevision(lua_State* lua) {
-    lua_pushinteger(lua, static_cast<lua_Integer>(currentUiStateRevision()));
-    return 1;
-}
-
 int PlayLevelScene::dispatch(lua_State* lua) {
     auto& scene = *static_cast<PlayLevelScene*>(lua_touserdata(lua, lua_upvalueindex(1)));
     const std::string_view action = lua_tostring(lua, lua_upvalueindex(2));
     bool success = true;
     std::string message;
     try {
-        if (action == "State") return scene.pushState(lua);
-        if (action == "StateRevision") return scene.pushStateRevision(lua);
         if (action == "Start") {
             scene.refreshHud();
             if (!scene.snapshot_.startWaveVisible || !scene.snapshot_.startWaveEnabled || scene.pauseMenuVisible_)

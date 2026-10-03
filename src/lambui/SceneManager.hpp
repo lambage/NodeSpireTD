@@ -37,7 +37,7 @@ class SceneManager {
            multiplayer::PlayerProfileStore& playerProfileStore,
            lambui_backend::VulkanUiRenderer& renderer, AppSettings& settings, SDL_Window* window);
 
-    void update(float dt);
+    void update(float dt, float viewportWidth, float viewportHeight);
     void renderWorld(VkCommandBuffer commandBuffer, VkExtent2D extent);
     void renderOverlay(VkCommandBuffer commandBuffer, VkExtent2D extent);
     bool handleKeyDown(uint32_t scanCode);
@@ -65,6 +65,8 @@ class SceneManager {
     PlayLevelLaunchConfig playLevelLaunchConfig_;
     SceneId activeSceneId_;
     std::unique_ptr<IScene> activeScene_;
+    float viewportWidth_ = -1.0f;
+    float viewportHeight_ = -1.0f;
 };
 
 } // namespace NodeSpireUi

@@ -41,8 +41,9 @@ class LuaUiScene : public IScene {
     LuaUiScene(std::string scriptPath, lambui_backend::VulkanUiRenderer& renderer);
     ~LuaUiScene() override;
 
-    void onEnter(LambUI::UIManager& ui, AudioEngine& audio) override;
+    void onEnter(LambUI::UIManager& ui, AudioEngine& audio, float viewportWidth, float viewportHeight) override;
     void onExit(LambUI::UIManager& ui) override;
+    void onLayoutChanged(float width, float height) override;
     SceneTransition update(float dt) override;
     bool handleShortcut(uint32_t scanCode) override;
 
@@ -51,10 +52,19 @@ class LuaUiScene : public IScene {
 
   protected:
     virtual void bindSceneApi(lua_State* /*lua*/, AudioEngine& /*audio*/) {}
+    LambUI::UIManager& uiManager() const { return *ui_; }
+    lambui_backend::VulkanUiRenderer& renderer() const { return renderer_; }
 
     // Hook called once per frame, after the Lua script's optional global
-    // "OnUpdate(dt)" function (if defined) has already been invoked.
+    // "OnUpdate(state, dt)" function (if defined) has already been invoked.
     virtual void onUpdateScene(float /*dt*/) {}
+
+    // Pushes scene state for OnUpdate(state, dt). Default pushes nil (stateless scenes).
+    virtual void pushOnUpdateState(lua_State* lua);
+
+    // Pushes initial state for OnEnter(width, height, state). Defaults to
+    // calling pushOnUpdateState so subclasses only need one override.
+    virtual void pushOnEnterState(lua_State* lua);
 
     // Hook called at the end of onEnter (after the script has run), for
     // subclasses to reset per-enter state (e.g. elapsed timers) on every
@@ -70,9 +80,12 @@ class LuaUiScene : public IScene {
   private:
     std::string scriptPath_;
     lambui_backend::VulkanUiRenderer& renderer_;
+    LambUI::UIManager* ui_ = nullptr;
     lua_State* lua_ = nullptr;
     std::unique_ptr<LambUILua::LuaUIBindings> bindings_;
     SceneTransition pendingTransition_;
+    float layoutWidth_ = -1.0f;
+    float layoutHeight_ = -1.0f;
 };
 
 } // namespace NodeSpireUi

@@ -15,14 +15,48 @@ local colors = {
     button = 0x1D2925FF, hover = 0x2A3B35FF, selected = 0x20382FFF,
     red = 0x9A3F32FF, redHover = 0xB24B3BFF, disabled = 0x202522FF
 }
-local state = Lobby.State()
+local state = {
+    role = "Solo",
+    displayName = "",
+    canStart = false,
+    activeMatch = false,
+    selectedLevel = 1,
+    maxTowers = 5,
+    capacity = 4,
+    members = {},
+    ready = false,
+    levels = {},
+    towers = {},
+    loadout = {},
+    status = "",
+    chat = {}
+}
 local feedback, lastRole = "", state.role
 local refreshing, pendingLevel, carouselStart = false, state.selectedLevel, 1
 local modal, refresh
 local refreshQueued = true
+local viewportWidth, viewportHeight = 0, 0
 local function requestRefresh()
     refreshQueued = true
 end
+
+-- Widget locals (assigned in OnEnter)
+local root, background, shade
+local header, headerLine, back, brand, title, connection, capacity
+local scroll, content
+local deployment, briefing, loadout, centerLeft, centerRight
+local deploymentKicker, deploymentTitle, deploymentCopy
+local start, startLabel, startNote, divider
+local setup, nameCaption, nameInput, host, address, join
+local active, partyRole, roster, ready, readyLabel, leave, leaveLabel
+local briefingKicker, levelName, levelDescription, statsLine, stats
+local chooseLevel
+local chat, chatTitle, chatLive, chatScroll, chatText, chatInput, send
+local loadoutKicker, loadoutCount, loadoutTitle, loadoutCopy
+local inventoryCaption, inventory, towerCards, towerById, slots
+local footer, footerLine, status
+local modalPanel, modalKicker, modalTitle, modalRule, modalCount
+local previous, nextLevel, cancel, confirm, levelCards
 
 local function place(widget, parent, left, top, width, height)
     widget:SetSize(math.max(0, width), math.max(0, height))
@@ -82,181 +116,15 @@ local function edit(parent, name, value)
     return control
 end
 
-local root = frame(nil, "LobbyRoot", 0x090C0DFF)
-root:SetAllPoints(UI.Root)
-local background = root:CreateImage("LobbyBackground")
-background:SetAllPoints(root)
-background:SetFit("COVER")
-background:SetMouseEnabled(false)
-background:SetSource("assets/images/splash_screen.png")
-local shade = frame(root, "LobbyShade", 0x050908C2)
-shade:SetAllPoints(root)
-shade:SetMouseEnabled(false)
-
-local header = frame(root, "LobbyHeader", 0x0B0F10E8)
-local headerLine = line(header, "HeaderLine")
-local back = button(header, "BackButton", "<", function() Scene.GoTo("MainMenu") end)
-back:SetTooltip("Back to main menu")
-local brand = text(header, "LobbyBrand", "NODE SPIRE TD", 16, colors.accent)
-local title = text(header, "LobbyTitle", "Match", 32, colors.heading, true)
-local connection = text(header, "LobbyConnection", "Solo", 16, colors.muted)
-local capacity = text(header, "LobbyCapacity", "", 16, colors.gold)
-
-local scroll = UI.CreateFrame("ScrollContainer", "LobbyScroll", root)
-local content = scroll:GetContent()
-local deployment = frame(content, "DeploymentRail")
-local briefing = frame(content, "BriefingRail", 0x101716E8)
-local loadout = frame(content, "LoadoutRail")
-local centerLeft, centerRight = line(briefing, "BriefingLeftLine"), line(briefing, "BriefingRightLine")
-
-local deploymentKicker = text(deployment, "DeploymentKicker", "DEPLOYMENT", 16, colors.accent)
-local deploymentTitle = text(deployment, "DeploymentTitle", "Start your adventure", 32, colors.heading, true)
-local deploymentCopy = text(deployment, "DeploymentCopy", "Take the first watch alone, or build a party before entering the Spire.", 16, colors.muted)
-local start, startLabel = button(deployment, "StartButton", "Start solo", function()
-    if state.canStart then command(Lobby.Start) end
-end, true)
-local startNote = text(start, "StartNote", "Immediate deployment", 16, 0xF3C4B7FF)
-local divider = text(deployment, "PartyDivider", "OR PARTY UP", 16, colors.accent)
-local setup = frame(deployment, "PartySetup")
-local nameCaption = text(setup, "PlayerNameCaption", "CALLSIGN", 16, colors.accent)
-local nameInput = edit(setup, "PlayerName", state.displayName)
-local host = button(setup, "HostButton", "Create party", function() command(Lobby.Host, nameInput:GetText()) end)
-local address = edit(setup, "JoinAddress", "127.0.0.1")
-address:SetTooltip("Host address / LAN port 47321")
-local function joinParty() command(Lobby.Join, nameInput:GetText(), address:GetText()) end
-local join = button(setup, "JoinButton", "Join", joinParty)
-address:SetScript("OnEnterPressed", function() if not modal:IsVisible() then joinParty() end end)
-
-local active = frame(deployment, "ActiveParty")
-local partyRole = text(active, "PartyRole", "Party leader", 24, colors.heading, true)
-local roster = {}
-for index = 1, state.capacity or 4 do
-    local row = frame(active, "MemberRow" .. index, 0x111917FF)
-    local stripe = line(row, "MemberStripe" .. index)
-    local name = text(row, "MemberName" .. index, "Open slot", 16, colors.muted)
-    local readyState = text(row, "MemberState" .. index, "WAITING", 16, 0xD98774FF)
-    local kick = button(row, "Kick" .. index, "x", function()
-        local member = state.members[index]
-        if member and state.role == "Host" then command(Lobby.Kick, member.id) end
-    end)
-    kick:SetTooltip("Remove player from party")
-    roster[index] = {root = row, stripe = stripe, name = name, state = readyState, kick = kick}
-end
-local ready = UI.CreateFrame("CheckBox", "ReadyToggle", active)
-ready:SetScript("OnValueChanged", function()
-    if not refreshing and not modal:IsVisible() then command(Lobby.Ready, ready:IsChecked()) end
-end)
-local readyLabel = text(active, "ReadyLabel", "Ready", 16, colors.accent)
-local leave, leaveLabel = button(active, "LeaveButton", "Leave party", function() command(Lobby.Leave) end)
-
-local briefingKicker = text(briefing, "BriefingKicker", "SELECTED LEVEL", 16, colors.accent)
-local levelName = text(briefing, "SelectedLevelName", "", 32, colors.heading, true)
-local levelDescription = text(briefing, "SelectedLevelDescription", "", 16, colors.muted)
-local statsLine = line(briefing, "ContractStatsLine")
-local stats = {}
-for index, caption in ipairs({"THREAT", "PLAYERS", "WAVES"}) do
-    stats[index] = {value = text(briefing, caption .. "Value", "", 16, colors.gold),
-        caption = text(briefing, caption .. "Caption", caption, 16, colors.muted)}
-end
-local chooseLevel = button(briefing, "ChooseLevelButton", "Choose another level", function()
-    if #state.levels == 0 or state.role == "Client" or state.activeMatch then return end
-    pendingLevel, carouselStart = state.selectedLevel, math.max(1, state.selectedLevel - 1)
-    modal:SetVisible(true)
-    refresh()
-end)
-
-local chat = frame(briefing, "PartyChat")
-local chatTitle = text(chat, "ChatTitle", "Party channel", 24, colors.heading, true)
-local chatLive = text(chat, "ChatLive", "LIVE", 16, colors.gold)
-local chatScroll = UI.CreateFrame("ScrollContainer", "ChatScroll", chat)
-chatScroll:SetBackgroundColor(0x090E0DDD)
-local chatText = text(chatScroll:GetContent(), "ChatMessages", "", 16, colors.ink)
-local chatInput = edit(chat, "ChatInput", "")
-local function sendChat()
-    if command(Lobby.SendChat, chatInput:GetText()) then chatInput:SetText("") end
-end
-chatInput:SetScript("OnEnterPressed", function() if not modal:IsVisible() then sendChat() end end)
-local send = button(chat, "SendButton", "Send", sendChat)
-
-local loadoutKicker = text(loadout, "LoadoutKicker", "TOWER LOADOUT", 16, colors.accent)
-local loadoutCount = text(loadout, "LoadoutCount", "", 16, colors.gold)
-local loadoutTitle = text(loadout, "LoadoutTitle", "Choose your defenses", 24, colors.heading, true)
-local loadoutCopy = text(loadout, "LoadoutCopy", "Select up to five towers to take into the next match.", 16, colors.muted)
-local slots, towerCards, towerById = {}, {}, {}
-for index = 1, state.maxTowers or 5 do
-    local slot = frame(loadout, "LoadoutSlot" .. index, 0x0C1211FF)
-    local stripe = line(slot, "LoadoutStripe" .. index)
-    local number = text(slot, "SlotNumber" .. index, tostring(index), 16, colors.gold)
-    local name = text(slot, "SlotName" .. index, "Empty slot", 16, colors.muted)
-    slots[index] = {root = slot, stripe = stripe, number = number, name = name}
-end
-local inventoryCaption = text(loadout, "InventoryCaption", "INVENTORY", 16, colors.accent)
-local inventory = UI.CreateFrame("ScrollContainer", "TowerInventory", loadout)
-for index, tower in ipairs(state.towers) do
-    towerById[tower.id] = tower
-    local control = button(inventory:GetContent(), "Tower" .. index, "", function() command(Lobby.ToggleTower, tower.id) end)
-    control:SetTooltip(tower.bio or tower.name)
-    local portrait = control:CreateImage("TowerPortrait" .. index)
-    portrait:SetFit("CONTAIN")
-    portrait:SetMouseEnabled(false)
-    local loaded = tower.portrait and tower.portrait ~= "" and portrait:SetSource(tower.portrait)
-    local glyph = text(control, "TowerGlyph" .. index, "T", 24, colors.gold, true)
-    glyph:SetVisible(not loaded)
-    local name = text(control, "TowerName" .. index, tower.name, 16)
-    local cost = text(control, "TowerCost" .. index, "$" .. tostring(tower.cost or 0), 16, colors.gold)
-    local stripe = line(control, "TowerSelected" .. index)
-    towerCards[index] = {root = control, portrait = portrait, glyph = glyph, name = name, cost = cost, stripe = stripe}
-end
-
-local footer = frame(root, "LobbyFooter", 0x0B0F10E8)
-local footerLine = line(footer, "FooterLine")
-local status = text(footer, "LobbyStatus", "", 16, colors.muted)
-
-modal = frame(root, "LevelSelector", 0x030605D9)
-modal:SetAllPoints(root)
-modal:SetVisible(false)
-local modalPanel = frame(modal, "LevelSelectorPanel", 0x0E1513FF)
-local modalKicker = text(modalPanel, "SelectorKicker", "MISSION BOARD", 16, colors.accent)
-local modalTitle = text(modalPanel, "SelectorTitle", "Select a level", 32, colors.heading, true)
-local modalRule = line(modalPanel, "SelectorRule")
-local modalCount = text(modalPanel, "SelectorCount", "", 16, colors.muted)
-local previous = button(modalPanel, "PreviousLevelButton", "<", function()
-    carouselStart = math.max(1, carouselStart - 1)
-    refresh()
-end, false, true)
-previous:SetTooltip("Previous levels")
-local nextLevel = button(modalPanel, "NextLevelButton", ">", function()
-    carouselStart = math.min(#state.levels, carouselStart + 1)
-    refresh()
-end, false, true)
-nextLevel:SetTooltip("Next levels")
-local cancel = button(modalPanel, "CancelLevelButton", "Cancel", function() modal:SetVisible(false) end, false, true)
-local confirm = button(modalPanel, "ConfirmLevelButton", "Select level", function()
-    if command(Lobby.SelectLevel, pendingLevel) then modal:SetVisible(false) end
-end, true, true)
-local levelCards = {}
-for index, entry in ipairs(state.levels) do
-    local card = button(modalPanel, "LevelCard" .. index, "", function()
-        pendingLevel = index
-        refresh()
-    end, false, true)
-    local image = card:CreateImage("LevelThumbnail" .. index)
-    image:SetFit("COVER")
-    image:SetMouseEnabled(false)
-    if entry.thumbnail and entry.thumbnail ~= "" then image:SetSource(entry.thumbnail) end
-    local name = text(card, "LevelCardName" .. index, entry.name, 24, colors.heading, true)
-    local description = text(card, "LevelCardDescription" .. index, entry.description, 16, colors.muted)
-    local meta = text(card, "LevelCardMeta" .. index, (entry.threat or "NORMAL") .. " / " .. tostring(entry.waves or "--") .. " WAVES", 16, colors.gold)
-    local selection = line(card, "LevelCardSelection" .. index)
-    levelCards[index] = {root = card, image = image, name = name, description = description, meta = meta, selection = selection}
-end
-
 local lastChat, lastChatWidth = "", 0
 refresh = function()
-    state = Lobby.State()
     refreshing = true
     if state.role ~= lastRole then feedback, lastRole = "", state.role end
-    local _, _, width, height = UI.Root:GetRect()
+    local width, height = viewportWidth, viewportHeight
+    if width <= 0 or height <= 0 then
+        refreshing = false
+        return
+    end
     local margin = math.max(20, math.floor(width * 0.04))
     local headerHeight, footerHeight = 88, 56
     local mainWidth = width - margin * 2
@@ -454,17 +322,194 @@ refresh = function()
     refreshing = false
 end
 
-local previousWidth, previousHeight = 0, 0
-function OnEnter()
+function OnEnter(width, height, initialState)
     preloadAssets()
     entered = true
-    previousWidth, previousHeight = 0, 0
-    refreshQueued = true
+    if initialState then state = initialState end
+    viewportWidth, viewportHeight = width, height
+    pendingLevel = state.selectedLevel
+    carouselStart = math.max(1, state.selectedLevel - 1)
+    feedback = ""
+    lastRole = state.role
+    lastChat, lastChatWidth = "", 0
+    roster, stats, towerCards, towerById, slots, levelCards = {}, {}, {}, {}, {}, {}
+
+    root = frame(nil, "LobbyRoot", 0x090C0DFF)
+    root:SetAllPoints(UI.Root)
+    background = root:CreateImage("LobbyBackground")
+    background:SetAllPoints(root)
+    background:SetFit("COVER")
+    background:SetMouseEnabled(false)
+    background:SetSource("assets/images/splash_screen.png")
+    shade = frame(root, "LobbyShade", 0x050908C2)
+    shade:SetAllPoints(root)
+    shade:SetMouseEnabled(false)
+
+    header = frame(root, "LobbyHeader", 0x0B0F10E8)
+    headerLine = line(header, "HeaderLine")
+    back = button(header, "BackButton", "<", function() Scene.GoTo("MainMenu") end)
+    back:SetTooltip("Back to main menu")
+    brand = text(header, "LobbyBrand", "NODE SPIRE TD", 16, colors.accent)
+    title = text(header, "LobbyTitle", "Match", 32, colors.heading, true)
+    connection = text(header, "LobbyConnection", "Solo", 16, colors.muted)
+    capacity = text(header, "LobbyCapacity", "", 16, colors.gold)
+
+    scroll = UI.CreateFrame("ScrollContainer", "LobbyScroll", root)
+    content = scroll:GetContent()
+    deployment = frame(content, "DeploymentRail")
+    briefing = frame(content, "BriefingRail", 0x101716E8)
+    loadout = frame(content, "LoadoutRail")
+    centerLeft = line(briefing, "BriefingLeftLine")
+    centerRight = line(briefing, "BriefingRightLine")
+
+    deploymentKicker = text(deployment, "DeploymentKicker", "DEPLOYMENT", 16, colors.accent)
+    deploymentTitle = text(deployment, "DeploymentTitle", "Start your adventure", 32, colors.heading, true)
+    deploymentCopy = text(deployment, "DeploymentCopy", "Take the first watch alone, or build a party before entering the Spire.", 16, colors.muted)
+    start, startLabel = button(deployment, "StartButton", "Start solo", function()
+        if state.canStart then command(Lobby.Start) end
+    end, true)
+    startNote = text(start, "StartNote", "Immediate deployment", 16, 0xF3C4B7FF)
+    divider = text(deployment, "PartyDivider", "OR PARTY UP", 16, colors.accent)
+    setup = frame(deployment, "PartySetup")
+    nameCaption = text(setup, "PlayerNameCaption", "CALLSIGN", 16, colors.accent)
+    nameInput = edit(setup, "PlayerName", state.displayName)
+    host = button(setup, "HostButton", "Create party", function() command(Lobby.Host, nameInput:GetText()) end)
+    address = edit(setup, "JoinAddress", "127.0.0.1")
+    address:SetTooltip("Host address / LAN port 47321")
+    local function joinParty() command(Lobby.Join, nameInput:GetText(), address:GetText()) end
+    join = button(setup, "JoinButton", "Join", joinParty)
+    address:SetScript("OnEnterPressed", function() if not modal:IsVisible() then joinParty() end end)
+
+    active = frame(deployment, "ActiveParty")
+    partyRole = text(active, "PartyRole", "Party leader", 24, colors.heading, true)
+    for index = 1, state.capacity or 4 do
+        local row = frame(active, "MemberRow" .. index, 0x111917FF)
+        local stripe = line(row, "MemberStripe" .. index)
+        local name = text(row, "MemberName" .. index, "Open slot", 16, colors.muted)
+        local readyState = text(row, "MemberState" .. index, "WAITING", 16, 0xD98774FF)
+        local kick = button(row, "Kick" .. index, "x", function()
+            local member = state.members[index]
+            if member and state.role == "Host" then command(Lobby.Kick, member.id) end
+        end)
+        kick:SetTooltip("Remove player from party")
+        roster[index] = {root = row, stripe = stripe, name = name, state = readyState, kick = kick}
+    end
+    ready = UI.CreateFrame("CheckBox", "ReadyToggle", active)
+    ready:SetScript("OnValueChanged", function()
+        if not refreshing and not modal:IsVisible() then command(Lobby.Ready, ready:IsChecked()) end
+    end)
+    readyLabel = text(active, "ReadyLabel", "Ready", 16, colors.accent)
+    leave, leaveLabel = button(active, "LeaveButton", "Leave party", function() command(Lobby.Leave) end)
+
+    briefingKicker = text(briefing, "BriefingKicker", "SELECTED LEVEL", 16, colors.accent)
+    levelName = text(briefing, "SelectedLevelName", "", 32, colors.heading, true)
+    levelDescription = text(briefing, "SelectedLevelDescription", "", 16, colors.muted)
+    statsLine = line(briefing, "ContractStatsLine")
+    for index, caption in ipairs({"THREAT", "PLAYERS", "WAVES"}) do
+        stats[index] = {value = text(briefing, caption .. "Value", "", 16, colors.gold),
+            caption = text(briefing, caption .. "Caption", caption, 16, colors.muted)}
+    end
+    chooseLevel = button(briefing, "ChooseLevelButton", "Choose another level", function()
+        if #state.levels == 0 or state.role == "Client" or state.activeMatch then return end
+        pendingLevel, carouselStart = state.selectedLevel, math.max(1, state.selectedLevel - 1)
+        modal:SetVisible(true)
+        refresh()
+    end)
+
+    chat = frame(briefing, "PartyChat")
+    chatTitle = text(chat, "ChatTitle", "Party channel", 24, colors.heading, true)
+    chatLive = text(chat, "ChatLive", "LIVE", 16, colors.gold)
+    chatScroll = UI.CreateFrame("ScrollContainer", "ChatScroll", chat)
+    chatScroll:SetBackgroundColor(0x090E0DDD)
+    chatText = text(chatScroll:GetContent(), "ChatMessages", "", 16, colors.ink)
+    chatInput = edit(chat, "ChatInput", "")
+    local function sendChat()
+        if command(Lobby.SendChat, chatInput:GetText()) then chatInput:SetText("") end
+    end
+    chatInput:SetScript("OnEnterPressed", function() if not modal:IsVisible() then sendChat() end end)
+    send = button(chat, "SendButton", "Send", sendChat)
+
+    loadoutKicker = text(loadout, "LoadoutKicker", "TOWER LOADOUT", 16, colors.accent)
+    loadoutCount = text(loadout, "LoadoutCount", "", 16, colors.gold)
+    loadoutTitle = text(loadout, "LoadoutTitle", "Choose your defenses", 24, colors.heading, true)
+    loadoutCopy = text(loadout, "LoadoutCopy", "Select up to five towers to take into the next match.", 16, colors.muted)
+    for index = 1, state.maxTowers or 5 do
+        local slot = frame(loadout, "LoadoutSlot" .. index, 0x0C1211FF)
+        local stripe = line(slot, "LoadoutStripe" .. index)
+        local number = text(slot, "SlotNumber" .. index, tostring(index), 16, colors.gold)
+        local name = text(slot, "SlotName" .. index, "Empty slot", 16, colors.muted)
+        slots[index] = {root = slot, stripe = stripe, number = number, name = name}
+    end
+    inventoryCaption = text(loadout, "InventoryCaption", "INVENTORY", 16, colors.accent)
+    inventory = UI.CreateFrame("ScrollContainer", "TowerInventory", loadout)
+    for index, tower in ipairs(state.towers or {}) do
+        towerById[tower.id] = tower
+        local control = button(inventory:GetContent(), "Tower" .. index, "", function() command(Lobby.ToggleTower, tower.id) end)
+        control:SetTooltip(tower.bio or tower.name)
+        local portrait = control:CreateImage("TowerPortrait" .. index)
+        portrait:SetFit("CONTAIN")
+        portrait:SetMouseEnabled(false)
+        local loaded = tower.portrait and tower.portrait ~= "" and portrait:SetSource(tower.portrait)
+        local glyph = text(control, "TowerGlyph" .. index, "T", 24, colors.gold, true)
+        glyph:SetVisible(not loaded)
+        local name = text(control, "TowerName" .. index, tower.name, 16)
+        local cost = text(control, "TowerCost" .. index, "$" .. tostring(tower.cost or 0), 16, colors.gold)
+        local stripe = line(control, "TowerSelected" .. index)
+        towerCards[index] = {root = control, portrait = portrait, glyph = glyph, name = name, cost = cost, stripe = stripe}
+    end
+
+    footer = frame(root, "LobbyFooter", 0x0B0F10E8)
+    footerLine = line(footer, "FooterLine")
+    status = text(footer, "LobbyStatus", "", 16, colors.muted)
+
+    modal = frame(root, "LevelSelector", 0x030605D9)
+    modal:SetAllPoints(root)
+    modal:SetVisible(false)
+    modalPanel = frame(modal, "LevelSelectorPanel", 0x0E1513FF)
+    modalKicker = text(modalPanel, "SelectorKicker", "MISSION BOARD", 16, colors.accent)
+    modalTitle = text(modalPanel, "SelectorTitle", "Select a level", 32, colors.heading, true)
+    modalRule = line(modalPanel, "SelectorRule")
+    modalCount = text(modalPanel, "SelectorCount", "", 16, colors.muted)
+    previous = button(modalPanel, "PreviousLevelButton", "<", function()
+        carouselStart = math.max(1, carouselStart - 1)
+        refresh()
+    end, false, true)
+    previous:SetTooltip("Previous levels")
+    nextLevel = button(modalPanel, "NextLevelButton", ">", function()
+        carouselStart = math.min(#state.levels, carouselStart + 1)
+        refresh()
+    end, false, true)
+    nextLevel:SetTooltip("Next levels")
+    cancel = button(modalPanel, "CancelLevelButton", "Cancel", function() modal:SetVisible(false) end, false, true)
+    confirm = button(modalPanel, "ConfirmLevelButton", "Select level", function()
+        if command(Lobby.SelectLevel, pendingLevel) then modal:SetVisible(false) end
+    end, true, true)
+    for index, entry in ipairs(state.levels or {}) do
+        local card = button(modalPanel, "LevelCard" .. index, "", function()
+            pendingLevel = index
+            refresh()
+        end, false, true)
+        local image = card:CreateImage("LevelThumbnail" .. index)
+        image:SetFit("COVER")
+        image:SetMouseEnabled(false)
+        if entry.thumbnail and entry.thumbnail ~= "" then image:SetSource(entry.thumbnail) end
+        local name = text(card, "LevelCardName" .. index, entry.name, 24, colors.heading, true)
+        local description = text(card, "LevelCardDescription" .. index, entry.description, 16, colors.muted)
+        local meta = text(card, "LevelCardMeta" .. index, (entry.threat or "NORMAL") .. " / " .. tostring(entry.waves or "--") .. " WAVES", 16, colors.gold)
+        local selection = line(card, "LevelCardSelection" .. index)
+        levelCards[index] = {root = card, image = image, name = name, description = description, meta = meta, selection = selection}
+    end
+
     refresh()
 end
 
 function OnExit()
     entered = false
+end
+
+function OnLayoutChanged(width, height)
+    viewportWidth, viewportHeight = width, height
+    requestRefresh()
 end
 
 function OnShortcut(scanCode)
@@ -476,12 +521,13 @@ function OnShortcut(scanCode)
     return false
 end
 
-function OnUpdate(dt)
+function OnUpdate(nextState, dt)
     if not entered then return end
-    local _, _, width, height = UI.Root:GetRect()
-    if not refreshQueued and width == previousWidth and height == previousHeight then return end
-    if refreshQueued or width ~= previousWidth or height ~= previousHeight then
-        previousWidth, previousHeight = width, height
+    if nextState then
+        state = nextState
+        requestRefresh()
+    end
+    if refreshQueued and viewportWidth > 0 and viewportHeight > 0 then
         refresh()
     end
 end

@@ -146,7 +146,8 @@ int main(int /*argc*/, char** /*argv*/) {
             lastFrameTime = now;
 
             multiplayerSession.update();
-            sceneManager.update(dt);
+            const VkExtent2D updateExtent = vulkanContext->extent();
+            sceneManager.update(dt, static_cast<float>(updateExtent.width), static_cast<float>(updateExtent.height));
             AppSettings effectiveSettings = startupSettings;
             if (effectiveSettings.muteWhenUnfocused && !(SDL_GetWindowFlags(window.get()) & SDL_WINDOW_INPUT_FOCUS)) {
                 effectiveSettings.masterVolume = 0.0f;

@@ -3,16 +3,17 @@ local CLICK, HOVER = "assets/audio/click.ogg", "assets/audio/hover.ogg"
 -- Scene lifecycle used by LuaUiScene:
 -- 1) script load: defines helpers/widgets/functions
 -- 2) OnEnter(): preload assets and initialize frame-driven state
--- 3) OnUpdate(dt): periodic refresh for dynamic values/layout
+-- 3) OnUpdate(state, dt): periodic refresh for dynamic values and state bindings
 -- 4) OnShortcut(scanCode): optional scene-level keyboard handling
--- 5) OnExit(): cleanup scene-owned transient state
+-- 5) OnLayoutChanged(width, height): apply geometry/layout updates
+-- 6) OnExit(): cleanup scene-owned transient state
 
 local colors = {
     ink = 0xEDF0E8FF, muted = 0xA8B0AAFF, gold = 0xE1BD67FF, accent = 0x83B9A4FF,
     panel = 0x101716F5, line = 0x38443EFF, button = 0x1D2925FF, hover = 0x2A3B35FF,
     selected = 0x305542FF, disabled = 0x202522FF, red = 0x9A3F32FF, redHover = 0xB24B3BFF
 }
-local state = Play.State()
+local state = {phase = "loading", slots = {}, chat = {}}
 local applyState, feedback, refreshing = nil, "", false
 local refreshCount = 0
 local uiProfileEnv = os.getenv("NODESPIRE_UI_PROFILE") or ""
@@ -25,6 +26,7 @@ local uiProfileProfileRebuilds = 0
 local uiProfileProfileSkips = 0
 local chatOpen, previousChat, previousSelection = false, "", ""
 local entered, assetsPreloaded = false, false
+local viewportWidth, viewportHeight = 0, 0
 local profileContentSignature = nil
 local sceneDirectory = debug.getinfo(1, "S").source:sub(2):match("^(.*[/\\])") or ""
 local createBindings = dofile(sceneDirectory .. "UiBindings.lua")
@@ -107,7 +109,7 @@ end
 local function command(action, ...)
     local success, message = action(...)
     feedback = message or (success == false and "Action unavailable." or "")
-    if applyState then applyState(Play.State()) end
+    if applyState then applyState(state) end
     return success
 end
 local function button(parent, name, caption, action, primary)
@@ -185,313 +187,303 @@ local function selectionSignature(selection)
     return table.concat(parts, "#")
 end
 
-local root = frame(nil, "PlayRoot")
-root:SetAllPoints(UI.Root)
-root:SetMouseEnabled(false)
-local stats = frame(root, "BattleStats", colors.panel)
-local statLabels, statValues = {}, {}
-for index, caption in ipairs({"BASE", "WAVE", "ENEMIES"}) do
-    statLabels[index] = text(stats, caption .. "Caption", caption, 16, colors.muted)
-    statValues[index] = text(stats, caption .. "Value", "0", 24, index == 1 and colors.accent or colors.ink, true)
-end
-local level = text(root, "LevelName", state.level or "", 16, colors.ink)
-local gold = frame(root, "GoldPlaque", colors.panel)
-local goldCaption = text(gold, "GoldCaption", "GOLD", 16, colors.gold)
-local goldValue = text(gold, "GoldValue", "$0", 24, colors.gold, true)
-local menu = button(root, "MatchMenu", "II", function() command(Play.Pause, true) end)
-menu:SetTooltip("Match menu")
-local chatToggle = button(root, "ChatToggle", "Chat", function() chatOpen = not chatOpen; if applyState then applyState(Play.State()) end end)
+-- Widget locals (assigned in OnEnter)
+local root, stats, statLabels, statValues
+local level, gold, goldCaption, goldValue
+local menu, chatToggle
+local countdown, countdownLabel, countdownValue, countdownBar
+local loadout, slots
+local placement, placementText, cancelPlacement
+local profile, profileViewportWidth, profileViewportHeight, profileLayoutHeight
+local profileTitle, profileClose, profileScroll, profileContent, profileBio, profileStats, profileEffects
+local towerViews, talentControls, towerInstances, updateTowerView
+local sell, sellLabel
+local chat, chatTitle, chatScroll, chatText, chatInput, send
+local status, statusPanel, statusKicker, statusTitle, statusCopy, statusProgress, statusReason
+local start, retry, replay, returnLobby
+local pause, pausePanel, pauseKicker, pauseTitle, volumeControls, pauseFeedback, resume, pauseLobby
+function OnEnter(width, height, initialState)
+    preloadAssets()
+    entered = true
+    if initialState then state = initialState end
+    viewportWidth, viewportHeight = width, height
+    statLabels, statValues, slots, volumeControls = {}, {}, {}, {}
+    profileViewportWidth, profileViewportHeight, profileLayoutHeight = nil, nil, nil
+    towerInstances = {}
+    previousSelection = ""
+    profileContentSignature = nil
 
-local countdown = frame(root, "WaveCountdown", colors.panel)
-local countdownLabel = text(countdown, "CountdownLabel", "Next wave in", 16, colors.accent)
-local countdownValue = text(countdown, "CountdownValue", "5", 32, colors.ink, true)
-local countdownBar = UI.CreateFrame("ProgressBar", "CountdownProgress", countdown)
-countdownBar:SetMinMaxValues(0, 1)
+    towerViews = {
+        archer_hut = dofile(sceneDirectory .. "towers/ArcherHut.lua"),
+        mage_tower = dofile(sceneDirectory .. "towers/MageTower.lua")
+    }
+    talentControls = dofile(sceneDirectory .. "towers/TalentControls.lua")
 
-local loadout = frame(root, "TowerLoadout")
-local slots = {}
-for index = 1, 5 do
-    local control = button(loadout, "TowerSlot" .. index, "", function()
-        if not state.paused then command(Play.SelectSlot, index) end
-    end)
-    local preview = UI.CreateFrame("Canvas", "TowerPreview" .. index, control)
-    preview:SetMouseEnabled(false)
-    preview:SetRenderCallback(function(left, top, width, height)
-        Play.Preview(index, left, top, width, height)
-    end)
-    local stripe = frame(control, "SlotStripe" .. index, colors.line)
-    stripe:SetMouseEnabled(false)
-    local name = text(control, "SlotName" .. index, "Empty", 16)
-    local price = text(control, "SlotPrice" .. index, "$0", 16, colors.gold)
-    local number = text(control, "SlotNumber" .. index, tostring(index), 16, colors.muted)
-    slots[index] = {root = control, preview = preview, stripe = stripe, name = name, price = price, number = number}
-end
-local placement = frame(root, "PlacementStatus", colors.panel)
-local placementText = text(placement, "PlacementText", "", 16, colors.accent)
-local cancelPlacement = button(placement, "CancelPlacement", "x", function() command(Play.CancelPlacement) end)
-cancelPlacement:SetTooltip("Cancel placement")
-
-local profile = UI.CreateFrame("Window", "SelectionProfile", root)
-profile:SetTitle("")
-profile:SetMovable(true)
-profile:SetResizable(false)
-profile:SetButtonMode("Minimize", "Hidden")
-profile:SetButtonMode("Maximize", "Hidden")
-profile:SetButtonMode("Close", "Hidden")
-local profileViewportWidth, profileViewportHeight, profileLayoutHeight
-local profileTitle = text(profile, "ProfileTitle", "", 24, colors.ink, true)
-local profileClose = button(profile, "CloseProfile", "x", function() command(Play.ClearSelection) end)
-profileClose:SetTooltip("Close profile")
-local profileScroll = UI.CreateFrame("ScrollContainer", "ProfileScroll", profile)
-local profileContent = profileScroll:GetContent()
-local profileBio = text(profileContent, "ProfileBio", "", 16, colors.muted)
-local profileStats = text(profileContent, "ProfileStats", "", 16, colors.ink)
-local profileEffects = text(profileContent, "ProfileEffects", "", 16, colors.accent)
-local towerViews = {
-    archer_hut = dofile(sceneDirectory .. "towers/ArcherHut.lua"),
-    mage_tower = dofile(sceneDirectory .. "towers/MageTower.lua")
-}
-local talentControls = dofile(sceneDirectory .. "towers/TalentControls.lua")
-local towerInstances = {}
-local sell, sellLabel = button(profile, "SellTower", "Sell", function()
-    if state.selection and state.selection.owned and not state.paused then command(Play.Sell) end
-end, true)
-
-local function updateTowerView(selection, width)
-    local archetype = selection and selection.kind == "tower" and (selection.archetype or "unknown") or nil
-    for id, instance in pairs(towerInstances) do bindVisible(instance.root, id == archetype) end
-    if not archetype then return width, 0 end
-    local instance = towerInstances[archetype]
-    if not instance then
-        local content = frame(profileContent, archetype .. "_TowerContent")
-        local context = {
-            colors = colors, place = place, talentControls = talentControls,
-            frame = function(parent, name, color) return frame(parent, archetype .. "_" .. name, color) end,
-            text = function(parent, name, ...) return text(parent, archetype .. "_" .. name, ...) end,
-            button = function(parent, name, ...) return button(parent, archetype .. "_" .. name, ...) end,
-            purchase = function(id)
-                local current = state.selection
-                if not current or current.kind ~= "tower" or current.archetype ~= archetype
-                    or not current.owned or state.paused then return end
-                for _, node in ipairs(current.upgrades or {}) do
-                    if node.id == id and node.enabled then command(Play.Upgrade, id); return end
-                end
-            end
-        }
-        local create = towerViews[archetype]
-        local view
-        if create then
-            view = create(context, content)
-        else
-            local notice = text(content, "TowerUiUnavailable", "Tower UI not configured.", 16, colors.muted)
-            view = {Update = function(_, _, availableWidth)
-                place(notice, content, 4, 0, availableWidth - 8, 44)
-                return availableWidth, 56
-            end}
-        end
-        instance = {root = content, view = view}
-        towerInstances[archetype] = instance
+    root = frame(nil, "PlayRoot")
+    root:SetAllPoints(UI.Root)
+    root:SetMouseEnabled(false)
+    stats = frame(root, "BattleStats", colors.panel)
+    for index, caption in ipairs({"BASE", "WAVE", "ENEMIES"}) do
+        statLabels[index] = text(stats, caption .. "Caption", caption, 16, colors.muted)
+        statValues[index] = text(stats, caption .. "Value", "0", 24, index == 1 and colors.accent or colors.ink, true)
     end
-    local contentWidth, contentHeight = instance.view:Update(selection, width)
-    place(instance.root, profileContent, 0, 0, contentWidth, contentHeight)
-    return contentWidth, contentHeight
+    level = text(root, "LevelName", state.level or "", 16, colors.ink)
+    gold = frame(root, "GoldPlaque", colors.panel)
+    goldCaption = text(gold, "GoldCaption", "GOLD", 16, colors.gold)
+    goldValue = text(gold, "GoldValue", "$0", 24, colors.gold, true)
+    menu = button(root, "MatchMenu", "II", function() command(Play.Pause, true) end)
+    menu:SetTooltip("Match menu")
+    chatToggle = button(root, "ChatToggle", "Chat", function() chatOpen = not chatOpen; if applyState then applyState(state) end end)
+
+    countdown = frame(root, "WaveCountdown", colors.panel)
+    countdownLabel = text(countdown, "CountdownLabel", "Next wave in", 16, colors.accent)
+    countdownValue = text(countdown, "CountdownValue", "5", 32, colors.ink, true)
+    countdownBar = UI.CreateFrame("ProgressBar", "CountdownProgress", countdown)
+    countdownBar:SetMinMaxValues(0, 1)
+
+    loadout = frame(root, "TowerLoadout")
+    for index = 1, 5 do
+        local control = button(loadout, "TowerSlot" .. index, "", function()
+            if not state.paused then command(Play.SelectSlot, index) end
+        end)
+        local preview = UI.CreateFrame("Canvas", "TowerPreview" .. index, control)
+        preview:SetMouseEnabled(false)
+        preview:SetRenderCallback(function(left, top, w, h)
+            Play.Preview(index, left, top, w, h)
+        end)
+        local stripe = frame(control, "SlotStripe" .. index, colors.line)
+        stripe:SetMouseEnabled(false)
+        local name = text(control, "SlotName" .. index, "Empty", 16)
+        local price = text(control, "SlotPrice" .. index, "$0", 16, colors.gold)
+        local number = text(control, "SlotNumber" .. index, tostring(index), 16, colors.muted)
+        slots[index] = {root = control, preview = preview, stripe = stripe, name = name, price = price, number = number}
+    end
+    placement = frame(root, "PlacementStatus", colors.panel)
+    placementText = text(placement, "PlacementText", "", 16, colors.accent)
+    cancelPlacement = button(placement, "CancelPlacement", "x", function() command(Play.CancelPlacement) end)
+    cancelPlacement:SetTooltip("Cancel placement")
+
+    profile = UI.CreateFrame("Window", "SelectionProfile", root)
+    profile:SetTitle("")
+    profile:SetMovable(true)
+    profile:SetResizable(false)
+    profile:SetButtonMode("Minimize", "Hidden")
+    profile:SetButtonMode("Maximize", "Hidden")
+    profile:SetButtonMode("Close", "Hidden")
+    profileTitle = text(profile, "ProfileTitle", "", 24, colors.ink, true)
+    profileClose = button(profile, "CloseProfile", "x", function() command(Play.ClearSelection) end)
+    profileClose:SetTooltip("Close profile")
+    profileScroll = UI.CreateFrame("ScrollContainer", "ProfileScroll", profile)
+    profileContent = profileScroll:GetContent()
+    profileBio = text(profileContent, "ProfileBio", "", 16, colors.muted)
+    profileStats = text(profileContent, "ProfileStats", "", 16, colors.ink)
+    profileEffects = text(profileContent, "ProfileEffects", "", 16, colors.accent)
+    sell, sellLabel = button(profile, "SellTower", "Sell", function()
+        if state.selection and state.selection.owned and not state.paused then command(Play.Sell) end
+    end, true)
+
+    updateTowerView = function(selection, w)
+        local archetype = selection and selection.kind == "tower" and (selection.archetype or "unknown") or nil
+        for id, instance in pairs(towerInstances) do bindVisible(instance.root, id == archetype) end
+        if not archetype then return w, 0 end
+        local instance = towerInstances[archetype]
+        if not instance then
+            local content = frame(profileContent, archetype .. "_TowerContent")
+            local context = {
+                colors = colors, place = place, talentControls = talentControls,
+                frame = function(parent, name, color) return frame(parent, archetype .. "_" .. name, color) end,
+                text = function(parent, name, ...) return text(parent, archetype .. "_" .. name, ...) end,
+                button = function(parent, name, ...) return button(parent, archetype .. "_" .. name, ...) end,
+                purchase = function(id)
+                    local current = state.selection
+                    if not current or current.kind ~= "tower" or current.archetype ~= archetype
+                        or not current.owned or state.paused then return end
+                    for _, node in ipairs(current.upgrades or {}) do
+                        if node.id == id and node.enabled then command(Play.Upgrade, id); return end
+                    end
+                end
+            }
+            local create = towerViews[archetype]
+            local view
+            if create then
+                view = create(context, content)
+            else
+                local notice = text(content, "TowerUiUnavailable", "Tower UI not configured.", 16, colors.muted)
+                view = {Update = function(_, _, availableWidth)
+                    place(notice, content, 4, 0, availableWidth - 8, 44)
+                    return availableWidth, 56
+                end}
+            end
+            instance = {root = content, view = view}
+            towerInstances[archetype] = instance
+        end
+        local contentWidth, contentHeight = instance.view:Update(selection, w)
+        place(instance.root, profileContent, 0, 0, contentWidth, contentHeight)
+        return contentWidth, contentHeight
+    end
+
+    chat = frame(root, "MatchChat", colors.panel)
+    chatTitle = text(chat, "ChatTitle", "PARTY CHANNEL", 16, colors.accent)
+    chatScroll = UI.CreateFrame("ScrollContainer", "ChatScroll", chat)
+    chatText = text(chatScroll:GetContent(), "ChatMessages", "", 16)
+    chatInput = UI.CreateFrame("EditBox", "ChatInput", chat)
+    chatInput:SetFont("Inter-Regular", 16)
+    chatInput:SetBackgroundColor(0x090E0DFF)
+    local function sendChat()
+        if command(Play.SendChat, chatInput:GetText()) then chatInput:SetText("") end
+    end
+    chatInput:SetScript("OnEnterPressed", sendChat)
+    send = button(chat, "SendChat", "Send", sendChat)
+
+    status = frame(root, "MatchStatus", 0x04080788)
+    status:SetAllPoints(root)
+    statusPanel = frame(status, "StatusPanel", colors.panel)
+    statusKicker = text(statusPanel, "StatusKicker", "FIELD STATUS", 16, colors.accent)
+    statusTitle = text(statusPanel, "StatusTitle", "Loading battlefield", 32, colors.ink, true)
+    statusCopy = text(statusPanel, "StatusCopy", "", 16, colors.muted)
+    statusProgress = UI.CreateFrame("ProgressBar", "LoadingProgress", statusPanel)
+    statusProgress:SetMinMaxValues(0, 1)
+    statusReason = text(statusPanel, "StatusReason", "", 16, colors.gold)
+    start = button(statusPanel, "StartMatch", "Start match", function()
+        if state.canStart and not state.paused then command(Play.Start) end
+    end, true)
+    retry = button(statusPanel, "RetryLoad", "Retry", function() command(Play.Retry) end, true)
+    replay = button(statusPanel, "ReplayMatch", "Play again", function()
+        if not state.client then command(Play.Restart) end
+    end, true)
+    returnLobby = button(statusPanel, "ReturnLobby", "Return to lobby", function() command(Play.Lobby) end)
+
+    pause = frame(root, "PauseOverlay", 0x030605CE)
+    pause:SetAllPoints(root)
+    pausePanel = frame(pause, "PausePanel", colors.panel)
+    pauseKicker = text(pausePanel, "PauseKicker", "MATCH MENU", 16, colors.accent)
+    pauseTitle = text(pausePanel, "PauseTitle", "Paused", 32, colors.ink, true)
+    for index, entry in ipairs({{"masterVolume", "Master volume"}, {"musicVolume", "Music volume"}, {"sfxVolume", "SFX volume"}}) do
+        local label = text(pausePanel, entry[1] .. "Label", entry[2])
+        local value = text(pausePanel, entry[1] .. "Value", "100%", 16, colors.gold)
+        local slider = UI.CreateFrame("StatusBar", entry[1] .. "Slider", pausePanel)
+        slider:SetMinMaxValues(0, 1)
+        slider:SetScript("OnValueChanged", function()
+            if not refreshing then command(Play.SetVolume, entry[1], slider:GetValue()) end
+        end)
+        volumeControls[index] = {name = entry[1], label = label, value = value, slider = slider}
+    end
+    pauseFeedback = text(pausePanel, "PauseFeedback", "", 16, colors.gold)
+    resume = button(pausePanel, "ResumeMatch", "Resume", function() command(Play.Pause, false) end, true)
+    pauseLobby = button(pausePanel, "PauseLobby", "Back to lobby", function() command(Play.Lobby) end)
+
+    bindings.defineState("hud.health", function(context)
+        return tostring(math.ceil(context.state.health or 0))
+    end, function(value) bindText(statValues[1], value) end)
+    bindings.defineState("hud.wave", function(context)
+        return string.format("%d/%d", math.min(context.state.wave or 1, context.state.waveCount or 1), context.state.waveCount or 0)
+    end, function(value) bindText(statValues[2], value) end)
+    bindings.defineState("hud.enemies", function(context)
+        return tostring(context.state.enemies or 0)
+    end, function(value) bindText(statValues[3], value) end)
+    bindings.defineState("hud.level", function(context)
+        return context.state.level or ""
+    end, function(value) bindText(level, value) end)
+    bindings.defineState("hud.levelVisible", function(context)
+        return not context.compact
+    end, function(value) bindVisible(level, value) end)
+    bindings.defineState("hud.gold", function(context)
+        return "$" .. math.floor(context.state.money or 0)
+    end, function(value) bindText(goldValue, value) end)
+    bindings.defineState("hud.chatToggle", function(context)
+        return context.state.online and context.compact and not context.state.paused and context.state.phase == "running"
+    end, function(value) bindVisible(chatToggle, value) end)
+    bindings.defineState("hud.countdownVisible", function(context)
+        return context.state.countdownVisible and not context.state.paused
+    end, function(value) bindVisible(countdown, value) end)
+    bindings.defineState("hud.countdownLabel", function(context)
+        return context.state.countdownLabel or ""
+    end, function(value) bindText(countdownLabel, value) end)
+    bindings.defineState("hud.countdownValue", function(context)
+        return tostring(context.state.countdown or 0)
+    end, function(value) bindText(countdownValue, value) end)
+    bindings.defineState("hud.countdownProgress", function(context)
+        return context.state.countdownProgress or 0
+    end, function(value) bindValue(countdownBar, value) end)
+    bindings.defineState("hud.loadoutVisible", function(context)
+        return context.state.loadoutVisible and not context.state.paused
+    end, function(value) bindVisible(loadout, value) end)
+    bindings.defineState("hud.placementVisible", function(context)
+        return (context.state.selectedSlot or 0) > 0 and not context.state.paused and context.state.phase == "running"
+    end, function(value) bindVisible(placement, value) end)
+    bindings.defineState("hud.placementText", function(context)
+        return context.feedback ~= "" and context.feedback or
+            (context.state.placement ~= "" and context.state.placement) or
+            (context.selectedSlot and context.selectedSlot.name or "")
+    end, function(value) bindText(placementText, value) end)
+    bindings.defineState("hud.placementColor", function(context)
+        return context.state.canPlace and colors.accent or colors.gold
+    end, function(value) bindColor(placementText, value) end)
+    bindings.defineState("status.visible", function(context)
+        return (context.ready or context.loading or context.failed or context.terminal) and not context.state.paused
+    end, function(value) bindVisible(status, value) end)
+    bindings.defineState("status.kicker", function(context)
+        return context.ready and "BATTLEFIELD READY" or context.terminal and "DEPLOYMENT COMPLETE" or "FIELD STATUS"
+    end, function(value) bindText(statusKicker, value) end)
+    bindings.defineState("status.title", function(context)
+        return context.state.headline or ""
+    end, function(value) bindText(statusTitle, value) end)
+    bindings.defineState("status.copy", function(context)
+        return context.state.description or ""
+    end, function(value) bindText(statusCopy, value) end)
+    bindings.defineState("status.progressVisible", function(context)
+        return context.loading
+    end, function(value) bindVisible(statusProgress, value) end)
+    bindings.defineState("status.progressValue", function(context)
+        return context.state.loadingProgress or 0
+    end, function(value) bindValue(statusProgress, value) end)
+    bindings.defineState("status.reason", function(context)
+        return context.feedback ~= "" and context.feedback or
+            (context.ready and context.state.startReason or
+                (context.state.client and context.terminal and "Waiting for the host to replay." or ""))
+    end, function(value) bindText(statusReason, value) end)
+    bindings.defineState("status.startVisible", function(context)
+        return context.ready and not context.state.client
+    end, function(value) bindVisible(start, value) end)
+    bindings.defineState("status.retryVisible", function(context)
+        return context.failed
+    end, function(value) bindVisible(retry, value) end)
+    bindings.defineState("status.replayVisible", function(context)
+        return context.terminal and not context.state.client
+    end, function(value) bindVisible(replay, value) end)
+    bindings.defineState("pause.visible", function(context)
+        return context.state.paused
+    end, function(value) bindVisible(pause, value) end)
+    bindings.defineState("pause.title", function(context)
+        return context.state.online and "Match menu" or "Paused"
+    end, function(value) bindText(pauseTitle, value) end)
+    bindings.defineState("pause.feedback", function(context)
+        return context.feedback
+    end, function(value) bindText(pauseFeedback, value) end)
+
+    applyState(state)
 end
 
-local chat = frame(root, "MatchChat", colors.panel)
-local chatTitle = text(chat, "ChatTitle", "PARTY CHANNEL", 16, colors.accent)
-local chatScroll = UI.CreateFrame("ScrollContainer", "ChatScroll", chat)
-local chatText = text(chatScroll:GetContent(), "ChatMessages", "", 16)
-local chatInput = UI.CreateFrame("EditBox", "ChatInput", chat)
-chatInput:SetFont("Inter-Regular", 16)
-chatInput:SetBackgroundColor(0x090E0DFF)
-local function sendChat()
-    if command(Play.SendChat, chatInput:GetText()) then chatInput:SetText("") end
+function OnUpdate(nextState, dt)
+    if nextState and entered then
+        applyState(nextState)
+    end
+    if uiProfileEnabled then uiProfileUpdateCalls = uiProfileUpdateCalls + 1 end
+    reportUiProfile()
 end
-chatInput:SetScript("OnEnterPressed", sendChat)
-local send = button(chat, "SendChat", "Send", sendChat)
 
-local status = frame(root, "MatchStatus", 0x04080788)
-status:SetAllPoints(root)
-local statusPanel = frame(status, "StatusPanel", colors.panel)
-local statusKicker = text(statusPanel, "StatusKicker", "FIELD STATUS", 16, colors.accent)
-local statusTitle = text(statusPanel, "StatusTitle", "Loading battlefield", 32, colors.ink, true)
-local statusCopy = text(statusPanel, "StatusCopy", "", 16, colors.muted)
-local statusProgress = UI.CreateFrame("ProgressBar", "LoadingProgress", statusPanel)
-statusProgress:SetMinMaxValues(0, 1)
-local statusReason = text(statusPanel, "StatusReason", "", 16, colors.gold)
-local start = button(statusPanel, "StartMatch", "Start match", function()
-    if state.canStart and not state.paused then command(Play.Start) end
-end, true)
-local retry = button(statusPanel, "RetryLoad", "Retry", function() command(Play.Retry) end, true)
-local replay = button(statusPanel, "ReplayMatch", "Play again", function()
-    if not state.client then command(Play.Restart) end
-end, true)
-local returnLobby = button(statusPanel, "ReturnLobby", "Return to lobby", function() command(Play.Lobby) end)
-
-local pause = frame(root, "PauseOverlay", 0x030605CE)
-pause:SetAllPoints(root)
-local pausePanel = frame(pause, "PausePanel", colors.panel)
-local pauseKicker = text(pausePanel, "PauseKicker", "MATCH MENU", 16, colors.accent)
-local pauseTitle = text(pausePanel, "PauseTitle", "Paused", 32, colors.ink, true)
-local volumeControls = {}
-for index, entry in ipairs({{"masterVolume", "Master volume"}, {"musicVolume", "Music volume"}, {"sfxVolume", "SFX volume"}}) do
-    local label = text(pausePanel, entry[1] .. "Label", entry[2])
-    local value = text(pausePanel, entry[1] .. "Value", "100%", 16, colors.gold)
-    local slider = UI.CreateFrame("StatusBar", entry[1] .. "Slider", pausePanel)
-    slider:SetMinMaxValues(0, 1)
-    slider:SetScript("OnValueChanged", function()
-        if not refreshing then command(Play.SetVolume, entry[1], slider:GetValue()) end
-    end)
-    volumeControls[index] = {name = entry[1], label = label, value = value, slider = slider}
+function OnLayoutChanged(width, height)
+    viewportWidth, viewportHeight = width, height
+    if entered then applyState(state) end
 end
-local pauseFeedback = text(pausePanel, "PauseFeedback", "", 16, colors.gold)
-local resume = button(pausePanel, "ResumeMatch", "Resume", function() command(Play.Pause, false) end, true)
-local pauseLobby = button(pausePanel, "PauseLobby", "Back to lobby", function() command(Play.Lobby) end)
 
-bindings.defineState("hud.health", function(context)
-    return tostring(math.ceil(context.state.health or 0))
-end, function(value)
-    bindText(statValues[1], value)
-end)
-bindings.defineState("hud.wave", function(context)
-    return string.format("%d/%d", math.min(context.state.wave or 1, context.state.waveCount or 1), context.state.waveCount or 0)
-end, function(value)
-    bindText(statValues[2], value)
-end)
-bindings.defineState("hud.enemies", function(context)
-    return tostring(context.state.enemies or 0)
-end, function(value)
-    bindText(statValues[3], value)
-end)
-bindings.defineState("hud.level", function(context)
-    return context.state.level or ""
-end, function(value)
-    bindText(level, value)
-end)
-bindings.defineState("hud.levelVisible", function(context)
-    return not context.compact
-end, function(value)
-    bindVisible(level, value)
-end)
-bindings.defineState("hud.gold", function(context)
-    return "$" .. math.floor(context.state.money or 0)
-end, function(value)
-    bindText(goldValue, value)
-end)
-bindings.defineState("hud.chatToggle", function(context)
-    return context.state.online and context.compact and not context.state.paused and context.state.phase == "running"
-end, function(value)
-    bindVisible(chatToggle, value)
-end)
-bindings.defineState("hud.countdownVisible", function(context)
-    return context.state.countdownVisible and not context.state.paused
-end, function(value)
-    bindVisible(countdown, value)
-end)
-bindings.defineState("hud.countdownLabel", function(context)
-    return context.state.countdownLabel or ""
-end, function(value)
-    bindText(countdownLabel, value)
-end)
-bindings.defineState("hud.countdownValue", function(context)
-    return tostring(context.state.countdown or 0)
-end, function(value)
-    bindText(countdownValue, value)
-end)
-bindings.defineState("hud.countdownProgress", function(context)
-    return context.state.countdownProgress or 0
-end, function(value)
-    bindValue(countdownBar, value)
-end)
-bindings.defineState("hud.loadoutVisible", function(context)
-    return context.state.loadoutVisible and not context.state.paused
-end, function(value)
-    bindVisible(loadout, value)
-end)
-bindings.defineState("hud.placementVisible", function(context)
-    return (context.state.selectedSlot or 0) > 0 and not context.state.paused and context.state.phase == "running"
-end, function(value)
-    bindVisible(placement, value)
-end)
-bindings.defineState("hud.placementText", function(context)
-    return context.feedback ~= "" and context.feedback or
-        (context.state.placement ~= "" and context.state.placement) or
-        (context.selectedSlot and context.selectedSlot.name or "")
-end, function(value)
-    bindText(placementText, value)
-end)
-bindings.defineState("hud.placementColor", function(context)
-    return context.state.canPlace and colors.accent or colors.gold
-end, function(value)
-    bindColor(placementText, value)
-end)
-bindings.defineState("status.visible", function(context)
-    return (context.ready or context.loading or context.failed or context.terminal) and not context.state.paused
-end, function(value)
-    bindVisible(status, value)
-end)
-bindings.defineState("status.kicker", function(context)
-    return context.ready and "BATTLEFIELD READY" or context.terminal and "DEPLOYMENT COMPLETE" or "FIELD STATUS"
-end, function(value)
-    bindText(statusKicker, value)
-end)
-bindings.defineState("status.title", function(context)
-    return context.state.headline or ""
-end, function(value)
-    bindText(statusTitle, value)
-end)
-bindings.defineState("status.copy", function(context)
-    return context.state.description or ""
-end, function(value)
-    bindText(statusCopy, value)
-end)
-bindings.defineState("status.progressVisible", function(context)
-    return context.loading
-end, function(value)
-    bindVisible(statusProgress, value)
-end)
-bindings.defineState("status.progressValue", function(context)
-    return context.state.loadingProgress or 0
-end, function(value)
-    bindValue(statusProgress, value)
-end)
-bindings.defineState("status.reason", function(context)
-    return context.feedback ~= "" and context.feedback or
-        (context.ready and context.state.startReason or
-            (context.state.client and context.terminal and "Waiting for the host to replay." or ""))
-end, function(value)
-    bindText(statusReason, value)
-end)
-bindings.defineState("status.startVisible", function(context)
-    return context.ready and not context.state.client
-end, function(value)
-    bindVisible(start, value)
-end)
-bindings.defineState("status.retryVisible", function(context)
-    return context.failed
-end, function(value)
-    bindVisible(retry, value)
-end)
-bindings.defineState("status.replayVisible", function(context)
-    return context.terminal and not context.state.client
-end, function(value)
-    bindVisible(replay, value)
-end)
-bindings.defineState("pause.visible", function(context)
-    return context.state.paused
-end, function(value)
-    bindVisible(pause, value)
-end)
-bindings.defineState("pause.title", function(context)
-    return context.state.online and "Match menu" or "Paused"
-end, function(value)
-    bindText(pauseTitle, value)
-end)
-bindings.defineState("pause.feedback", function(context)
-    return context.feedback
-end, function(value)
-    bindText(pauseFeedback, value)
-end)
+function OnExit()
+    entered = false
+end
+
+function OnShortcut(scanCode)
+    return false
+end
 
 function PlayPointerOverHud(mouseX, mouseY)
     if state.paused or state.phase ~= "running" then return true end
@@ -509,8 +501,10 @@ applyState = function(nextState)
     refreshCount = refreshCount + 1
     if uiProfileEnabled then uiProfileRefreshCalls = uiProfileRefreshCalls + 1 end
     refreshing = true
-    state = nextState or Play.State()
-    local _, _, width, height = UI.Root:GetRect()
+    if nextState then
+        state = nextState
+    end
+    local width, height = viewportWidth, viewportHeight
     if width <= 0 or height <= 0 then refreshing = false; return end
     local compact = width < 1000
     local slotWidth = math.min(148, (width - 48) / 5)
@@ -690,30 +684,4 @@ applyState = function(nextState)
         uiProfileRefreshSeconds = uiProfileRefreshSeconds + (os.clock() - refreshStarted)
         reportUiProfile()
     end
-end
-
-function OnEnter()
-    preloadAssets()
-    entered = true
-    applyState(Play.State())
-end
-
-function OnExit()
-    entered = false
-end
-
-function OnShortcut(scanCode)
-    -- Return true only when this script explicitly consumes a key.
-    -- Returning false keeps C++ fallback shortcuts active.
-    return false
-end
-
-function OnStateChanged(nextState)
-    if not entered then return end
-    applyState(nextState)
-end
-
-function OnUpdate(dt)
-    if uiProfileEnabled then uiProfileUpdateCalls = uiProfileUpdateCalls + 1 end
-    reportUiProfile()
 end

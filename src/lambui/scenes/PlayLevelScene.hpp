@@ -30,7 +30,7 @@ class PlayLevelScene final : public LuaUiScene {
                    AppSettings& settings, SDL_Window* window);
     ~PlayLevelScene() override;
 
-    void onEnter(LambUI::UIManager& ui, AudioEngine& audio) override;
+    void onEnter(LambUI::UIManager& ui, AudioEngine& audio, float viewportWidth, float viewportHeight) override;
     void onExit(LambUI::UIManager& ui) override;
     SceneTransition update(float dt) override;
     SceneTransition onKeyDown(uint32_t scanCode) override;
@@ -39,14 +39,13 @@ class PlayLevelScene final : public LuaUiScene {
   protected:
     void bindSceneApi(lua_State* lua, AudioEngine& audio) override;
     bool handleSceneShortcut(uint32_t scanCode) override;
+    void pushOnUpdateState(lua_State* lua) override;
 
   private:
     int pushState(lua_State* lua);
-    int pushStateRevision(lua_State* lua);
     static int dispatch(lua_State* lua);
     std::uint64_t computeUiStateFingerprint() const;
     std::uint64_t currentUiStateRevision();
-    void publishStateToLuaIfDirty();
     void beginWorldLoad();
     bool loadWaveDefinitions();
     void restartMatch();
@@ -134,4 +133,3 @@ class PlayLevelScene final : public LuaUiScene {
 };
 
 } // namespace NodeSpireUi
-

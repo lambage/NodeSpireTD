@@ -220,7 +220,7 @@ int LobbyScene::pushState(lua_State* lua) const {
 void LobbyScene::bindSceneApi(lua_State* lua, AudioEngine&) {
     loadCatalogs(lua);
     lua_newtable(lua);
-    for (const char* name : {"State", "SelectLevel", "ToggleTower", "Host", "Join", "Leave", "Ready", "Kick", "SendChat", "Start"}) {
+    for (const char* name : {"SelectLevel", "ToggleTower", "Host", "Join", "Leave", "Ready", "Kick", "SendChat", "Start"}) {
         lua_pushlightuserdata(lua, this);
         lua_pushstring(lua, name);
         lua_pushcclosure(lua, dispatch, 2);
@@ -229,13 +229,16 @@ void LobbyScene::bindSceneApi(lua_State* lua, AudioEngine&) {
     lua_setglobal(lua, "Lobby");
 }
 
+void LobbyScene::pushOnUpdateState(lua_State* lua) {
+    pushState(lua);
+}
+
 int LobbyScene::dispatch(lua_State* lua) {
     auto& self = *static_cast<LobbyScene*>(lua_touserdata(lua, lua_upvalueindex(1)));
     const std::string_view operation = lua_tostring(lua, lua_upvalueindex(2));
     bool success = true;
     std::string message;
     try {
-        if (operation == "State") return self.pushState(lua);
         auto& session = self.session_;
         auto& launch = self.playLevelLaunchConfig_;
         self.status_.clear();

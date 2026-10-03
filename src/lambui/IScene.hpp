@@ -21,8 +21,9 @@ class IScene {
   public:
     virtual ~IScene() = default;
 
-    virtual void onEnter(LambUI::UIManager& ui, AudioEngine& audio) = 0;
+    virtual void onEnter(LambUI::UIManager& ui, AudioEngine& audio, float viewportWidth, float viewportHeight) = 0;
     virtual void onExit(LambUI::UIManager& ui) = 0;
+    virtual void onLayoutChanged(float /*width*/, float /*height*/) {}
 
     // Called once per frame before ui.Update(). Return a SceneId to request a
     // transition.

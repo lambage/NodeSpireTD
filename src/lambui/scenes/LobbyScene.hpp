@@ -17,6 +17,7 @@ class LobbyScene final : public LuaUiScene {
   protected:
     void bindSceneApi(lua_State* lua, AudioEngine& audio) override;
     void onUpdateScene(float dt) override;
+    void pushOnUpdateState(lua_State* lua) override;
 
   private:
     struct LevelEntry {
@@ -53,4 +54,3 @@ class LobbyScene final : public LuaUiScene {
 };
 
 } // namespace NodeSpireUi
-
