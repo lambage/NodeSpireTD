@@ -1,10 +1,8 @@
 {
-    "//": "Fonts preloaded into RmlUi at startup. Family, style, and weight are read",
-    "//2": "from each font file's own metadata (FreeType name table / OS-2",
-    "//3": "usWeightClass) — not declared here. 'fallback' marks a face as the",
-    "//4": "glyph-coverage fallback used when a character is missing from the",
-    "//5": "requested font-family. 'weight' is an optional override, only needed to",
-    "//6": "pin a specific weight out of a variable font.",
+    "//": "LambUI preloads each font at these pixel sizes once at startup.",
+    "//2": "Lua selects the filename stem and size: label:SetFont('Inter-Bold', 32).",
+    "//3": "'fallback' selects the default face. Omitting size uses the app's default size.",
+    "sizes": [16, 20, 24, 32],
     "fonts": [
         { "file": "Inter-Regular.ttf" },
         { "file": "Inter-SemiBold.ttf" },

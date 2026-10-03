@@ -1618,7 +1618,8 @@ bool WorldRenderer::computeTowerPrototypeBounds(int prototypeIndex, glm::vec3& o
 }
 
 void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D extent,
-                                             const std::vector<TowerPreviewPanel>& panels, float spinRadians) {
+                                             const std::vector<TowerPreviewPanel>& panels, float spinRadians,
+                                             const VkRect2D* clip) {
     if (!loaded_ || pipeline_ == VK_NULL_HANDLE || panels.empty()) {
         return;
     }
@@ -1686,6 +1687,16 @@ void WorldRenderer::renderTowerPreviewPanels(VkCommandBuffer cmd, VkExtent2D ext
         VkRect2D scissor{};
         scissor.offset = {x, y};
         scissor.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
+        if (clip) {
+            const int right = std::min(x + w, clip->offset.x + static_cast<int>(clip->extent.width));
+            const int bottom = std::min(y + h, clip->offset.y + static_cast<int>(clip->extent.height));
+            scissor.offset = {std::max(x, clip->offset.x), std::max(y, clip->offset.y)};
+            if (right <= scissor.offset.x || bottom <= scissor.offset.y) {
+                continue;
+            }
+            scissor.extent = {static_cast<uint32_t>(right - scissor.offset.x),
+                              static_cast<uint32_t>(bottom - scissor.offset.y)};
+        }
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         VkClearAttachment clearDepth{};

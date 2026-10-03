@@ -11,18 +11,30 @@ Cross-platform C++20 tower defense project using SDL3, RmlUi, and a Vulkan-first
 
 - CMake >= 3.24
 - Git
+- Git LFS (required for fonts, images, audio, and models)
 - Ninja
 - C++ toolchain:
 	- Windows: Visual Studio 2022 Build Tools (MSVC). Run the Ninja configure and build commands
 	  from **Developer PowerShell for VS 2022** so MSVC's standard-library include paths are set.
 	- Linux: GCC or Clang
 
+After syncing the repository, download its LFS assets from the NodeSpireTD directory:
+
+```bash
+git lfs pull
+```
+
+For repo-tool checkouts whose remote is named `github`, use `git lfs pull github`.
+Run this before installing the game. A checkout with LFS downloads skipped contains
+small text pointers instead of usable assets; fonts are typically hundreds of KB,
+not roughly 130 bytes. After fetching assets, rerun `cmake --install build`.
+
 ### Option 1: Through CMake target
 
 Configure your project once:
 
 ```bash
-cmake -S . -B build -G Ninja
+cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Debug
 ```
 
 Then run:
@@ -38,6 +50,31 @@ Run from the build tree or install it first:
 
 The default log level is `info`; `-v`/`--verbose` enables debug and
 `--extra-verbose` enables trace. Logs rotate at `logs/nodespiretd.log` (5 MB x 3 files).
+
+## Tower Talent UI
+
+Each tower owns its talent presentation in a separate Lua module:
+[ArcherHut.lua](assets/scenes/towers/ArcherHut.lua) and
+[MageTower.lua](assets/scenes/towers/MageTower.lua). Their positions, connections,
+and artwork are authored explicitly, not inferred from the gameplay tree.
+
+To add a tower UI, register its archetype in `towerViews` in
+[PlayLevel.lua](assets/scenes/PlayLevel.lua). A module returns a factory accepting
+`(context, parent)` and creates its widgets under `parent`. The returned object
+implements `Update(selection, availableWidth)` and returns its content width and
+height. Instances are reused; updates must refresh controls from the current
+selection. The host manages visibility, scrolling, the draggable window, and the
+shared biography, stats, and sell action. The loadout remains available while inspecting.
+
+`context` supplies namespaced `frame`, `text`, and `button` helpers, `place`,
+`colors`, and `purchase(talentId)`. Purchases are checked against the current
+selection, ownership, pause state, and talent availability. The optional
+[TalentControls.lua](assets/scenes/towers/TalentControls.lua) helper provides
+`Begin(selection)`, `Node(id, left, top, artwork)`, and `Link(parentId, childId)`.
+A tower can instead build entirely different controls with the Lua UI API.
+Gameplay requirements and costs stay in the tower definition; update its UI's
+authored links when those requirements change. An unregistered tower shows an
+explicit unavailable message instead of generating a generic talent tree.
 
 ## MCP: Live Gameplay Settings
 

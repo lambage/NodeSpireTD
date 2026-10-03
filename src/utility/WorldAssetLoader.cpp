@@ -8,6 +8,11 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
+// STB_IMAGE_IMPLEMENTATION must appear in exactly one translation unit; this
+// used to be provided by the old RmlUi Vulkan renderer (see
+// _old_rmlui_ref/RmlUi_Renderer_VK.cpp), which no longer exists after the
+// LambUI migration, so this is now the sole implementation site.
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 #include <glm/gtc/matrix_transform.hpp>

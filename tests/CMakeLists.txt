@@ -2,7 +2,7 @@ include(GoogleTest)
 
 add_executable(NodeSpireMatchProtocolTests
     SettingsStartupTests.cpp
-    rmlui/PlayLevelUiContractTests.cpp
+    lambui/PlayLevelUiContractTests.cpp
     multiplayer/ContentHashTests.cpp
     multiplayer/ChatCommandDispatcherTests.cpp
     multiplayer/FixedTickClockTests.cpp
@@ -33,7 +33,7 @@ add_executable(NodeSpireMatchProtocolTests
     ${CMAKE_SOURCE_DIR}/src/multiplayer/PlayerProfileStore.cpp
     ${CMAKE_SOURCE_DIR}/src/scenes/PlayLevelCombatController.cpp
     ${CMAKE_SOURCE_DIR}/src/scenes/PlayLevelWaveController.cpp
-    ${CMAKE_SOURCE_DIR}/src/rmlui/playlevel/PlayLevelUiContract.cpp
+    ${CMAKE_SOURCE_DIR}/src/lambui/playlevel/PlayLevelUiContract.cpp
 )
 
 target_include_directories(NodeSpireMatchProtocolTests PRIVATE "${CMAKE_SOURCE_DIR}/src")
@@ -48,3 +48,16 @@ target_link_libraries(NodeSpireMatchProtocolTests PRIVATE
 
 nodespire_stage_runtime_dependencies(NodeSpireMatchProtocolTests)
 gtest_discover_tests(NodeSpireMatchProtocolTests)
+
+add_executable(NodeSpireSplashUiTests lambui/SplashUiTests.cpp)
+target_link_libraries(NodeSpireSplashUiTests PRIVATE
+    GTest::gtest_main
+    LambUI::lambui
+    LambUI::lua
+)
+target_compile_definitions(NodeSpireSplashUiTests PRIVATE
+    NODESPIRE_SPLASH_SCRIPT="${CMAKE_SOURCE_DIR}/assets/scenes/Splash.lua"
+    NODESPIRE_MAINMENU_SCRIPT="${CMAKE_SOURCE_DIR}/assets/scenes/MainMenu.lua"
+)
+nodespire_stage_runtime_dependencies(NodeSpireSplashUiTests)
+gtest_discover_tests(NodeSpireSplashUiTests)

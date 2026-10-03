@@ -43,26 +43,20 @@ target_link_libraries(NodeSpirePartyProtocol PUBLIC protobuf::libprotobuf)
 
 function(nodespire_stage_runtime_dependencies targetName)
     if(WIN32)
-        # TARGET_RUNTIME_DLLS only resolves SHARED libraries in targetName's own
-        # link interface -- it doesn't reach freetype.dll here because rmlui
-        # links Freetype PRIVATELY and we expose it via a hand-rolled
-        # Freetype::Freetype ALIAS (see CMakeLists.txt) rather than a normal
-        # find_package() imported target, so it must be staged explicitly.
-        set(extraRuntimeFiles "")
-        if(TARGET freetype)
-            list(APPEND extraRuntimeFiles "$<TARGET_FILE:freetype>")
-        endif()
-
-        add_custom_command(TARGET ${targetName} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:${targetName}>
-                    $<TARGET_RUNTIME_DLLS:${targetName}> ${extraRuntimeFiles}
+        add_custom_target(${targetName}RuntimeDependencies
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${targetName}>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_RUNTIME_DLLS:${targetName}> $<TARGET_FILE_DIR:${targetName}>
+            DEPENDS $<TARGET_RUNTIME_DLLS:${targetName}>
             COMMAND_EXPAND_LISTS
             COMMENT "Staging runtime dependencies for ${targetName}"
+            VERBATIM
         )
+        add_dependencies(${targetName} ${targetName}RuntimeDependencies)
     endif()
 endfunction()
 
-# SDL-native game Vulkan ownership shared by world and RmlUi rendering.
+# SDL-native game Vulkan ownership shared by world and LambUI rendering.
 add_library(NodeSpireVulkanContext STATIC
     VulkanContext.cpp
 )
@@ -102,6 +96,8 @@ if(GLSLC_EXECUTABLE)
             "${SHADER_SRC}/groundCircle.frag.spv"
             "${SHADER_SRC}/previewPanel.vert.spv"
             "${SHADER_SRC}/previewPanel.frag.spv"
+            "${SHADER_SRC}/ui.vert.spv"
+            "${SHADER_SRC}/ui.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.vert" -o "${SHADER_SRC}/mesh.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/mesh.frag" -o "${SHADER_SRC}/mesh.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/highlight.vert" -o "${SHADER_SRC}/highlight.vert.spv"
@@ -110,6 +106,8 @@ if(GLSLC_EXECUTABLE)
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/groundCircle.frag" -o "${SHADER_SRC}/groundCircle.frag.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/previewPanel.vert" -o "${SHADER_SRC}/previewPanel.vert.spv"
         COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/previewPanel.frag" -o "${SHADER_SRC}/previewPanel.frag.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/ui.vert" -o "${SHADER_SRC}/ui.vert.spv"
+        COMMAND ${GLSLC_EXECUTABLE} "${SHADER_SRC}/ui.frag" -o "${SHADER_SRC}/ui.frag.spv"
         DEPENDS
             "${SHADER_SRC}/mesh.vert"
             "${SHADER_SRC}/mesh.frag"
@@ -119,6 +117,8 @@ if(GLSLC_EXECUTABLE)
             "${SHADER_SRC}/groundCircle.frag"
             "${SHADER_SRC}/previewPanel.vert"
             "${SHADER_SRC}/previewPanel.frag"
+            "${SHADER_SRC}/ui.vert"
+            "${SHADER_SRC}/ui.frag"
         COMMENT "Compiling mesh shaders"
     )
     add_custom_target(MeshShaders DEPENDS
@@ -130,6 +130,8 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/groundCircle.frag.spv"
         "${SHADER_SRC}/previewPanel.vert.spv"
         "${SHADER_SRC}/previewPanel.frag.spv"
+        "${SHADER_SRC}/ui.vert.spv"
+        "${SHADER_SRC}/ui.frag.spv"
     )
     # NodeSpireTD depends on MeshShaders below because its native PlayLevel scene
     # renders WorldRenderer before the RmlUi HUD in the shared command buffer.
@@ -139,12 +141,12 @@ else()
 endif()
 
 # ── NodeSpireTD ────────────────────────────────────────────────────────────────
-# SDL3+Vulkan RmlUi app. The renderer is forked from RmlUi's SDL_VK sample but
-# borrows VulkanContext's device, allocator, swapchain formats, and active command buffer.
+# SDL3+Vulkan LambUI app. The renderer is reconciled with VulkanContext's
+# device, allocator, swapchain formats, and active command buffer.
 
 add_executable(NodeSpireTD
-    RmlUiApp.cpp
-    RmlUiFontLoader.cpp
+    LambUiApp.cpp
+    LambUiFontLoader.cpp
     SettingsManager.cpp
     GameplayTuningManager.cpp
     AudioEngine.cpp
@@ -161,16 +163,19 @@ add_executable(NodeSpireTD
     multiplayer/PartyProtocolAdapter.cpp
     multiplayer/PlayerAccounts.cpp
     multiplayer/PlayerProfileStore.cpp
-    rmlui_backend/RmlUi_Platform_SDL.cpp
-    rmlui_backend/RmlUi_Renderer_VK.cpp
-    rmlui_backend/RmlUi_Backend_SDL_VK.cpp
-    rmlui/SceneManager.cpp
-    rmlui/playlevel/PlayLevelUiContract.cpp
-    rmlui/scenes/PlayLevelScene.cpp
-    rmlui/scenes/SplashScene.cpp
-    rmlui/scenes/MainMenuScene.cpp
-    rmlui/scenes/LobbyScene.cpp
-    rmlui/scenes/OptionsScene.cpp
+    lambui/SceneManager.cpp
+    lambui/AppControl.cpp
+    lambui/LuaUiScene.cpp
+    lambui/LuaAudioBindings.cpp
+    lambui/LuaSceneBindings.cpp
+    lambui/playlevel/PlayLevelUiContract.cpp
+    lambui/scenes/PlayLevelScene.cpp
+    lambui/scenes/SplashScene.cpp
+    lambui/scenes/MainMenuScene.cpp
+    lambui/scenes/LobbyScene.cpp
+    lambui/scenes/OptionsScene.cpp
+    lambui_backend/VulkanUiRenderer.cpp
+    lambui_backend/SdlUiInputBridge.cpp
     scenes/EnemyLoadController.cpp
     scenes/EnemySpawnFactory.cpp
     scenes/PlayLevelCombatController.cpp
@@ -185,21 +190,19 @@ add_executable(NodeSpireTD
 )
 
 target_compile_definitions(NodeSpireTD PRIVATE
-    RMLUI_SDL_VERSION_MAJOR=3
     VMA_STATIC_VULKAN_FUNCTIONS=0
     VMA_DYNAMIC_VULKAN_FUNCTIONS=1
     NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING=$<BOOL:${NODESPIRE_ENABLE_GAMEPLAY_MCP_TUNING}>
 )
 
 target_include_directories(NodeSpireTD PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/rmlui_backend"
-    "${rmlui_SOURCE_DIR}/Backends"
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${stb_SOURCE_DIR}"
 )
 
 target_link_libraries(NodeSpireTD PRIVATE
-    rmlui
+    LambUI::lambui
+    LambUI::lua
     SDL3::SDL3
     SDL3_mixer::SDL3_mixer
     spdlog::spdlog

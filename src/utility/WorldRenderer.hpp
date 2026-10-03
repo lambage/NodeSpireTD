@@ -240,7 +240,8 @@ class WorldRenderer {
     void renderTowerPreviewPanels(VkCommandBuffer cmd,
                                   VkExtent2D extent,
                                   const std::vector<TowerPreviewPanel>& panels,
-                                  float spinRadians);
+                                  float spinRadians,
+                                  const VkRect2D* clip = nullptr);
     void release();
 
   private:
