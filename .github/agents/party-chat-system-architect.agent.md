@@ -11,7 +11,7 @@ You are the party and chat system specialist for NodeSpireTD. You own turning th
 ## Context You Must Respect
 - Multiplayer connection setup currently happens late: `LobbyScene` only records `hostMultiplayerMatch_`/`joinRemoteHostAddress_` flags from Lua (`setMultiplayerMode`), and the actual LAN transport/host handshake happens when `PlayLevelScene` is entered. Building a party means moving session establishment (or at least a lightweight pre-match connection) earlier into the Lobby, so peers can see each other and chat before a level loads.
 - Match authority (LAN transport, host validation, snapshots, `MatchSimulation`) is owned by the "Multiplayer Authority Architect" persona/subagent. Do not redesign match-simulation authority yourself — reuse the existing transport primitives (`src/multiplayer/LanMatchTransport.*`, `LanMatchClient.*`, `MatchProtocol.hpp`, `proto/nodespire/multiplayer/v1/*.proto`) and extend them with party/chat messages, or hand off to that agent for transport-layer changes.
-- One Lua VM per scene: party roster UI and chat input live in `assets/scenes/Lobby.lua` (and later `PlayLevel.lua` if chat persists in-match), following the existing `GameButton`/ImGui widget conventions already used there.
+- One Lua VM per scene: party roster UI and chat input live in `assets/scenes/Lobby.lua` (and later `PlayLevel.lua` if chat persists in-match), following the existing LambUI widget conventions already used there.
 
 ## Scope
 - Party formation and roster: who has joined the lobby, ready state, host indicator, leave/kick.

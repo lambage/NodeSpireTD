@@ -172,9 +172,9 @@ set(BOOST_ENABLE_CMAKE ON)
 
 nodespire_add_dependency(boost)
 
-# LambUI provides the application UI (replaces RmlUi). Added after fmt and Lua
-# above so it reuses the fmt::fmt and Lua::Library targets instead of adding
-# its own, and shares NODESPIRE_DEPS_DIR for everything else.
+# LambUI provides the application UI. Added after fmt and Lua above so it
+# reuses the fmt::fmt and Lua::Library targets instead of adding its own, and
+# shares NODESPIRE_DEPS_DIR for everything else.
 # Boost is a soft, bring-your-own dependency for LambUI (LAMBUI_USE_BOOST):
 # left OFF so its public optional/clamp usage is std::optional + an internal
 # helper instead, needing no extra Boost components beyond asio/system above.

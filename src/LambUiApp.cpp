@@ -1,7 +1,5 @@
-// LambUI-based app bootstrap using SDL3 and the game-owned VulkanContext.
-// Replaces the old RmlUi/Backend bootstrap: LambUI has no equivalent
-// "Backend" abstraction, so this file owns SDL window/event-pump setup
-// directly and feeds LambUI::UIManager via lambui_backend (SDL input
+// LambUI has no "Backend" abstraction, so this file owns SDL window/event-pump
+// setup directly and feeds LambUI::UIManager via lambui_backend (SDL input
 // bridge + Vulkan IRenderer reconciled with VulkanContext).
 #include "AudioEngine.hpp"
 #include "LambUiFontLoader.hpp"

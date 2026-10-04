@@ -87,8 +87,6 @@ Thumbs.db
 external/
 .local/
 
-imgui.ini
-
 *__pycache__/
 
 _to_delete/

@@ -134,7 +134,7 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SRC}/ui.frag.spv"
     )
     # NodeSpireTD depends on MeshShaders below because its native PlayLevel scene
-    # renders WorldRenderer before the RmlUi HUD in the shared command buffer.
+    # renders WorldRenderer before the LambUI HUD in the shared command buffer.
 
 else()
     message(WARNING "glslc not found — pre-compile mesh.vert/frag to .spv manually and place in assets/shaders/")
@@ -249,4 +249,3 @@ else()
     )
 endif()
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets" DESTINATION ".")
-

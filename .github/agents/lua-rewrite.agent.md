@@ -25,8 +25,6 @@ Adopt a strict Model/View architecture for Lua UI scenes:
 - Commands are invoked by the Lua view layer in response to user interactions.
 - Commands do not mutate the view directly; they only affect the state, which is then published to Lua via `OnUpdate`.
 
-Note the previous IMGUI implementation already had implemented a form of state-driven UI updates, but it was less structured and mixed view orchestration with state management, and ultimately we stopped using it because it failed to meet certain needs.  RMLUI also had limitations that made it less suitable for our dynamic and highly interactive UI requirements.  LambUI is more flexible but still requires careful structuring to maintain a clear separation between state and view logic.
-
 ## Architecture
 
 ### C++ side

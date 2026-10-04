@@ -6,7 +6,7 @@
 
 namespace NodeSpireUi {
 
-// Every screen the RmlUi-based app can show.
+// Every screen the LambUI-based app can show.
 enum class SceneId {
     Splash,
     MainMenu,

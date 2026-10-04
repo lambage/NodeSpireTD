@@ -71,8 +71,7 @@ void LobbyScene::loadCatalogs(lua_State* lua) {
             entry.waves = item.value("waves", std::string{"0"});
             entry.players = item.value("players", std::string{"1-4"});
             const auto thumbnail = item.value("thumbnail", std::string{});
-            if (!thumbnail.empty())
-                entry.thumbnail = (std::filesystem::path("assets/ui/lobby") / thumbnail).lexically_normal().generic_string();
+            if (!thumbnail.empty()) entry.thumbnail = thumbnail;
             if (entry.launch.levelId.empty() || !std::filesystem::is_regular_file(entry.launch.mapAssetPath)) continue;
             levels_.push_back(std::move(entry));
         }

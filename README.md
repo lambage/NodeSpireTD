@@ -1,11 +1,11 @@
 # NodeSpireTD
 
-Cross-platform C++20 tower defense project using SDL3, RmlUi, and a Vulkan-first renderer.
+Cross-platform C++20 tower defense project using SDL3, LambUI, and a Vulkan-first renderer.
 
 ## Goals
 
 - Keep development workflow consistent between Windows and Linux.
-- Build the `NodeSpireTD` game and its multiplayer/RmlUi test suite.
+- Build the `NodeSpireTD` game and its multiplayer/LambUI test suite.
 
 ## Prerequisites
 
@@ -117,4 +117,3 @@ simple opt-in path for local dev and balancing sessions.
 - no chat/whisper feature, would be nice to have a WoW style command prompt/chat
 - would rather have a party system than the current host starts map and client connects
 - should probably just pick a port number and not allow users to modify it, may also need some additional data in the initial handshake so we can reject clients trying to connect to that port on a machine that might be running a different service and not get cross talk
-

@@ -18,12 +18,10 @@ class ITextMeasurer;
 // them by opaque handle so LambUI's layout code can measure any of them via
 // LambUI::UIWidget::SetFont()/Lua's widget:SetFont(handle).
 //
-// Unlike the old RmlUi loader, LambUI has no font-family/weight/fallback-
-// chain concept at the library level -- each file/size pair is one SDF
-// atlas addressed by filename stem (e.g. "Inter-Regular") and pixel size. The
-// manifest's "fallback" entry (or the first font found if none is marked)
-// becomes the measurer's default atlas, used whenever a widget's font
-// handle is null/unknown.
+// Each file/size pair is one SDF atlas addressed by filename stem
+// (e.g. "Inter-Regular") and pixel size. The manifest's "fallback" entry
+// (or the first font found if none is marked) becomes the measurer's default
+// atlas, used whenever a widget's font handle is null/unknown.
 class LambUiFontLoader {
   public:
     LambUiFontLoader();
@@ -57,4 +55,3 @@ class LambUiFontLoader {
     std::shared_ptr<LambUI::FontAtlasTextMeasurer> textMeasurer_;
     void* defaultFontHandle_ = nullptr;
 };
-
